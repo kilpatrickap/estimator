@@ -1,19 +1,21 @@
 # main_window.py
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel,
-                             QInputDialog, QFormLayout, QLineEdit, QDoubleSpinBox,
-                             QDialog, QDialogButtonBox)
+                             QFormLayout, QLineEdit, QDoubleSpinBox, QDialog,
+                             QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
+from database import DatabaseManager
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(400, 300)
+        self.setMinimumSize(400, 350)
+        self.db_manager = DatabaseManager()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -30,31 +32,45 @@ class MainWindow(QMainWindow):
 
         self.new_estimate_btn = QPushButton("Create New Estimate")
         self.new_estimate_btn.setMinimumHeight(40)
+
+        self.load_estimate_btn = QPushButton("Load Saved Estimate")
+        self.load_estimate_btn.setMinimumHeight(40)
+
         self.manage_db_btn = QPushButton("Manage Cost Database")
         self.manage_db_btn.setMinimumHeight(40)
 
         self.layout.addSpacing(20)
         self.layout.addWidget(self.new_estimate_btn)
+        self.layout.addWidget(self.load_estimate_btn)
         self.layout.addWidget(self.manage_db_btn)
 
-        # Store window references to prevent garbage collection
         self.estimate_win = None
         self.db_dialog = None
 
-        # Connect signals
         self.new_estimate_btn.clicked.connect(self.new_estimate)
+        self.load_estimate_btn.clicked.connect(self.load_estimate)
         self.manage_db_btn.clicked.connect(self.manage_database)
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
             estimate_data = dialog.get_data()
-            # We must store the window in an instance variable
-            self.estimate_win = EstimateWindow(estimate_data)
+            self.estimate_win = EstimateWindow(estimate_data=estimate_data)
             self.estimate_win.show()
 
+    def load_estimate(self):
+        dialog = LoadEstimateDialog(self)
+        if dialog.exec():
+            estimate_id = dialog.selected_estimate_id
+            if estimate_id:
+                estimate_obj = self.db_manager.load_estimate_details(estimate_id)
+                if estimate_obj:
+                    self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
+                    self.estimate_win.show()
+                else:
+                    QMessageBox.critical(self, "Error", "Failed to load the selected estimate.")
+
     def manage_database(self):
-        # Pass self so the dialog is modal to this window
         self.db_dialog = DatabaseManagerDialog(self)
         self.db_dialog.exec()
 
@@ -93,3 +109,49 @@ class NewEstimateDialog(QDialog):
             "overhead": self.overhead.value(),
             "profit": self.profit.value()
         }
+
+
+class LoadEstimateDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.db_manager = DatabaseManager()
+        self.selected_estimate_id = None
+        self.setWindowTitle("Load Estimate")
+        self.setMinimumSize(500, 300)
+
+        layout = QVBoxLayout(self)
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["ID", "Project Name", "Client", "Date Created"])
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnHidden(0, True)
+        layout.addWidget(self.table)
+
+        self.load_estimates()
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.accept_selection)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+    def load_estimates(self):
+        estimates = self.db_manager.get_saved_estimates_summary()
+        self.table.setRowCount(len(estimates))
+        for row, est in enumerate(estimates):
+            self.table.setItem(row, 0, QTableWidgetItem(str(est['id'])))
+            self.table.setItem(row, 1, QTableWidgetItem(est['project_name']))
+            self.table.setItem(row, 2, QTableWidgetItem(est['client_name']))
+            self.table.setItem(row, 3, QTableWidgetItem(est['date_created']))
+
+    def accept_selection(self):
+        selected_rows = self.table.selectionModel().selectedRows()
+        if not selected_rows:
+            QMessageBox.warning(self, "Selection Error", "Please select an estimate to load.")
+            return
+
+        self.selected_estimate_id = int(self.table.item(selected_rows[0].row(), 0).text())
+        self.accept()

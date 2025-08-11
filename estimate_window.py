@@ -10,15 +10,22 @@ from database import DatabaseManager, Estimate, Task
 
 
 class EstimateWindow(QMainWindow):
-    def __init__(self, estimate_data, parent=None):
+    def __init__(self, estimate_data=None, estimate_object=None, parent=None):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
-        self.estimate = Estimate(
-            project_name=estimate_data['name'],
-            client_name=estimate_data['client'],
-            overhead=estimate_data['overhead'],
-            profit=estimate_data['profit']
-        )
+
+        if estimate_object:
+            self.estimate = estimate_object
+        elif estimate_data:
+            self.estimate = Estimate(
+                project_name=estimate_data['name'],
+                client_name=estimate_data['client'],
+                overhead=estimate_data['overhead'],
+                profit=estimate_data['profit']
+            )
+        else:  # Fallback
+            self.estimate = Estimate("Error", "Error", 0, 0)
+
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
         self.setMinimumSize(800, 600)
 
@@ -26,7 +33,7 @@ class EstimateWindow(QMainWindow):
         self.setCentralWidget(self.central_widget)
         self.layout = QHBoxLayout(self.central_widget)
 
-        # Left side: Tree view and buttons
+        # Left side - Tree view and action buttons
         left_layout = QVBoxLayout()
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Item", "Details", "Cost"])
@@ -37,14 +44,16 @@ class EstimateWindow(QMainWindow):
         add_task_btn = QPushButton("Add Task")
         add_material_btn = QPushButton("Add Material")
         add_labor_btn = QPushButton("Add Labor")
+        add_equipment_btn = QPushButton("Add Equipment")
         remove_btn = QPushButton("Remove Selected")
         btn_layout.addWidget(add_task_btn)
         btn_layout.addWidget(add_material_btn)
         btn_layout.addWidget(add_labor_btn)
+        btn_layout.addWidget(add_equipment_btn)
         btn_layout.addWidget(remove_btn)
         left_layout.addLayout(btn_layout)
 
-        # Right side: Summary and report
+        # Right side - Summary and main actions
         right_layout = QVBoxLayout()
         summary_group = QWidget()
         summary_group.setStyleSheet("QWidget { background-color: #f0f0f0; border-radius: 5px; }")
@@ -63,8 +72,7 @@ class EstimateWindow(QMainWindow):
         self.overhead_label = QLabel("$0.00")
         self.profit_label = QLabel("$0.00")
         self.grand_total_label = QLabel("$0.00")
-
-        bold_font = QFont()
+        bold_font = QFont();
         bold_font.setBold(True)
         self.grand_total_label.setFont(bold_font)
 
@@ -73,37 +81,65 @@ class EstimateWindow(QMainWindow):
         summary_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
         summary_layout.addRow(QLabel("Grand Total:"))
         summary_layout.addRow(self.grand_total_label)
-
         right_layout.addWidget(summary_group)
 
+        action_layout = QHBoxLayout()
+        save_estimate_btn = QPushButton("Save Estimate")
         generate_report_btn = QPushButton("Generate Report")
-        right_layout.addWidget(generate_report_btn)
+        action_layout.addWidget(save_estimate_btn)
+        action_layout.addWidget(generate_report_btn)
+        right_layout.addLayout(action_layout)
         right_layout.addStretch()
 
-        self.layout.addLayout(left_layout, 2)  # 2/3 of space
-        self.layout.addLayout(right_layout, 1)  # 1/3 of space
+        self.layout.addLayout(left_layout, 2)
+        self.layout.addLayout(right_layout, 1)
 
         # Connect signals
         add_task_btn.clicked.connect(self.add_task)
         add_material_btn.clicked.connect(self.add_material)
         add_labor_btn.clicked.connect(self.add_labor)
+        add_equipment_btn.clicked.connect(self.add_equipment)
         remove_btn.clicked.connect(self.remove_item)
+        save_estimate_btn.clicked.connect(self.save_estimate)
         generate_report_btn.clicked.connect(self.generate_report)
+
+        self.refresh_view()
+
+    def _get_selected_task_object(self):
+        """Helper to find the parent task object from any selection in the tree."""
+        selected = self.tree.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "Selection Error", "Please select an item in a task.")
+            return None
+
+        task_item = selected if not selected.parent() else selected.parent()
+
+        if not hasattr(task_item, 'task_object'):
+            QMessageBox.warning(self, "Selection Error", "Invalid item selected. Please select a task.")
+            return None
+
+        return task_item.task_object
+
+    def save_estimate(self):
+        reply = QMessageBox.question(self, "Confirm Save",
+                                     "Do you want to save this estimate to the database?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.db_manager.save_estimate(self.estimate):
+                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
+            else:
+                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")
         if ok and text:
-            task = Task(text)
-            self.estimate.add_task(task)
+            self.estimate.add_task(Task(text))
             self.refresh_view()
 
     def add_material(self):
-        selected = self.tree.currentItem()
-        if not selected or not hasattr(selected, 'task_object'):
-            QMessageBox.warning(self, "Selection Error", "Please select a task to add a material to.")
-            return
+        task_obj = self._get_selected_task_object()
+        if not task_obj: return
 
-        task_obj = selected.task_object
         dialog = SelectItemDialog("materials", self)
         if dialog.exec():
             item, quantity = dialog.get_selection()
@@ -112,12 +148,9 @@ class EstimateWindow(QMainWindow):
                 self.refresh_view()
 
     def add_labor(self):
-        selected = self.tree.currentItem()
-        if not selected or not hasattr(selected, 'task_object'):
-            QMessageBox.warning(self, "Selection Error", "Please select a task to add labor to.")
-            return
+        task_obj = self._get_selected_task_object()
+        if not task_obj: return
 
-        task_obj = selected.task_object
         dialog = SelectItemDialog("labor", self)
         if dialog.exec():
             item, hours = dialog.get_selection()
@@ -125,22 +158,36 @@ class EstimateWindow(QMainWindow):
                 task_obj.add_labor(item['trade'], hours, item['rate_per_hour'])
                 self.refresh_view()
 
+    def add_equipment(self):
+        task_obj = self._get_selected_task_object()
+        if not task_obj: return
+
+        dialog = SelectItemDialog("equipment", self)
+        if dialog.exec():
+            item, hours = dialog.get_selection()
+            if item and hours > 0:
+                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'])
+                self.refresh_view()
+
     def remove_item(self):
         selected = self.tree.currentItem()
         if not selected: return
 
-        parent = selected.parent()
-        if parent:  # It's a material or labor item
-            task_item = parent
-            task_obj = task_item.task_object
-            item_type = selected.text(0)
+        if hasattr(selected, 'item_type'):  # It's a material, labor, or equipment item
+            parent_item = selected.parent()
+            task_obj = parent_item.task_object
+            item_data = selected.item_data
 
-            if "Material" in item_type:
-                task_obj.materials.pop(task_item.indexOfChild(selected))
-            elif "Labor" in item_type:
-                task_obj.labor.pop(task_item.indexOfChild(selected))
-        else:  # It's a task
-            self.estimate.tasks.pop(self.tree.indexOfTopLevelItem(selected))
+            if selected.item_type == 'material':
+                task_obj.materials.remove(item_data)
+            elif selected.item_type == 'labor':
+                task_obj.labor.remove(item_data)
+            elif selected.item_type == 'equipment':
+                task_obj.equipment.remove(item_data)
+
+        elif hasattr(selected, 'task_object'):  # It's a top-level task item
+            task_obj = selected.task_object
+            self.estimate.tasks.remove(task_obj)
 
         self.refresh_view()
 
@@ -148,15 +195,28 @@ class EstimateWindow(QMainWindow):
         self.tree.clear()
         for task in self.estimate.tasks:
             task_item = QTreeWidgetItem(self.tree, [task.description, "", f"${task.get_subtotal():.2f}"])
-            task_item.task_object = task  # Attach the object to the UI item
+            task_item.task_object = task  # Attach the main task object
 
             for mat in task.materials:
-                QTreeWidgetItem(task_item,
-                                [f"Material: {mat['name']}", f"{mat['qty']} {mat['unit']} @ ${mat['unit_cost']:.2f}",
-                                 f"${mat['total']:.2f}"])
+                child = QTreeWidgetItem(task_item, [f"Material: {mat['name']}",
+                                                    f"{mat['qty']} {mat['unit']} @ ${mat['unit_cost']:.2f}",
+                                                    f"${mat['total']:.2f}"])
+                child.item_data = mat
+                child.item_type = 'material'
+
             for lab in task.labor:
-                QTreeWidgetItem(task_item, [f"Labor: {lab['trade']}", f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
-                                            f"${lab['total']:.2f}"])
+                child = QTreeWidgetItem(task_item,
+                                        [f"Labor: {lab['trade']}", f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
+                                         f"${lab['total']:.2f}"])
+                child.item_data = lab
+                child.item_type = 'labor'
+
+            for equip in task.equipment:
+                child = QTreeWidgetItem(task_item, [f"Equipment: {equip['name']}",
+                                                    f"{equip['hours']} hrs @ ${equip['rate']:.2f}/hr",
+                                                    f"${equip['total']:.2f}"])
+                child.item_data = equip
+                child.item_type = 'equipment'
 
         self.tree.expandAll()
         self.update_summary()
@@ -174,18 +234,23 @@ class EstimateWindow(QMainWindow):
 
 
 class SelectItemDialog(QDialog):
-    """Dialog to select a material/labor item and specify quantity/hours."""
-
     def __init__(self, item_type, parent=None):
         super().__init__(parent)
         self.item_type = item_type
-        self.setWindowTitle(f"Select {item_type.capitalize()[:-1]}")
+        singular_name = item_type[:-1] if item_type.endswith('s') else item_type
+        self.setWindowTitle(f"Select {singular_name.capitalize()}")
         self.db_manager = DatabaseManager()
         self.items = self.db_manager.get_items(item_type)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
-        headers = ["Name", "Unit/Rate"] if item_type == "materials" else ["Trade", "Rate"]
+        if item_type == "materials":
+            headers = ["Name", "Unit/Price"]
+        elif item_type == "labor":
+            headers = ["Trade", "Rate"]
+        else:
+            headers = ["Name", "Rate"]  # For equipment
+
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -203,6 +268,7 @@ class SelectItemDialog(QDialog):
         label_text = "Quantity:" if item_type == "materials" else "Hours:"
         self.spinbox = QDoubleSpinBox()
         self.spinbox.setRange(0.01, 1000000)
+        self.spinbox.setValue(1.0)
         form_layout.addRow(label_text, self.spinbox)
         layout.addLayout(form_layout)
 
@@ -215,7 +281,6 @@ class SelectItemDialog(QDialog):
         selected_row = self.table.currentRow()
         if selected_row < 0:
             return None, 0
-
         selected_item = self.items[selected_row]
         return selected_item, self.spinbox.value()
 
@@ -236,11 +301,9 @@ class ReportDialog(QDialog):
         save_btn = QPushButton("Save to File")
         layout.addWidget(save_btn)
         save_btn.clicked.connect(self.save_report)
-
         self.generate_report_text()
 
     def generate_report_text(self):
-        # This is adapted from the command-line version's report generator
         totals = self.estimate.calculate_totals()
         report = []
         sep_long = "=" * 80
@@ -265,15 +328,21 @@ class ReportDialog(QDialog):
                 for l in task.labor:
                     report.append(
                         f"    - {l['trade']:<30} {l['hours']:>8.2f} {'hrs':<10} @ ${l['rate']:>8.2f} = ${l['total']:>10.2f}")
+            if task.equipment:
+                report.append("  Equipment:")
+                for e in task.equipment:
+                    report.append(
+                        f"    - {e['name']:<30} {e['hours']:>8.2f} {'hrs':<10} @ ${e['rate']:>8.2f} = ${e['total']:>10.2f}")
+
             report.append(f"{'':<65}----------")
             report.append(f"{'Task Subtotal:':>65} ${task.get_subtotal():>10.2f}")
 
         report.append("\n" + sep_long)
         report.append("SUMMARY".center(80))
         report.append(sep_short)
-        report.append(f"{'Total Direct Costs (Subtotal)':<65} ${totals['subtotal']:>10.2f}")
+        report.append(f"{'Total Direct Costs (Subtotal)':<65} ${totals['subtotal']:.2f}")
         report.append(f"Overhead ({self.estimate.overhead_percent}%):{'.' * 45} ${totals['overhead']:>10.2f}")
-        report.append(f"{'Total Cost':<65} ${totals['subtotal'] + totals['overhead']:>10.2f}")
+        report.append(f"{'Total Cost':<65} ${totals['subtotal'] + totals['overhead']:.2f}")
         report.append(f"Profit Margin ({self.estimate.profit_margin_percent}%):{'.' * 42} ${totals['profit']:>10.2f}")
         report.append(sep_short)
         report.append(f"{'GRAND TOTAL':<65} ${totals['grand_total']:>10.2f}")

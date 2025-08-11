@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
-                             QInputDialog, QLineEdit, QFormLayout, QDialogButtonBox)
+                             QLineEdit, QFormLayout, QDialogButtonBox)
 from database import DatabaseManager
 
 
@@ -20,12 +20,15 @@ class DatabaseManagerDialog(QDialog):
         # Create tabs
         self.materials_tab = QWidget()
         self.labor_tab = QWidget()
+        self.equipment_tab = QWidget()
         self.tabs.addTab(self.materials_tab, "Materials")
         self.tabs.addTab(self.labor_tab, "Labor")
+        self.tabs.addTab(self.equipment_tab, "Equipment")
 
         # Setup UI for each tab
         self._setup_tab(self.materials_tab, "materials", ["ID", "Name", "Unit", "Price"])
         self._setup_tab(self.labor_tab, "labor", ["ID", "Trade", "Rate per Hour"])
+        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Name", "Rate per Hour"])
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
@@ -38,7 +41,8 @@ class DatabaseManagerDialog(QDialog):
         setattr(self, f"{table_name}_table", table)
 
         btn_layout = QHBoxLayout()
-        add_btn = QPushButton(f"Add {table_name.capitalize()[:-1]}")
+        singular_name = table_name[:-1] if table_name.endswith('s') else table_name
+        add_btn = QPushButton(f"Add {singular_name.capitalize()}")
         edit_btn = QPushButton(f"Edit Selected")
         delete_btn = QPushButton(f"Delete Selected")
         btn_layout.addWidget(add_btn)
@@ -67,9 +71,10 @@ class DatabaseManagerDialog(QDialog):
         dialog = ItemDialog(table_name, self)
         if dialog.exec():
             data = dialog.get_data()
-            if not self.db_manager.add_item(table_name, data):
-                QMessageBox.warning(self, "Error", "An item with this name already exists.")
-            self.load_data(table_name)
+            if data:
+                if not self.db_manager.add_item(table_name, data):
+                    QMessageBox.warning(self, "Error", "An item with this name already exists.")
+                self.load_data(table_name)
 
     def edit_item(self, table_name):
         table = getattr(self, f"{table_name}_table")
@@ -84,8 +89,9 @@ class DatabaseManagerDialog(QDialog):
         dialog = ItemDialog(table_name, self, current_data)
         if dialog.exec():
             new_data = dialog.get_data()
-            self.db_manager.update_item(table_name, item_id, new_data)
-            self.load_data(table_name)
+            if new_data:
+                self.db_manager.update_item(table_name, item_id, new_data)
+                self.load_data(table_name)
 
     def delete_item(self, table_name):
         table = getattr(self, f"{table_name}_table")
@@ -105,19 +111,24 @@ class DatabaseManagerDialog(QDialog):
 
 
 class ItemDialog(QDialog):
-    """A generic dialog to add/edit materials or labor."""
+    """A generic dialog to add/edit materials, labor, or equipment."""
 
     def __init__(self, table_name, parent=None, data=None):
         super().__init__(parent)
-        self.setWindowTitle(f"{'Edit' if data else 'Add'} {table_name.capitalize()[:-1]}")
+        singular_name = table_name[:-1] if table_name.endswith('s') else table_name
+        self.setWindowTitle(f"{'Edit' if data else 'Add'} {singular_name.capitalize()}")
 
         self.layout = QFormLayout(self)
         self.inputs = []
 
         if table_name == "materials":
             self.fields = [("Name", QLineEdit), ("Unit", QLineEdit), ("Price", QLineEdit)]
-        else:  # labor
+        elif table_name == "labor":
             self.fields = [("Trade", QLineEdit), ("Rate per Hour", QLineEdit)]
+        elif table_name == "equipment":
+            self.fields = [("Name", QLineEdit), ("Rate per Hour", QLineEdit)]
+        else:
+            self.fields = []
 
         for i, (label, widget_class) in enumerate(self.fields):
             widget = widget_class()
@@ -133,8 +144,11 @@ class ItemDialog(QDialog):
 
     def get_data(self):
         data = [widget.text() for widget in self.inputs]
-        # Convert price/rate to float
+        if not all(d.strip() for d in data):
+            QMessageBox.warning(self, "Input Error", "All fields must be filled.")
+            return None
         try:
+            # Last field is always numeric (price/rate)
             data[-1] = float(data[-1])
             return tuple(data)
         except ValueError:
