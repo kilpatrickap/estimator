@@ -309,7 +309,6 @@ class DatabaseManager:
         conn.close()
         return loaded_estimate
 
-    # --- START OF CHANGE: New Methods for Delete/Duplicate ---
     def delete_estimate(self, estimate_id):
         """Deletes an estimate and all its associated data from the database."""
         conn = self._get_connection()
@@ -331,8 +330,24 @@ class DatabaseManager:
             return False
 
         # Modify for saving as a new entry
-        original_estimate.id = None # Crucial to create a new record
+        original_estimate.id = None  # Crucial to create a new record
         original_estimate.project_name = f"Copy of {original_estimate.project_name}"
 
         return self.save_estimate(original_estimate)
+
+    # --- START OF CHANGE: New Method to Edit Estimate ---
+    def update_estimate_metadata(self, estimate_id, project_name, client_name):
+        """Updates only the project name and client name of an existing estimate."""
+        conn = self._get_connection()
+        try:
+            sql = "UPDATE estimates SET project_name = ?, client_name = ? WHERE id = ?"
+            conn.cursor().execute(sql, (project_name, client_name, estimate_id))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error on update: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
     # --- END OF CHANGE ---

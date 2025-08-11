@@ -4,9 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="5870c6d5-cbcc-4cc8-83c3-bfdf086f5118" name="Changes" comment="search">
-      <change beforePath="$PROJECT_DIR$/database.py" beforeDir="false" afterPath="$PROJECT_DIR$/database.py" afterDir="false" />
-    </list>
+    <list default="true" id="5870c6d5-cbcc-4cc8-83c3-bfdf086f5118" name="Changes" comment="delete and duplicate added." />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -134,7 +132,15 @@
       <option name="project" value="LOCAL" />
       <updated>1754912816943</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="delete and duplicate added.">
+      <option name="closed" value="true" />
+      <created>1754913456352</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1754913456352</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -142,6 +148,7 @@
     <MESSAGE value="2" />
     <MESSAGE value="added equipment to database" />
     <MESSAGE value="search" />
-    <option name="LAST_COMMIT_MESSAGE" value="search" />
+    <MESSAGE value="delete and duplicate added." />
+    <option name="LAST_COMMIT_MESSAGE" value="delete and duplicate added." />
   </component>
 </project>
