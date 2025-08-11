@@ -1,8 +1,9 @@
 # main_window.py
 
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QPushButton, QLabel,
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFormLayout, QLineEdit, QDoubleSpinBox, QDialog,
-                             QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView)
+                             QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
+                             QSizePolicy)
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 from database_dialog import DatabaseManagerDialog
@@ -60,15 +61,14 @@ class MainWindow(QMainWindow):
 
     def load_estimate(self):
         dialog = LoadEstimateDialog(self)
-        if dialog.exec():
-            estimate_id = dialog.selected_estimate_id
-            if estimate_id:
-                estimate_obj = self.db_manager.load_estimate_details(estimate_id)
-                if estimate_obj:
-                    self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
-                    self.estimate_win.show()
-                else:
-                    QMessageBox.critical(self, "Error", "Failed to load the selected estimate.")
+        dialog.exec()
+        if dialog.result() == QDialog.DialogCode.Accepted and dialog.selected_estimate_id:
+            estimate_obj = self.db_manager.load_estimate_details(dialog.selected_estimate_id)
+            if estimate_obj:
+                self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
+                self.estimate_win.show()
+            else:
+                QMessageBox.critical(self, "Error", "Failed to load the selected estimate.")
 
     def manage_database(self):
         self.db_dialog = DatabaseManagerDialog(self)
@@ -117,7 +117,7 @@ class LoadEstimateDialog(QDialog):
         self.db_manager = DatabaseManager()
         self.selected_estimate_id = None
         self.setWindowTitle("Load Estimate")
-        self.setMinimumSize(500, 300)
+        self.setMinimumSize(600, 400)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
@@ -131,14 +131,36 @@ class LoadEstimateDialog(QDialog):
         self.table.setColumnHidden(0, True)
         layout.addWidget(self.table)
 
+        # Double-clicking a row is the same as selecting and clicking Load
+        self.table.doubleClicked.connect(self.accept_selection)
+
         self.load_estimates()
 
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        # --- START OF CHANGE: Add Delete/Duplicate buttons ---
+        # Standard buttons (Load/Cancel)
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.button(QDialogButtonBox.StandardButton.Open).setText("Load Selected")
         self.button_box.accepted.connect(self.accept_selection)
         self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
+
+        # Custom action buttons
+        self.delete_btn = QPushButton("Delete Selected")
+        self.duplicate_btn = QPushButton("Duplicate Selected")
+        self.delete_btn.clicked.connect(self.delete_selected_estimate)
+        self.duplicate_btn.clicked.connect(self.duplicate_selected_estimate)
+
+        # Arrange buttons in a layout
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.delete_btn)
+        button_layout.addWidget(self.duplicate_btn)
+        button_layout.addSpacerItem(QSpacerItem(40, 20, QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum))
+        button_layout.addWidget(self.button_box)
+        layout.addLayout(button_layout)
+        # --- END OF CHANGE ---
 
     def load_estimates(self):
+        self.table.setRowCount(0)  # Clear table before loading
         estimates = self.db_manager.get_saved_estimates_summary()
         self.table.setRowCount(len(estimates))
         for row, est in enumerate(estimates):
@@ -147,11 +169,47 @@ class LoadEstimateDialog(QDialog):
             self.table.setItem(row, 2, QTableWidgetItem(est['client_name']))
             self.table.setItem(row, 3, QTableWidgetItem(est['date_created']))
 
-    def accept_selection(self):
+    def _get_selected_estimate_info(self):
+        """Helper to get the ID and name of the selected estimate."""
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
-            QMessageBox.warning(self, "Selection Error", "Please select an estimate to load.")
+            QMessageBox.warning(self, "Selection Error", "Please select an estimate first.")
+            return None, None
+
+        row_index = selected_rows[0].row()
+        est_id = int(self.table.item(row_index, 0).text())
+        est_name = self.table.item(row_index, 1).text()
+        return est_id, est_name
+
+    def accept_selection(self):
+        est_id, _ = self._get_selected_estimate_info()
+        if est_id:
+            self.selected_estimate_id = est_id
+            self.accept()
+
+    def delete_selected_estimate(self):
+        est_id, est_name = self._get_selected_estimate_info()
+        if not est_id:
             return
 
-        self.selected_estimate_id = int(self.table.item(selected_rows[0].row(), 0).text())
-        self.accept()
+        reply = QMessageBox.question(self, "Confirm Delete",
+                                     f"Are you sure you want to permanently delete '{est_name}'?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.db_manager.delete_estimate(est_id):
+                QMessageBox.information(self, "Success", f"'{est_name}' has been deleted.")
+                self.load_estimates()  # Refresh the list
+            else:
+                QMessageBox.critical(self, "Error", "Failed to delete the estimate from the database.")
+
+    def duplicate_selected_estimate(self):
+        est_id, est_name = self._get_selected_estimate_info()
+        if not est_id:
+            return
+
+        if self.db_manager.duplicate_estimate(est_id):
+            QMessageBox.information(self, "Success", f"Successfully created a copy of '{est_name}'.")
+            self.load_estimates()  # Refresh to show the new copy
+        else:
+            QMessageBox.critical(self, "Error", "Failed to duplicate the estimate.")

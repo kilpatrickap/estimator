@@ -78,7 +78,6 @@ class DatabaseManager:
         cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, rate_per_hour REAL)')
 
         # --- Estimate Storage Tables (Updated Schema) ---
-        # --- START OF FIX ---
         cursor.execute('''
             CREATE TABLE estimates (
                 id INTEGER PRIMARY KEY,
@@ -89,7 +88,6 @@ class DatabaseManager:
                 date_created TEXT
             )
         ''')
-        # --- END OF FIX ---
         cursor.execute('''
             CREATE TABLE tasks (
                 id INTEGER PRIMARY KEY,
@@ -310,3 +308,31 @@ class DatabaseManager:
 
         conn.close()
         return loaded_estimate
+
+    # --- START OF CHANGE: New Methods for Delete/Duplicate ---
+    def delete_estimate(self, estimate_id):
+        """Deletes an estimate and all its associated data from the database."""
+        conn = self._get_connection()
+        try:
+            conn.cursor().execute("DELETE FROM estimates WHERE id = ?", (estimate_id,))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Database error on delete: {e}")
+            conn.rollback()
+            return False
+        finally:
+            conn.close()
+
+    def duplicate_estimate(self, estimate_id):
+        """Duplicates an estimate by loading it, modifying it, and saving it as a new entry."""
+        original_estimate = self.load_estimate_details(estimate_id)
+        if not original_estimate:
+            return False
+
+        # Modify for saving as a new entry
+        original_estimate.id = None # Crucial to create a new record
+        original_estimate.project_name = f"Copy of {original_estimate.project_name}"
+
+        return self.save_estimate(original_estimate)
+    # --- END OF CHANGE ---
