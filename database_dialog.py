@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
-                             QLineEdit, QFormLayout, QDialogButtonBox)
+                             QLineEdit, QFormLayout, QDialogButtonBox, QLabel)
 from database import DatabaseManager
 
 
@@ -32,6 +32,16 @@ class DatabaseManagerDialog(QDialog):
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
+
+        # --- START OF CHANGE: Add Search Bar ---
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("Type to filter...")
+        search_layout.addWidget(search_input)
+        layout.addLayout(search_layout)
+        # --- END OF CHANGE ---
+
         table = QTableWidget()
         table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
@@ -51,11 +61,25 @@ class DatabaseManagerDialog(QDialog):
         layout.addLayout(btn_layout)
 
         # Connect signals
+        search_input.textChanged.connect(lambda text, tbl=table: self.filter_table(text, tbl))
         add_btn.clicked.connect(lambda: self.add_item(table_name))
         edit_btn.clicked.connect(lambda: self.edit_item(table_name))
         delete_btn.clicked.connect(lambda: self.delete_item(table_name))
 
         self.load_data(table_name)
+
+    # --- START OF CHANGE: Add Filter Method ---
+    def filter_table(self, text, table):
+        """Hides or shows rows based on the search text."""
+        search_text = text.lower()
+        for row in range(table.rowCount()):
+            # Column 1 is always the main name/trade column
+            item_text = table.item(row, 1).text().lower()
+            if search_text in item_text:
+                table.setRowHidden(row, False)
+            else:
+                table.setRowHidden(row, True)
+    # --- END OF CHANGE ---
 
     def load_data(self, table_name):
         table = getattr(self, f"{table_name}_table")

@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTreeWidget, QTreeWidgetItem, QLabel, QFormLayout, QMessageBox,
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QDoubleSpinBox, QTextEdit, QFileDialog, QDialogButtonBox)
+                             QDoubleSpinBox, QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit)
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 from database import DatabaseManager, Estimate, Task
@@ -233,6 +233,7 @@ class EstimateWindow(QMainWindow):
         report_dialog.exec()
 
 
+# --- START OF CHANGE: Updated SelectItemDialog with Search ---
 class SelectItemDialog(QDialog):
     def __init__(self, item_type, parent=None):
         super().__init__(parent)
@@ -240,9 +241,21 @@ class SelectItemDialog(QDialog):
         singular_name = item_type[:-1] if item_type.endswith('s') else item_type
         self.setWindowTitle(f"Select {singular_name.capitalize()}")
         self.db_manager = DatabaseManager()
-        self.items = self.db_manager.get_items(item_type)
+
+        self.all_items = self.db_manager.get_items(item_type)
+        self.current_items = []
 
         layout = QVBoxLayout(self)
+
+        # Add search bar
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        search_input = QLineEdit()
+        search_input.setPlaceholderText("Type to filter...")
+        search_layout.addWidget(search_input)
+        layout.addLayout(search_layout)
+
+        # Setup table
         self.table = QTableWidget()
         if item_type == "materials":
             headers = ["Name", "Unit/Price"]
@@ -255,15 +268,10 @@ class SelectItemDialog(QDialog):
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-
-        for row, item in enumerate(self.items):
-            self.table.insertRow(row)
-            self.table.setItem(row, 0, QTableWidgetItem(item[1]))
-            self.table.setItem(row, 1, QTableWidgetItem(str(item[2])))
-
-        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
+        # Setup spinbox and buttons
         form_layout = QFormLayout()
         label_text = "Quantity:" if item_type == "materials" else "Hours:"
         self.spinbox = QDoubleSpinBox()
@@ -277,12 +285,36 @@ class SelectItemDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
+        # Connect search signal and populate table initially
+        search_input.textChanged.connect(self.filter_items)
+        self.filter_items("")  # Populate with all items
+
+    def filter_items(self, text):
+        """Filters and repopulates the table based on the search text."""
+        self.table.setRowCount(0)
+        self.current_items.clear()
+        search_text = text.lower()
+
+        for item in self.all_items:
+            item_name = item[1].lower()  # Column 1 is always name/trade in the DB record
+            if search_text in item_name:
+                self.current_items.append(item)
+
+        self.table.setRowCount(len(self.current_items))
+        for row, item_data in enumerate(self.current_items):
+            self.table.setItem(row, 0, QTableWidgetItem(item_data[1]))
+            self.table.setItem(row, 1, QTableWidgetItem(str(item_data[2])))
+
     def get_selection(self):
         selected_row = self.table.currentRow()
         if selected_row < 0:
             return None, 0
-        selected_item = self.items[selected_row]
+        # Use the filtered list to get the correct item
+        selected_item = self.current_items[selected_row]
         return selected_item, self.spinbox.value()
+
+
+# --- END OF CHANGE ---
 
 
 class ReportDialog(QDialog):
