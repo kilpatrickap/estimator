@@ -90,7 +90,16 @@ class DatabaseManagerDialog(QDialog):
         for row_num, row_data in enumerate(items):
             table.insertRow(row_num)
             for col_num, data in enumerate(row_data):
-                item = QTableWidgetItem(str(data))
+                # Format price/rate (last column) to 2 decimal places
+                if col_num == len(row_data) - 1:
+                    try:
+                        display_text = f"{float(data):.2f}"
+                    except (ValueError, TypeError):
+                        display_text = str(data)
+                else:
+                    display_text = str(data)
+                    
+                item = QTableWidgetItem(display_text)
                 table.setItem(row_num, col_num, item)
 
     def add_item(self, table_name):

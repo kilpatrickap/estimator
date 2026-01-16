@@ -359,7 +359,12 @@ class SelectItemDialog(QDialog):
         self.table.setRowCount(len(self.current_items))
         for row, item_data in enumerate(self.current_items):
             self.table.setItem(row, 0, QTableWidgetItem(item_data[1]))
-            self.table.setItem(row, 1, QTableWidgetItem(str(item_data[2])))
+            # Format price/rate to 2 decimal places
+            try:
+                rate_text = f"{float(item_data[2]):.2f}"
+            except (ValueError, TypeError):
+                rate_text = str(item_data[2])
+            self.table.setItem(row, 1, QTableWidgetItem(rate_text))
 
     def get_selection(self):
         selected_row = self.table.currentRow()
