@@ -47,13 +47,13 @@ if __name__ == "__main__":
             border-bottom: 2px solid #dcdfe6;
             font-weight: bold;
         }
-        QLineEdit, QDoubleSpinBox {
+        QLineEdit {
             padding: 8px;
             border: 1px solid #dcdfe6;
             border-radius: 4px;
             background-color: white;
         }
-        QLineEdit:focus, QDoubleSpinBox:focus {
+        QLineEdit:focus {
             border: 1px solid #4caf50;
         }
         QTabWidget::pane {

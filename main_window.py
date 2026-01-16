@@ -1,10 +1,10 @@
 # main_window.py
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-                             QFormLayout, QLineEdit, QDoubleSpinBox, QDialog,
+                             QFormLayout, QLineEdit, QDialog,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
                              QSizePolicy)
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QDoubleValidator
 from PyQt6.QtCore import Qt
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
@@ -105,19 +105,25 @@ class NewEstimateDialog(QDialog):
 
         self.project_name = QLineEdit("New Project")
         self.client_name = QLineEdit("Client Name")
-        self.overhead = QDoubleSpinBox()
-        self.overhead.setRange(0, 100)
-        self.overhead.setValue(15)
-        self.overhead.setSuffix("%")
-        self.profit = QDoubleSpinBox()
-        self.profit.setRange(0, 100)
-        self.profit.setValue(10)
-        self.profit.setSuffix("%")
+        
+        # Validator for numerical input
+        pct_validator = QDoubleValidator(0.0, 100.0, 2)
+        pct_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+
+        self.overhead = QLineEdit()
+        self.overhead.setPlaceholderText("0.00%")
+        self.overhead.setText("15.00")
+        self.overhead.setValidator(pct_validator)
+        
+        self.profit = QLineEdit()
+        self.profit.setPlaceholderText("0.00%")
+        self.profit.setText("10.00")
+        self.profit.setValidator(pct_validator)
 
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Client Name:", self.client_name)
-        layout.addRow("Overhead:", self.overhead)
-        layout.addRow("Profit Margin:", self.profit)
+        layout.addRow("Overhead (%):", self.overhead)
+        layout.addRow("Profit Margin (%):", self.profit)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -125,11 +131,21 @@ class NewEstimateDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def get_data(self):
+        try:
+            overhead_val = float(self.overhead.text())
+        except ValueError:
+            overhead_val = 0.0
+            
+        try:
+            profit_val = float(self.profit.text())
+        except ValueError:
+            profit_val = 0.0
+
         return {
             "name": self.project_name.text(),
             "client": self.client_name.text(),
-            "overhead": self.overhead.value(),
-            "profit": self.profit.value()
+            "overhead": overhead_val,
+            "profit": profit_val
         }
 
 

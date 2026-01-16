@@ -3,9 +3,9 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTreeWidget, QTreeWidgetItem, QLabel, QFormLayout, QMessageBox,
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QDoubleSpinBox, QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
+                             QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QDoubleValidator
 from PyQt6.QtCore import Qt
 from database import DatabaseManager, Estimate, Task
 
@@ -320,13 +320,20 @@ class SelectItemDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.table)
 
-        # Setup spinbox and buttons
+        # Setup input and buttons
         form_layout = QFormLayout()
         label_text = "Quantity:" if item_type == "materials" else "Hours:"
-        self.spinbox = QDoubleSpinBox()
-        self.spinbox.setRange(0.01, 1000000)
-        self.spinbox.setValue(1.0)
-        form_layout.addRow(label_text, self.spinbox)
+        
+        # Validator for numerical input
+        num_validator = QDoubleValidator(0.01, 1000000.0, 2)
+        num_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("0.00")
+        self.input_field.setText("1.00")
+        self.input_field.setValidator(num_validator)
+        
+        form_layout.addRow(label_text, self.input_field)
         layout.addLayout(form_layout)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -358,9 +365,15 @@ class SelectItemDialog(QDialog):
         selected_row = self.table.currentRow()
         if selected_row < 0:
             return None, 0
+            
+        try:
+            value = float(self.input_field.text())
+        except ValueError:
+            value = 0.0
+            
         # Use the filtered list to get the correct item
         selected_item = self.current_items[selected_row]
-        return selected_item, self.spinbox.value()
+        return selected_item, value
 
 
 # --- END OF CHANGE ---
