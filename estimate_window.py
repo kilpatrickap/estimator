@@ -43,11 +43,11 @@ class EstimateWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Ref", "Tasks", "Details", "Cost"])
+        self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate"])
         header = self.tree.header()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.tree)
 
         btn_layout = QHBoxLayout()
@@ -244,14 +244,21 @@ class EstimateWindow(QMainWindow):
     def refresh_view(self):
         self.tree.clear()
         for i, task in enumerate(self.estimate.tasks, 1):
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", f"${task.get_subtotal():.2f}"])
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"${task.get_subtotal():.2f}"])
             task_item.task_object = task  # Attach the main task object
+            
+            # Bold the task (parent) row
+            bold_font = QFont()
+            bold_font.setBold(True)
+            for col in range(self.tree.columnCount()):
+                task_item.setFont(col, bold_font)
 
             for j, mat in enumerate(task.materials, 1):
                 child = QTreeWidgetItem(task_item, [f"{i}.{j}",
                                                     f"Material: {mat['name']}",
                                                     f"{mat['qty']} {mat['unit']} @ ${mat['unit_cost']:.2f}",
-                                                    f"${mat['total']:.2f}"])
+                                                    f"${mat['total']:.2f}",
+                                                    ""])
                 child.item_data = mat
                 child.item_type = 'material'
 
@@ -261,7 +268,8 @@ class EstimateWindow(QMainWindow):
                                         [f"{i}.{offset + j}",
                                          f"Labor: {lab['trade']}", 
                                          f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
-                                         f"${lab['total']:.2f}"])
+                                         f"${lab['total']:.2f}",
+                                         ""])
                 child.item_data = lab
                 child.item_type = 'labor'
 
@@ -270,7 +278,8 @@ class EstimateWindow(QMainWindow):
                 child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
                                                     f"Equipment: {equip['name']}",
                                                     f"{equip['hours']} hrs @ ${equip['rate']:.2f}/hr",
-                                                    f"${equip['total']:.2f}"])
+                                                    f"${equip['total']:.2f}",
+                                                    ""])
                 child.item_data = equip
                 child.item_type = 'equipment'
 
