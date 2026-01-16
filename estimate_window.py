@@ -285,10 +285,9 @@ class EstimateWindow(QMainWindow):
 
         self.tree.expandAll()
         
-        # Adjust widths with a margin
+        # Adjust widths
         for i in range(self.tree.columnCount()):
             self.tree.resizeColumnToContents(i)
-            self.tree.setColumnWidth(i, self.tree.columnWidth(i) + 40)
             
         # Switch to interactive to allow manual adjustment
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -406,10 +405,9 @@ class SelectItemDialog(QDialog):
                     rate_text = str(item_data[2])
                 self.table.setItem(row, 2, QTableWidgetItem(rate_text)) # Rate
             
-        # Adjust with margin and reset to interactive
+        # Adjust and reset to interactive
         for i in range(self.table.columnCount()):
-            width = self.table.columnWidth(i)
-            self.table.setColumnWidth(i, width + 40)
+            self.table.resizeColumnToContents(i)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
 

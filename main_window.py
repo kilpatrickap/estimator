@@ -236,10 +236,9 @@ class LoadEstimateDialog(QDialog):
             self.table.setItem(row, 2, QTableWidgetItem(est['client_name']))
             self.table.setItem(row, 3, QTableWidgetItem(est['date_created']))
         
-        # Add a bit of padding to the columns
+        # Adjust widths
         for i in range(self.table.columnCount()):
-            width = self.table.columnWidth(i)
-            self.table.setColumnWidth(i, width + 40) # ~ 5 character margin
+            self.table.resizeColumnToContents(i)
 
     def _get_selected_estimate_info(self):
         """Helper to get the ID, project name, and client of the selected estimate."""

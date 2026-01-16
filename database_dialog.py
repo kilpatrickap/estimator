@@ -110,11 +110,9 @@ class DatabaseManagerDialog(QDialog):
         self._adjust_table_widths(table)
 
     def _adjust_table_widths(self, table):
-        """Helper to resize columns to contents with a margin and reset to interactive."""
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        """Helper to resize columns to contents and reset to interactive."""
         for i in range(table.columnCount()):
-            width = table.columnWidth(i)
-            table.setColumnWidth(i, width + 40) # ~ 5 character margin
+            table.resizeColumnToContents(i)
         
         # Reset to interactive to allow user adjustment
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
