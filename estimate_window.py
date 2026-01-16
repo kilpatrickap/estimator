@@ -45,7 +45,8 @@ class EstimateWindow(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Item", "Details", "Cost"])
         header = self.tree.header()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.tree)
 
@@ -317,7 +318,9 @@ class SelectItemDialog(QDialog):
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setShowGrid(True)
         layout.addWidget(self.table)
 
         # Setup input and buttons

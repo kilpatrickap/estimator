@@ -38,12 +38,18 @@ if __name__ == "__main__":
             background-color: white;
             border: 1px solid #dcdfe6;
             border-radius: 4px;
-            gridline-color: #f1f1f1;
+            gridline-color: #dcdfe6; /* More visible grid lines */
+        }
+        QTreeView::item {
+            border-right: 1px solid #dcdfe6;
+            border-bottom: 1px solid #dcdfe6;
+            padding: 4px;
         }
         QHeaderView::section {
             background-color: #f5f7f9;
             padding: 8px;
             border: none;
+            border-right: 1px solid #dcdfe6; /* Vertical separator */
             border-bottom: 2px solid #dcdfe6;
             font-weight: bold;
         }

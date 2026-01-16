@@ -47,7 +47,9 @@ class DatabaseManagerDialog(QDialog):
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setStretchLastSection(True)
+        table.setShowGrid(True)
         table.setColumnHidden(0, True) # Hide ID column for a cleaner look
         layout.addWidget(table)
         setattr(self, f"{table_name}_table", table)
