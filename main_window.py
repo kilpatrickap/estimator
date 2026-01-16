@@ -15,7 +15,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(720, 540)
+        self.setMinimumSize(1000, 700)
         self.db_manager = DatabaseManager()
 
         self.central_widget = QWidget()
@@ -181,7 +181,7 @@ class LoadEstimateDialog(QDialog):
         self.db_manager = DatabaseManager()
         self.selected_estimate_id = None
         self.setWindowTitle("Load Estimate")
-        self.setMinimumSize(720, 480)
+        self.setMinimumSize(1000, 700)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
