@@ -43,11 +43,11 @@ class EstimateWindow(QMainWindow):
         left_layout.setContentsMargins(0, 0, 0, 0)
         
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Item", "Details", "Cost"])
+        self.tree.setHeaderLabels(["Ref", "Tasks", "Details", "Cost"])
         header = self.tree.header()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.tree)
 
         btn_layout = QHBoxLayout()
@@ -243,26 +243,32 @@ class EstimateWindow(QMainWindow):
 
     def refresh_view(self):
         self.tree.clear()
-        for task in self.estimate.tasks:
-            task_item = QTreeWidgetItem(self.tree, [task.description, "", f"${task.get_subtotal():.2f}"])
+        for i, task in enumerate(self.estimate.tasks, 1):
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", f"${task.get_subtotal():.2f}"])
             task_item.task_object = task  # Attach the main task object
 
-            for mat in task.materials:
-                child = QTreeWidgetItem(task_item, [f"Material: {mat['name']}",
+            for j, mat in enumerate(task.materials, 1):
+                child = QTreeWidgetItem(task_item, [f"{i}.{j}",
+                                                    f"Material: {mat['name']}",
                                                     f"{mat['qty']} {mat['unit']} @ ${mat['unit_cost']:.2f}",
                                                     f"${mat['total']:.2f}"])
                 child.item_data = mat
                 child.item_type = 'material'
 
-            for lab in task.labor:
+            offset = len(task.materials)
+            for j, lab in enumerate(task.labor, 1):
                 child = QTreeWidgetItem(task_item,
-                                        [f"Labor: {lab['trade']}", f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
+                                        [f"{i}.{offset + j}",
+                                         f"Labor: {lab['trade']}", 
+                                         f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
                                          f"${lab['total']:.2f}"])
                 child.item_data = lab
                 child.item_type = 'labor'
 
-            for equip in task.equipment:
-                child = QTreeWidgetItem(task_item, [f"Equipment: {equip['name']}",
+            offset += len(task.labor)
+            for j, equip in enumerate(task.equipment, 1):
+                child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
+                                                    f"Equipment: {equip['name']}",
                                                     f"{equip['hours']} hrs @ ${equip['rate']:.2f}/hr",
                                                     f"${equip['total']:.2f}"])
                 child.item_data = equip
@@ -318,19 +324,22 @@ class SelectItemDialog(QDialog):
         # Setup table
         self.table = QTableWidget()
         if item_type == "materials":
-            headers = ["Name", "Unit/Price"]
+            headers = ["ID", "Name", "Unit", "Price"]
+            self.table.setColumnCount(4)
         elif item_type == "labor":
-            headers = ["Trade", "Rate"]
+            headers = ["ID", "Trade", "Rate"]
+            self.table.setColumnCount(3)
         else:
-            headers = ["Name", "Rate"]  # For equipment
+            headers = ["ID", "Name", "Rate"]  # For equipment
+            self.table.setColumnCount(3)
 
-        self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setShowGrid(True)
+        self.table.setColumnHidden(0, True)
         layout.addWidget(self.table)
 
         # Setup input and buttons
@@ -371,13 +380,22 @@ class SelectItemDialog(QDialog):
 
         self.table.setRowCount(len(self.current_items))
         for row, item_data in enumerate(self.current_items):
-            self.table.setItem(row, 0, QTableWidgetItem(item_data[1]))
-            # Format price/rate to 2 decimal places
-            try:
-                rate_text = f"{float(item_data[2]):.2f}"
-            except (ValueError, TypeError):
-                rate_text = str(item_data[2])
-            self.table.setItem(row, 1, QTableWidgetItem(rate_text))
+            self.table.setItem(row, 0, QTableWidgetItem(str(item_data[0]))) # ID
+            self.table.setItem(row, 1, QTableWidgetItem(item_data[1])) # Name/Trade
+            
+            if self.item_type == "materials":
+                self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
+                try:
+                    price_text = f"{float(item_data[3]):.2f}"
+                except (ValueError, TypeError):
+                    price_text = str(item_data[3])
+                self.table.setItem(row, 3, QTableWidgetItem(price_text)) # Price
+            else:
+                try:
+                    rate_text = f"{float(item_data[2]):.2f}"
+                except (ValueError, TypeError):
+                    rate_text = str(item_data[2])
+                self.table.setItem(row, 2, QTableWidgetItem(rate_text)) # Rate
             
         # Adjust with margin and reset to interactive
         for i in range(self.table.columnCount()):
