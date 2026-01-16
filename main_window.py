@@ -190,7 +190,8 @@ class LoadEstimateDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setMinimumSectionSize(100) # Ensure a reasonable minimum
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setShowGrid(True)
         self.table.setColumnHidden(0, True)
@@ -234,6 +235,11 @@ class LoadEstimateDialog(QDialog):
             self.table.setItem(row, 1, QTableWidgetItem(est['project_name']))
             self.table.setItem(row, 2, QTableWidgetItem(est['client_name']))
             self.table.setItem(row, 3, QTableWidgetItem(est['date_created']))
+        
+        # Add a bit of padding to the columns
+        for i in range(self.table.columnCount()):
+            width = self.table.columnWidth(i)
+            self.table.setColumnWidth(i, width + 40) # ~ 5 character margin
 
     def _get_selected_estimate_info(self):
         """Helper to get the ID, project name, and client of the selected estimate."""

@@ -47,7 +47,7 @@ class DatabaseManagerDialog(QDialog):
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
         table.setShowGrid(True)
         table.setColumnHidden(0, True) # Hide ID column for a cleaner look
@@ -83,6 +83,9 @@ class DatabaseManagerDialog(QDialog):
                 table.setRowHidden(row, False)
             else:
                 table.setRowHidden(row, True)
+        
+        # Recalculate widths after filtering
+        self._adjust_table_widths(table)
     # --- END OF CHANGE ---
 
     def load_data(self, table_name):
@@ -103,6 +106,19 @@ class DatabaseManagerDialog(QDialog):
                     
                 item = QTableWidgetItem(display_text)
                 table.setItem(row_num, col_num, item)
+        
+        self._adjust_table_widths(table)
+
+    def _adjust_table_widths(self, table):
+        """Helper to resize columns to contents with a margin and reset to interactive."""
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        for i in range(table.columnCount()):
+            width = table.columnWidth(i)
+            table.setColumnWidth(i, width + 40) # ~ 5 character margin
+        
+        # Reset to interactive to allow user adjustment
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        table.horizontalHeader().setStretchLastSection(True)
 
     def add_item(self, table_name):
         dialog = ItemDialog(table_name, self)

@@ -45,7 +45,7 @@ class EstimateWindow(QMainWindow):
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Item", "Details", "Cost"])
         header = self.tree.header()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
         header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.tree)
@@ -269,6 +269,16 @@ class EstimateWindow(QMainWindow):
                 child.item_type = 'equipment'
 
         self.tree.expandAll()
+        
+        # Adjust widths with a margin
+        for i in range(self.tree.columnCount()):
+            self.tree.resizeColumnToContents(i)
+            self.tree.setColumnWidth(i, self.tree.columnWidth(i) + 40)
+            
+        # Switch to interactive to allow manual adjustment
+        self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.tree.header().setStretchLastSection(True)
+
         self.update_summary()
 
     def update_summary(self):
@@ -318,7 +328,7 @@ class SelectItemDialog(QDialog):
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setShowGrid(True)
         layout.addWidget(self.table)
@@ -368,6 +378,13 @@ class SelectItemDialog(QDialog):
             except (ValueError, TypeError):
                 rate_text = str(item_data[2])
             self.table.setItem(row, 1, QTableWidgetItem(rate_text))
+            
+        # Adjust with margin and reset to interactive
+        for i in range(self.table.columnCount()):
+            width = self.table.columnWidth(i)
+            self.table.setColumnWidth(i, width + 40)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.horizontalHeader().setStretchLastSection(True)
 
     def get_selection(self):
         selected_row = self.table.currentRow()
