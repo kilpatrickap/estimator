@@ -15,7 +15,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(600, 450)
+        self.setMinimumSize(720, 540)
         self.db_manager = DatabaseManager()
 
         self.central_widget = QWidget()
@@ -100,7 +100,7 @@ class NewEstimateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Project Details")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(480)
         layout = QFormLayout(self)
 
         self.project_name = QLineEdit("New Project")
@@ -155,7 +155,7 @@ class EditEstimateDialog(QDialog):
     def __init__(self, project_name, client_name, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Estimate Details")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(480)
 
         layout = QFormLayout(self)
 
@@ -181,7 +181,7 @@ class LoadEstimateDialog(QDialog):
         self.db_manager = DatabaseManager()
         self.selected_estimate_id = None
         self.setWindowTitle("Load Estimate")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(720, 480)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget()

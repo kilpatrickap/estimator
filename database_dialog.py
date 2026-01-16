@@ -11,7 +11,7 @@ class DatabaseManagerDialog(QDialog):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
         self.setWindowTitle("Manage Cost Database")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(720, 480)
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()

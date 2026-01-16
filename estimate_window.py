@@ -389,7 +389,7 @@ class ReportDialog(QDialog):
         super().__init__(parent)
         self.estimate = estimate
         self.setWindowTitle("Final Estimate Report")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(960, 720)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
