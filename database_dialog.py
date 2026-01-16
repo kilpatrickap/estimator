@@ -2,7 +2,7 @@
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
-                             QLineEdit, QFormLayout, QDialogButtonBox, QLabel)
+                             QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView)
 from database import DatabaseManager
 
 
@@ -47,6 +47,7 @@ class DatabaseManagerDialog(QDialog):
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         layout.addWidget(table)
         setattr(self, f"{table_name}_table", table)
 

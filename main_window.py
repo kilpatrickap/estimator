@@ -15,35 +15,56 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(400, 350)
+        self.setMinimumSize(600, 450)
         self.db_manager = DatabaseManager()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.setContentsMargins(40, 40, 40, 40)
+        
+        self.layout.addStretch(1)
 
         title = QLabel("Estimator Pro")
-        font = QFont()
-        font.setPointSize(24)
-        font.setBold(True)
-        title.setFont(font)
+        title_font = QFont()
+        title_font.setPointSize(32)
+        title_font.setBold(True)
+        title.setFont(title_font)
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        title.setStyleSheet("color: #2e7d32; margin-bottom: 10px;")
         self.layout.addWidget(title)
 
+        subtitle = QLabel("Professional Construction Cost Estimation")
+        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        subtitle.setStyleSheet("color: #606266; font-size: 16px; margin-bottom: 30px;")
+        self.layout.addWidget(subtitle)
+
+        # Container for buttons to control their max width on large screens
+        button_container = QWidget()
+        button_layout = QVBoxLayout(button_container)
+        button_layout.setSpacing(15)
+
         self.new_estimate_btn = QPushButton("Create New Estimate")
-        self.new_estimate_btn.setMinimumHeight(40)
+        self.new_estimate_btn.setMinimumHeight(50)
 
         self.load_estimate_btn = QPushButton("Load Saved Estimate")
-        self.load_estimate_btn.setMinimumHeight(40)
+        self.load_estimate_btn.setMinimumHeight(50)
 
         self.manage_db_btn = QPushButton("Manage Cost Database")
-        self.manage_db_btn.setMinimumHeight(40)
+        self.manage_db_btn.setMinimumHeight(50)
 
-        self.layout.addSpacing(20)
-        self.layout.addWidget(self.new_estimate_btn)
-        self.layout.addWidget(self.load_estimate_btn)
-        self.layout.addWidget(self.manage_db_btn)
+        button_layout.addWidget(self.new_estimate_btn)
+        button_layout.addWidget(self.load_estimate_btn)
+        button_layout.addWidget(self.manage_db_btn)
+        
+        # Center the button container and limit its width
+        hbox = QHBoxLayout()
+        hbox.addStretch(1)
+        hbox.addWidget(button_container, 2) # Take up 2 units, stretches take 1 each side
+        hbox.addStretch(1)
+        
+        self.layout.addLayout(hbox)
+        self.layout.addStretch(1)
 
         self.estimate_win = None
         self.db_dialog = None
@@ -79,6 +100,7 @@ class NewEstimateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("New Project Details")
+        self.setMinimumWidth(400)
         layout = QFormLayout(self)
 
         self.project_name = QLineEdit("New Project")
@@ -117,6 +139,7 @@ class EditEstimateDialog(QDialog):
     def __init__(self, project_name, client_name, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Estimate Details")
+        self.setMinimumWidth(400)
 
         layout = QFormLayout(self)
 

@@ -3,7 +3,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTreeWidget, QTreeWidgetItem, QLabel, QFormLayout, QMessageBox,
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QDoubleSpinBox, QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit)
+                             QDoubleSpinBox, QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
+                             QSplitter, QFrame)
 from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt
 from database import DatabaseManager, Estimate, Task
@@ -27,17 +28,25 @@ class EstimateWindow(QMainWindow):
             self.estimate = Estimate("Error", "Error", 0, 0)
 
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(1000, 700) # Increased default minimum
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QHBoxLayout(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
 
+        # Use QSplitter for responsiveness
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        
         # Left side - Tree view and action buttons
-        left_layout = QVBoxLayout()
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Item", "Details", "Cost"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
         left_layout.addWidget(self.tree)
 
         btn_layout = QHBoxLayout()
@@ -46,53 +55,93 @@ class EstimateWindow(QMainWindow):
         add_labor_btn = QPushButton("Add Labor")
         add_equipment_btn = QPushButton("Add Equipment")
         remove_btn = QPushButton("Remove Selected")
-        btn_layout.addWidget(add_task_btn)
-        btn_layout.addWidget(add_material_btn)
-        btn_layout.addWidget(add_labor_btn)
-        btn_layout.addWidget(add_equipment_btn)
-        btn_layout.addWidget(remove_btn)
+        
+        # Give buttons a bit more style and minimum width
+        for btn in [add_task_btn, add_material_btn, add_labor_btn, add_equipment_btn, remove_btn]:
+            btn.setMinimumHeight(40)
+            btn_layout.addWidget(btn)
+        
+        remove_btn.setStyleSheet("background-color: #d32f2f;") # Red for remove
+        remove_btn.setStyleSheet(remove_btn.styleSheet() + " QPushButton:hover { background-color: #ef5350; }")
+
         left_layout.addLayout(btn_layout)
+        self.splitter.addWidget(left_widget)
 
         # Right side - Summary and main actions
-        right_layout = QVBoxLayout()
-        summary_group = QWidget()
-        summary_group.setStyleSheet("QWidget { background-color: #f0f0f0; border-radius: 5px; }")
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(10, 0, 0, 0)
+
+        summary_group = QFrame()
+        summary_group.setFrameShape(QFrame.Shape.StyledPanel)
+        summary_group.setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; } QLabel { border: none; }")
+        
         summary_layout = QFormLayout(summary_group)
         summary_layout.setContentsMargins(20, 20, 20, 20)
+        summary_layout.setSpacing(15)
 
         title_font = QFont()
         title_font.setBold(True)
-        title_font.setPointSize(14)
+        title_font.setPointSize(16)
 
         summary_title = QLabel("Project Summary")
         summary_title.setFont(title_font)
+        summary_title.setStyleSheet("color: #2e7d32; margin-bottom: 10px;")
         summary_layout.addRow(summary_title)
+
+        value_font = QFont()
+        value_font.setPointSize(12)
 
         self.subtotal_label = QLabel("$0.00")
         self.overhead_label = QLabel("$0.00")
         self.profit_label = QLabel("$0.00")
         self.grand_total_label = QLabel("$0.00")
-        bold_font = QFont();
-        bold_font.setBold(True)
-        self.grand_total_label.setFont(bold_font)
+        
+        for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.grand_total_label]:
+            lbl.setFont(value_font)
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        grand_font = QFont()
+        grand_font.setBold(True)
+        grand_font.setPointSize(18)
+        self.grand_total_label.setFont(grand_font)
+        self.grand_total_label.setStyleSheet("color: #2e7d32;")
 
         summary_layout.addRow("Subtotal:", self.subtotal_label)
         summary_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
         summary_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
-        summary_layout.addRow(QLabel("Grand Total:"))
-        summary_layout.addRow(self.grand_total_label)
+        
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("background-color: #dcdfe6; max-height: 1px;")
+        summary_layout.addRow(line)
+        
+        grand_total_desc = QLabel("GRAND TOTAL:")
+        grand_total_desc.setFont(grand_font)
+        summary_layout.addRow(grand_total_desc, self.grand_total_label)
+        
         right_layout.addWidget(summary_group)
 
-        action_layout = QHBoxLayout()
+        action_layout = QVBoxLayout() # Changed to vertical for better fitting
+        action_layout.setSpacing(10)
+        action_layout.setContentsMargins(0, 20, 0, 0)
+        
         save_estimate_btn = QPushButton("Save Estimate")
         generate_report_btn = QPushButton("Generate Report")
+        save_estimate_btn.setMinimumHeight(45)
+        generate_report_btn.setMinimumHeight(45)
+        
         action_layout.addWidget(save_estimate_btn)
         action_layout.addWidget(generate_report_btn)
         right_layout.addLayout(action_layout)
         right_layout.addStretch()
 
-        self.layout.addLayout(left_layout, 2)
-        self.layout.addLayout(right_layout, 1)
+        self.splitter.addWidget(right_widget)
+        self.splitter.setStretchFactor(0, 3) # Left side gets more space
+        self.splitter.setStretchFactor(1, 1)
+        
+        self.main_layout.addWidget(self.splitter)
 
         # Connect signals
         add_task_btn.clicked.connect(self.add_task)
@@ -322,17 +371,35 @@ class ReportDialog(QDialog):
         super().__init__(parent)
         self.estimate = estimate
         self.setWindowTitle("Final Estimate Report")
-        self.setMinimumSize(700, 500)
+        self.setMinimumSize(800, 600)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
         self.report_text = QTextEdit()
         self.report_text.setReadOnly(True)
-        self.report_text.setFont(QFont("Courier New", 10))
+        # Use a more modern monospace font
+        self.report_text.setFont(QFont("Consolas", 11) if sys.platform == "win32" else QFont("Monospace", 11))
+        self.report_text.setStyleSheet("border: 1px solid #dcdfe6; border-radius: 4px; background-color: white; padding: 10px;")
         layout.addWidget(self.report_text)
 
+        button_layout = QHBoxLayout()
+        button_layout.addStretch(1)
+        
         save_btn = QPushButton("Save to File")
-        layout.addWidget(save_btn)
+        save_btn.setMinimumHeight(40)
         save_btn.clicked.connect(self.save_report)
+        
+        close_btn = QPushButton("Close")
+        close_btn.setMinimumHeight(40)
+        close_btn.setStyleSheet("background-color: #909399;")
+        close_btn.clicked.connect(self.accept)
+        
+        button_layout.addWidget(save_btn)
+        button_layout.addWidget(close_btn)
+        layout.addLayout(button_layout)
+        
         self.generate_report_text()
 
     def generate_report_text(self):
