@@ -26,9 +26,9 @@ class DatabaseManagerDialog(QDialog):
         self.tabs.addTab(self.equipment_tab, "Equipment")
 
         # Setup UI for each tab
-        self._setup_tab(self.materials_tab, "materials", ["ID", "Name", "Unit", "Price"])
-        self._setup_tab(self.labor_tab, "labor", ["ID", "Trade", "Rate per Hour"])
-        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Name", "Rate per Hour"])
+        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Price"])
+        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Rate per Hour"])
+        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Rate per Hour"])
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
@@ -168,16 +168,17 @@ class ItemDialog(QDialog):
         super().__init__(parent)
         singular_name = table_name[:-1] if table_name.endswith('s') else table_name
         self.setWindowTitle(f"{'Edit' if data else 'Add'} {singular_name.capitalize()}")
+        self.resize(600, 300) # Widen the window by 2x
 
         self.layout = QFormLayout(self)
         self.inputs = []
 
         if table_name == "materials":
-            self.fields = [("Name", QLineEdit), ("Unit", QLineEdit), ("Price", QLineEdit)]
+            self.fields = [("Material", QLineEdit), ("Unit", QLineEdit), ("Price", QLineEdit)]
         elif table_name == "labor":
-            self.fields = [("Trade", QLineEdit), ("Rate per Hour", QLineEdit)]
+            self.fields = [("Labor", QLineEdit), ("Rate per Hour", QLineEdit)]
         elif table_name == "equipment":
-            self.fields = [("Name", QLineEdit), ("Rate per Hour", QLineEdit)]
+            self.fields = [("Equipment", QLineEdit), ("Rate per Hour", QLineEdit)]
         else:
             self.fields = []
 

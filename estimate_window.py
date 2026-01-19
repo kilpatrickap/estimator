@@ -314,6 +314,7 @@ class SelectItemDialog(QDialog):
         self.item_type = item_type
         singular_name = item_type[:-1] if item_type.endswith('s') else item_type
         self.setWindowTitle(f"Select {singular_name.capitalize()}")
+        self.resize(800, 500) # Widen the window by 2x (assuming ~400 default)
         self.db_manager = DatabaseManager()
 
         self.all_items = self.db_manager.get_items(item_type)
@@ -332,13 +333,13 @@ class SelectItemDialog(QDialog):
         # Setup table
         self.table = QTableWidget()
         if item_type == "materials":
-            headers = ["ID", "Name", "Unit", "Price"]
+            headers = ["ID", "Material", "Unit", "Price"]
             self.table.setColumnCount(4)
         elif item_type == "labor":
-            headers = ["ID", "Trade", "Rate"]
+            headers = ["ID", "Labor", "Rate"]
             self.table.setColumnCount(3)
         else:
-            headers = ["ID", "Name", "Rate"]  # For equipment
+            headers = ["ID", "Equipment", "Rate"]  # For equipment
             self.table.setColumnCount(3)
 
         self.table.setHorizontalHeaderLabels(headers)
