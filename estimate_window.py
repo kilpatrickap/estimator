@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
 from PyQt6.QtGui import QFont, QDoubleValidator
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QDate
 from database import DatabaseManager, Estimate, Task
 
 
@@ -342,14 +342,14 @@ class SelectItemDialog(QDialog):
         # Setup table
         self.table = QTableWidget()
         if item_type == "materials":
-            headers = ["ID", "Material", "Unit", "Currency", "Price"]
-            self.table.setColumnCount(5)
+            headers = ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]
+            self.table.setColumnCount(9)
         elif item_type == "labor":
-            headers = ["ID", "Labor", "Currency", "Rate"]
-            self.table.setColumnCount(4)
+            headers = ["ID", "Labor", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
+            self.table.setColumnCount(8)
         else:
-            headers = ["ID", "Equipment", "Currency", "Rate"]  # For equipment
-            self.table.setColumnCount(4)
+            headers = ["ID", "Equipment", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]  # For equipment
+            self.table.setColumnCount(8)
 
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -409,6 +409,14 @@ class SelectItemDialog(QDialog):
                 except (ValueError, TypeError):
                     price_text = str(item_data[4])
                 self.table.setItem(row, 4, QTableWidgetItem(price_text)) # Price
+                
+                # Additional columns
+                qdate = QDate.fromString(str(item_data[5]), "yyyy-MM-dd")
+                display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[5])
+                self.table.setItem(row, 5, QTableWidgetItem(display_date)) # Date
+                self.table.setItem(row, 6, QTableWidgetItem(str(item_data[6]) if item_data[6] else "")) # Location
+                self.table.setItem(row, 7, QTableWidgetItem(str(item_data[7]) if item_data[7] else "")) # Contact
+                self.table.setItem(row, 8, QTableWidgetItem(str(item_data[8]) if item_data[8] else "")) # Remarks
             else:
                 self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Currency
                 try:
@@ -416,6 +424,14 @@ class SelectItemDialog(QDialog):
                 except (ValueError, TypeError):
                     rate_text = str(item_data[3])
                 self.table.setItem(row, 3, QTableWidgetItem(rate_text)) # Rate
+
+                # Additional columns
+                qdate = QDate.fromString(str(item_data[4]), "yyyy-MM-dd")
+                display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[4])
+                self.table.setItem(row, 4, QTableWidgetItem(display_date)) # Date
+                self.table.setItem(row, 5, QTableWidgetItem(str(item_data[5]) if item_data[5] else "")) # Location
+                self.table.setItem(row, 6, QTableWidgetItem(str(item_data[6]) if item_data[6] else "")) # Contact
+                self.table.setItem(row, 7, QTableWidgetItem(str(item_data[7]) if item_data[7] else "")) # Remarks
             
         # Adjust and reset to interactive
         for i in range(self.table.columnCount()):
