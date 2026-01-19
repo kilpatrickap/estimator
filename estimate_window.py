@@ -23,7 +23,8 @@ class EstimateWindow(QMainWindow):
                 client_name=estimate_data['client'],
                 overhead=estimate_data['overhead'],
                 profit=estimate_data['profit'],
-                currency=estimate_data.get('currency', "GHS (₵)")
+                currency=estimate_data.get('currency', "GHS (₵)"),
+                date=estimate_data.get('date')
             )
         else:  # Fallback
             self.estimate = Estimate("Error", "Error", 0, 0)
@@ -491,9 +492,16 @@ class ReportDialog(QDialog):
         report.append(sep_long)
         report.append("CONSTRUCTION ESTIMATE".center(80))
         report.append(sep_short)
-        report.append(f"{'Project:':<10} {self.estimate.project_name}")
-        report.append(f"{'Client:':<10} {self.estimate.client_name}")
-        report.append(f"{'Currency:':<10} {self.estimate.currency}")
+        report.append(f"{'Project:':<12} {self.estimate.project_name}")
+        report.append(f"{'Client:':<12} {self.estimate.client_name}")
+        
+        # Display date in DD-MM-YY format if it matches the DB format
+        from PyQt6.QtCore import QDate
+        qdate = QDate.fromString(self.estimate.date, "yyyy-MM-dd")
+        display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else self.estimate.date
+        
+        report.append(f"{'Date:':<12} {display_date}")
+        report.append(f"{'Currency:':<12} {self.estimate.currency}")
         report.append(sep_long)
 
         for i, task in enumerate(self.estimate.tasks, 1):

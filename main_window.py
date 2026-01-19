@@ -1,11 +1,11 @@
 # main_window.py
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-                             QFormLayout, QLineEdit, QDialog, QComboBox,
+                             QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
                              QSizePolicy)
 from PyQt6.QtGui import QFont, QDoubleValidator
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QDate
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
 from database import DatabaseManager
@@ -106,6 +106,11 @@ class NewEstimateDialog(QDialog):
         self.project_name = QLineEdit("New Project")
         self.client_name = QLineEdit("Client Name")
         
+        self.project_date = QDateEdit()
+        self.project_date.setCalendarPopup(True)
+        self.project_date.setDisplayFormat("dd-MM-yy")
+        self.project_date.setDate(QDate.currentDate())
+        
         # Validator for numerical input
         pct_validator = QDoubleValidator(0.0, 100.0, 2)
         pct_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
@@ -126,6 +131,7 @@ class NewEstimateDialog(QDialog):
 
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Client Name:", self.client_name)
+        layout.addRow("Project Date:", self.project_date)
         layout.addRow("Overhead (%):", self.overhead)
         layout.addRow("Profit Margin (%):", self.profit)
         layout.addRow("Currency:", self.currency)
@@ -149,6 +155,7 @@ class NewEstimateDialog(QDialog):
         return {
             "name": self.project_name.text(),
             "client": self.client_name.text(),
+            "date": self.project_date.date().toString("yyyy-MM-dd"),
             "overhead": overhead_val,
             "profit": profit_val,
             "currency": self.currency.currentText()
@@ -156,9 +163,9 @@ class NewEstimateDialog(QDialog):
 
 
 class EditEstimateDialog(QDialog):
-    """A dialog to edit an estimate's project name and client."""
+    """A dialog to edit an estimate's project name, client, and date."""
 
-    def __init__(self, project_name, client_name, parent=None):
+    def __init__(self, project_name, client_name, project_date, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Estimate Details")
         self.setMinimumWidth(480)
@@ -167,9 +174,19 @@ class EditEstimateDialog(QDialog):
 
         self.project_name_input = QLineEdit(project_name)
         self.client_name_input = QLineEdit(client_name)
+        
+        self.project_date_input = QDateEdit()
+        self.project_date_input.setCalendarPopup(True)
+        self.project_date_input.setDisplayFormat("dd-MM-yy")
+        qdate = QDate.fromString(project_date, "yyyy-MM-dd")
+        if qdate.isValid():
+            self.project_date_input.setDate(qdate)
+        else:
+            self.project_date_input.setDate(QDate.currentDate())
 
         layout.addRow("Project Name:", self.project_name_input)
         layout.addRow("Client Name:", self.client_name_input)
+        layout.addRow("Project Date:", self.project_date_input)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -177,8 +194,12 @@ class EditEstimateDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def get_data(self):
-        """Returns the new project and client names."""
-        return self.project_name_input.text(), self.client_name_input.text()
+        """Returns the new project, client names, and date."""
+        return (
+            self.project_name_input.text(), 
+            self.client_name_input.text(),
+            self.project_date_input.date().toString("yyyy-MM-dd")
+        )
 
 
 class LoadEstimateDialog(QDialog):
@@ -257,30 +278,31 @@ class LoadEstimateDialog(QDialog):
         est_id = int(self.table.item(row_index, 0).text())
         project_name = self.table.item(row_index, 1).text()
         client_name = self.table.item(row_index, 2).text()
-        return est_id, project_name, client_name
+        project_date = self.table.item(row_index, 3).text()
+        return est_id, project_name, client_name, project_date
 
     def accept_selection(self):
-        est_id, _, _ = self._get_selected_estimate_info()
+        est_id, _, _, _ = self._get_selected_estimate_info()
         if est_id:
             self.selected_estimate_id = est_id
             self.accept()
 
     def edit_selected_estimate(self):
-        est_id, project_name, client_name = self._get_selected_estimate_info()
+        est_id, project_name, client_name, project_date = self._get_selected_estimate_info()
         if not est_id:
             return
 
-        dialog = EditEstimateDialog(project_name, client_name, self)
+        dialog = EditEstimateDialog(project_name, client_name, project_date, self)
         if dialog.exec():
-            new_project_name, new_client_name = dialog.get_data()
-            if self.db_manager.update_estimate_metadata(est_id, new_project_name, new_client_name):
+            new_project_name, new_client_name, new_date = dialog.get_data()
+            if self.db_manager.update_estimate_metadata(est_id, new_project_name, new_client_name, new_date):
                 QMessageBox.information(self, "Success", "Estimate details have been updated.")
                 self.load_estimates()  # Refresh the list
             else:
                 QMessageBox.critical(self, "Error", "Failed to update the estimate in the database.")
 
     def delete_selected_estimate(self):
-        est_id, est_name, _ = self._get_selected_estimate_info()
+        est_id, est_name, _, _ = self._get_selected_estimate_info()
         if not est_id:
             return
 
@@ -296,7 +318,7 @@ class LoadEstimateDialog(QDialog):
                 QMessageBox.critical(self, "Error", "Failed to delete the estimate from the database.")
 
     def duplicate_selected_estimate(self):
-        est_id, est_name, _ = self._get_selected_estimate_info()
+        est_id, est_name, _, _ = self._get_selected_estimate_info()
         if not est_id:
             return
 

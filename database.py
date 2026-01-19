@@ -31,13 +31,14 @@ class Task:
 
 
 class Estimate:
-    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)"):
+    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None):
         self.id = None  # Will be set when loaded/saved
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead
         self.profit_margin_percent = profit
         self.currency = currency
+        self.date = date or datetime.now().strftime('%Y-%m-%d')
         self.tasks = []
 
     def add_task(self, task): self.tasks.append(task)
@@ -299,7 +300,7 @@ class DatabaseManager:
                 estimate_obj.project_name, estimate_obj.client_name,
                 estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                 estimate_obj.currency,
-                datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                estimate_obj.date
             ))
             estimate_id = cursor.lastrowid
 
@@ -355,7 +356,8 @@ class DatabaseManager:
         if not est_data: return None
 
         loaded_estimate = Estimate(est_data['project_name'], est_data['client_name'], est_data['overhead_percent'],
-                                   est_data['profit_margin_percent'], currency=est_data['currency'] or "GHS (₵)")
+                                   est_data['profit_margin_percent'], currency=est_data['currency'] or "GHS (₵)", 
+                                   date=est_data['date_created'])
         loaded_estimate.id = est_data['id']
 
         cursor.execute("SELECT * FROM tasks WHERE estimate_id = ?", (estimate_id,))
@@ -426,12 +428,12 @@ class DatabaseManager:
         return self.save_estimate(original_estimate)
 
     # --- START OF CHANGE: New Method to Edit Estimate ---
-    def update_estimate_metadata(self, estimate_id, project_name, client_name):
-        """Updates only the project name and client name of an existing estimate."""
+    def update_estimate_metadata(self, estimate_id, project_name, client_name, date):
+        """Updates the project name, client name, and date of an existing estimate."""
         conn = self._get_connection()
         try:
-            sql = "UPDATE estimates SET project_name = ?, client_name = ? WHERE id = ?"
-            conn.cursor().execute(sql, (project_name, client_name, estimate_id))
+            sql = "UPDATE estimates SET project_name = ?, client_name = ?, date_created = ? WHERE id = ?"
+            conn.cursor().execute(sql, (project_name, client_name, date, estimate_id))
             conn.commit()
             return True
         except sqlite3.Error as e:
