@@ -104,7 +104,7 @@ class NewEstimateDialog(QDialog):
         layout = QFormLayout(self)
 
         self.project_name = QLineEdit("New Project")
-        self.client_name = QLineEdit("Client Name")
+        self.location = QLineEdit("Project Location")
         
         self.project_date = QDateEdit()
         self.project_date.setCalendarPopup(True)
@@ -130,7 +130,7 @@ class NewEstimateDialog(QDialog):
         self.currency.setCurrentText("GHS (₵)")
 
         layout.addRow("Project Name:", self.project_name)
-        layout.addRow("Client Name:", self.client_name)
+        layout.addRow("Location:", self.location)
         layout.addRow("Project Date:", self.project_date)
         layout.addRow("Overhead (%):", self.overhead)
         layout.addRow("Profit Margin (%):", self.profit)
@@ -154,7 +154,7 @@ class NewEstimateDialog(QDialog):
 
         return {
             "name": self.project_name.text(),
-            "client": self.client_name.text(),
+            "client": self.location.text(),
             "date": self.project_date.date().toString("yyyy-MM-dd"),
             "overhead": overhead_val,
             "profit": profit_val,
@@ -163,9 +163,9 @@ class NewEstimateDialog(QDialog):
 
 
 class EditEstimateDialog(QDialog):
-    """A dialog to edit an estimate's project name, client, and date."""
+    """A dialog to edit an estimate's project name, location, and date."""
 
-    def __init__(self, project_name, client_name, project_date, parent=None):
+    def __init__(self, project_name, location, project_date, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Estimate Details")
         self.setMinimumWidth(480)
@@ -173,7 +173,7 @@ class EditEstimateDialog(QDialog):
         layout = QFormLayout(self)
 
         self.project_name_input = QLineEdit(project_name)
-        self.client_name_input = QLineEdit(client_name)
+        self.location_input = QLineEdit(location)
         
         self.project_date_input = QDateEdit()
         self.project_date_input.setCalendarPopup(True)
@@ -185,7 +185,7 @@ class EditEstimateDialog(QDialog):
             self.project_date_input.setDate(QDate.currentDate())
 
         layout.addRow("Project Name:", self.project_name_input)
-        layout.addRow("Client Name:", self.client_name_input)
+        layout.addRow("Location:", self.location_input)
         layout.addRow("Project Date:", self.project_date_input)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
@@ -194,10 +194,10 @@ class EditEstimateDialog(QDialog):
         layout.addWidget(self.button_box)
 
     def get_data(self):
-        """Returns the new project, client names, and date."""
+        """Returns the new project, location, and date."""
         return (
             self.project_name_input.text(), 
-            self.client_name_input.text(),
+            self.location_input.text(),
             self.project_date_input.date().toString("yyyy-MM-dd")
         )
 
@@ -213,7 +213,7 @@ class LoadEstimateDialog(QDialog):
         layout = QVBoxLayout(self)
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["ID", "Project Name", "Client", "Date Created"])
+        self.table.setHorizontalHeaderLabels(["ID", "Project Name", "Location", "Date Created"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
@@ -288,14 +288,14 @@ class LoadEstimateDialog(QDialog):
             self.accept()
 
     def edit_selected_estimate(self):
-        est_id, project_name, client_name, project_date = self._get_selected_estimate_info()
+        est_id, project_name, location, project_date = self._get_selected_estimate_info()
         if not est_id:
             return
 
-        dialog = EditEstimateDialog(project_name, client_name, project_date, self)
+        dialog = EditEstimateDialog(project_name, location, project_date, self)
         if dialog.exec():
-            new_project_name, new_client_name, new_date = dialog.get_data()
-            if self.db_manager.update_estimate_metadata(est_id, new_project_name, new_client_name, new_date):
+            new_project_name, new_location, new_date = dialog.get_data()
+            if self.db_manager.update_estimate_metadata(est_id, new_project_name, new_location, new_date):
                 QMessageBox.information(self, "Success", "Estimate details have been updated.")
                 self.load_estimates()  # Refresh the list
             else:

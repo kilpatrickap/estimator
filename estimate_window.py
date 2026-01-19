@@ -509,7 +509,7 @@ class ReportDialog(QDialog):
         report.append("CONSTRUCTION ESTIMATE".center(80))
         report.append(sep_short)
         report.append(f"{'Project:':<12} {self.estimate.project_name}")
-        report.append(f"{'Client:':<12} {self.estimate.client_name}")
+        report.append(f"{'Location:':<12} {self.estimate.client_name}")
         
         # Display date in DD-MM-YY format if it matches the DB format
         from PyQt6.QtCore import QDate
