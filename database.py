@@ -112,6 +112,8 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
                 if 'remarks' not in columns:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN remarks TEXT")
+                if 'contact' not in columns:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN contact TEXT")
                 conn.commit()
         except sqlite3.Error:
             pass
@@ -130,9 +132,9 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         # --- Core Cost Tables ---
-        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
 
         # --- Estimate Storage Tables (Updated Schema) ---
         cursor.execute('''
@@ -187,18 +189,26 @@ class DatabaseManager:
 
         # Sample Data
         sample_materials = [
-            ('Concrete 3000 PSI', 'cubic_yard', 'GHS (₵)', 150.00), ('2x4 Lumber 8ft', 'each', 'GHS (₵)', 4.50),
-            ('1/2" Drywall Sheet 4x8', 'sheet', 'GHS (₵)', 12.00), ('Latex Paint', 'gallon', 'GHS (₵)', 35.00)
+            ('Concrete 3000 PSI', 'cubic_yard', 'GHS (₵)', 150.00, datetime.now().strftime('%Y-%m-%d'), 'Accra', 'Standard mix'),
+            ('2x4 Lumber 8ft', 'each', 'GHS (₵)', 4.50, datetime.now().strftime('%Y-%m-%d'), 'Kumasi', 'Treated pine'),
+            ('1/2" Drywall Sheet 4x8', 'sheet', 'GHS (₵)', 12.00, datetime.now().strftime('%Y-%m-%d'), 'Accra', 'Moisture resistant'),
+            ('Latex Paint', 'gallon', 'GHS (₵)', 35.00, datetime.now().strftime('%Y-%m-%d'), 'Tema', 'Interior silk')
         ]
         sample_labor = [
-            ('General Laborer', 'GHS (₵)', 25.00), ('Carpenter', 'GHS (₵)', 45.00), ('Electrician', 'GHS (₵)', 65.00), ('Painter', 'GHS (₵)', 35.00)
+            ('General Laborer', 'GHS (₵)', 25.00, datetime.now().strftime('%Y-%m-%d'), 'Nationwide', '-'),
+            ('Carpenter', 'GHS (₵)', 45.00, datetime.now().strftime('%Y-%m-%d'), 'Accra', 'Experienced'),
+            ('Electrician', 'GHS (₵)', 65.00, datetime.now().strftime('%Y-%m-%d'), 'Kumasi', 'Certified'),
+            ('Painter', 'GHS (₵)', 35.00, datetime.now().strftime('%Y-%m-%d'), 'Tema', '-')
         ]
         sample_equipment = [
-            ('Skid Steer', 'GHS (₵)', 75.00), ('Excavator', 'GHS (₵)', 120.00), ('Concrete Mixer', 'GHS (₵)', 40.00), ('Scissor Lift', 'GHS (₵)', 60.00)
+            ('Skid Steer', 'GHS (₵)', 75.00, datetime.now().strftime('%Y-%m-%d'), 'Rental Depot', 'Daily rate'),
+            ('Excavator', 'GHS (₵)', 120.00, datetime.now().strftime('%Y-%m-%d'), 'Project Site', 'Hourly with fuel'),
+            ('Concrete Mixer', 'GHS (₵)', 40.00, datetime.now().strftime('%Y-%m-%d'), 'Warehouse', '-'),
+            ('Scissor Lift', 'GHS (₵)', 60.00, datetime.now().strftime('%Y-%m-%d'), 'Rental Depot', '19ft reach')
         ]
-        cursor.executemany('INSERT INTO materials (name, unit, currency, price) VALUES (?,?,?,?)', sample_materials)
-        cursor.executemany('INSERT INTO labor (trade, currency, rate_per_hour) VALUES (?,?,?)', sample_labor)
-        cursor.executemany('INSERT INTO equipment (name, currency, rate_per_hour) VALUES (?,?,?)', sample_equipment)
+        cursor.executemany('INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_materials)
+        cursor.executemany('INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_labor)
+        cursor.executemany('INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_equipment)
 
         conn.commit()
         conn.close()
@@ -208,9 +218,9 @@ class DatabaseManager:
         conn = self._get_connection()
         # Use explicit column lists to ensure consistent order regardless of migration history
         col_map = {
-            'materials': 'id, name, unit, currency, price, date_added, location, remarks',
-            'labor': 'id, trade, currency, rate_per_hour, date_added, location, remarks',
-            'equipment': 'id, name, currency, rate_per_hour, date_added, location, remarks'
+            'materials': 'id, name, unit, currency, price, date_added, location, contact, remarks',
+            'labor': 'id, trade, currency, rate_per_hour, date_added, location, contact, remarks',
+            'equipment': 'id, name, currency, rate_per_hour, date_added, location, contact, remarks'
         }
         cols = col_map.get(table_name, '*')
         sort_col = "name" if table_name in ["materials", "equipment"] else "trade"
@@ -222,9 +232,9 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             sql_map = {
-                'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)',
-                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)',
-                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)'
+                'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
+                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?)',
+                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return False
@@ -239,9 +249,9 @@ class DatabaseManager:
     def update_item(self, table_name, item_id, data):
         conn = self._get_connection()
         sql_map = {
-            'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, remarks=? WHERE id=?',
-            'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=?, date_added=?, location=?, remarks=? WHERE id=?',
-            'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=?, date_added=?, location=?, remarks=? WHERE id=?'
+            'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+            'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+            'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?'
         }
         sql = sql_map.get(table_name)
         if not sql: return
@@ -253,6 +263,13 @@ class DatabaseManager:
         """Updates only the currency for a specific item in any table."""
         conn = self._get_connection()
         conn.cursor().execute(f"UPDATE {table_name} SET currency = ? WHERE id = ?", (currency, item_id))
+        conn.commit()
+        conn.close()
+
+    def update_item_date(self, table_name, item_id, date_str):
+        """Updates only the date for a specific item in any table."""
+        conn = self._get_connection()
+        conn.cursor().execute(f"UPDATE {table_name} SET date_added = ? WHERE id = ?", (date_str, item_id))
         conn.commit()
         conn.close()
 

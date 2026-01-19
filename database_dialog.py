@@ -3,7 +3,8 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
                              QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView,
-                             QComboBox)
+                             QComboBox, QDateEdit)
+from PyQt6.QtCore import QDate
 from database import DatabaseManager
 
 
@@ -27,9 +28,9 @@ class DatabaseManagerDialog(QDialog):
         self.tabs.addTab(self.equipment_tab, "Equipment")
 
         # Setup UI for each tab
-        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Remarks"])
-        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Currency", "Rate per Hour", "Date", "Location", "Remarks"])
-        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Currency", "Rate per Hour", "Date", "Location", "Remarks"])
+        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"])
+        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Currency", "Rate per Hour", "Date", "Location", "Contact", "Remarks"])
+        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Currency", "Rate per Hour", "Date", "Location", "Contact", "Remarks"])
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
@@ -115,6 +116,29 @@ class DatabaseManagerDialog(QDialog):
                     # Also set an item so sorting/filtering works (though it might be hidden)
                     item = QTableWidgetItem(str(data))
                     table.setItem(row_num, col_num, item)
+                elif (table_name == "materials" and col_num == 5) or \
+                     (table_name in ["labor", "equipment"] and col_num == 4): # Date column
+                    date_edit = QDateEdit()
+                    date_edit.setCalendarPopup(True)
+                    date_edit.setDisplayFormat("dd-MM-yy")
+                    
+                    if data:
+                        qdate = QDate.fromString(str(data), "yyyy-MM-dd")
+                        if qdate.isValid():
+                            date_edit.setDate(qdate)
+                        else:
+                            date_edit.setDate(QDate.currentDate())
+                    else:
+                        date_edit.setDate(QDate.currentDate())
+                    
+                    # Connect change to update database
+                    item_id = int(row_data[0])
+                    date_edit.dateChanged.connect(lambda d, tid=item_id, tbl=table_name: 
+                                                self._update_date(tbl, tid, d.toString("yyyy-MM-dd")))
+                    
+                    table.setCellWidget(row_num, col_num, date_edit)
+                    item = QTableWidgetItem(date_edit.date().toString("yyyy-MM-dd"))
+                    table.setItem(row_num, col_num, item)
                 else:
                     # Format price/rate (index 4 for materials, 3 for others) to 2 decimal places
                     price_col = 4 if table_name == "materials" else 3
@@ -148,6 +172,24 @@ class DatabaseManagerDialog(QDialog):
                     hidden_item.setText(new_currency)
                 break
 
+    def _update_date(self, table_name, item_id, new_date):
+        """Updates the date in the database when changed in the table."""
+        # Database stores as yyyy-MM-dd, but we display as dd-MM-yy
+        # The QDateEdit provides the string via d.toString("yyyy-MM-dd") in the lambda
+        self.db_manager.update_item_date(table_name, item_id, new_date)
+        
+        # Keep the hidden item in sync
+        table = getattr(self, f"{table_name}_table")
+        date_col = 5 if table_name == "materials" else 4
+        
+        for row in range(table.rowCount()):
+            id_item = table.item(row, 0)
+            if id_item and int(id_item.text()) == item_id:
+                hidden_item = table.item(row, date_col)
+                if hidden_item:
+                    hidden_item.setText(new_date)
+                break
+
     def _adjust_table_widths(self, table):
         """Helper to resize columns to contents and reset to interactive."""
         for i in range(table.columnCount()):
@@ -179,6 +221,8 @@ class DatabaseManagerDialog(QDialog):
             widget = table.cellWidget(selected_row, i)
             if isinstance(widget, QComboBox):
                 current_data.append(widget.currentText())
+            elif isinstance(widget, QDateEdit):
+                current_data.append(widget.date().toString("yyyy-MM-dd"))
             else:
                 item = table.item(selected_row, i)
                 current_data.append(item.text() if item else "")
@@ -222,17 +266,17 @@ class ItemDialog(QDialog):
         if table_name == "materials":
             self.fields = [
                 ("Material", QLineEdit), ("Unit", QLineEdit), ("Currency", QComboBox), 
-                ("Price", QLineEdit), ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+                ("Price", QLineEdit), ("Date", QDateEdit), ("Location", QLineEdit), ("Contact", QLineEdit), ("Remarks", QLineEdit)
             ]
         elif table_name == "labor":
             self.fields = [
                 ("Labor", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit),
-                ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+                ("Date", QDateEdit), ("Location", QLineEdit), ("Contact", QLineEdit), ("Remarks", QLineEdit)
             ]
         elif table_name == "equipment":
             self.fields = [
                 ("Equipment", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit),
-                ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+                ("Date", QDateEdit), ("Location", QLineEdit), ("Contact", QLineEdit), ("Remarks", QLineEdit)
             ]
         else:
             self.fields = []
@@ -246,6 +290,17 @@ class ItemDialog(QDialog):
                     widget.setCurrentText(str(data[i]))
                 else:
                     widget.setCurrentText("GHS (₵)")
+            elif isinstance(widget, QDateEdit):
+                widget.setCalendarPopup(True)
+                widget.setDisplayFormat("dd-MM-yy")
+                if data and data[i]:
+                    date_val = QDate.fromString(str(data[i]), "yyyy-MM-dd")
+                    if date_val.isValid():
+                        widget.setDate(date_val)
+                    else:
+                        widget.setDate(QDate.currentDate())
+                else:
+                    widget.setDate(QDate.currentDate())
             elif data:
                 widget.setText(str(data[i]))
             
@@ -262,11 +317,13 @@ class ItemDialog(QDialog):
         for widget in self.inputs:
             if isinstance(widget, QComboBox):
                 data.append(widget.currentText())
+            elif isinstance(widget, QDateEdit):
+                data.append(widget.date().toString("yyyy-MM-dd"))
             else:
                 data.append(widget.text())
                 
-        if not all(str(d).strip() for i, d in enumerate(data) if self.fields[i][0] not in ["Remarks", "Location", "Date"]):
-            QMessageBox.warning(self, "Input Error", "Required fields must be filled (Remarks, Location, and Date are optional).")
+        if not all(str(d).strip() for i, d in enumerate(data) if self.fields[i][0] not in ["Remarks", "Contact", "Location", "Date"]):
+            QMessageBox.warning(self, "Input Error", "Required fields must be filled (Remarks, Contact, Location, and Date are optional).")
             return None
         try:
             # Find the index of Price/Rate field to convert to float
