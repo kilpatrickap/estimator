@@ -80,6 +80,27 @@ class DatabaseManager:
             if 'currency' not in columns:
                 cursor.execute("ALTER TABLE estimates ADD COLUMN currency TEXT")
                 conn.commit()
+            
+            # Check if currency column exists in materials table
+            cursor.execute("PRAGMA table_info(materials)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'currency' not in columns:
+                cursor.execute("ALTER TABLE materials ADD COLUMN currency TEXT DEFAULT 'GHS (₵)'")
+                conn.commit()
+
+            # Check if currency column exists in labor table
+            cursor.execute("PRAGMA table_info(labor)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'currency' not in columns:
+                cursor.execute("ALTER TABLE labor ADD COLUMN currency TEXT DEFAULT 'GHS (₵)'")
+                conn.commit()
+
+            # Check if currency column exists in equipment table
+            cursor.execute("PRAGMA table_info(equipment)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'currency' not in columns:
+                cursor.execute("ALTER TABLE equipment ADD COLUMN currency TEXT DEFAULT 'GHS (₵)'")
+                conn.commit()
         except sqlite3.Error:
             pass
         finally:
@@ -97,9 +118,9 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         # --- Core Cost Tables ---
-        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, price REAL)')
-        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, rate_per_hour REAL)')
-        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, rate_per_hour REAL)')
+        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL)')
+        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL)')
+        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL)')
 
         # --- Estimate Storage Tables (Updated Schema) ---
         cursor.execute('''
@@ -154,18 +175,18 @@ class DatabaseManager:
 
         # Sample Data
         sample_materials = [
-            ('Concrete 3000 PSI', 'cubic_yard', 150.00), ('2x4 Lumber 8ft', 'each', 4.50),
-            ('1/2" Drywall Sheet 4x8', 'sheet', 12.00), ('Latex Paint', 'gallon', 35.00)
+            ('Concrete 3000 PSI', 'cubic_yard', 'GHS (₵)', 150.00), ('2x4 Lumber 8ft', 'each', 'GHS (₵)', 4.50),
+            ('1/2" Drywall Sheet 4x8', 'sheet', 'GHS (₵)', 12.00), ('Latex Paint', 'gallon', 'GHS (₵)', 35.00)
         ]
         sample_labor = [
-            ('General Laborer', 25.00), ('Carpenter', 45.00), ('Electrician', 65.00), ('Painter', 35.00)
+            ('General Laborer', 'GHS (₵)', 25.00), ('Carpenter', 'GHS (₵)', 45.00), ('Electrician', 'GHS (₵)', 65.00), ('Painter', 'GHS (₵)', 35.00)
         ]
         sample_equipment = [
-            ('Skid Steer', 75.00), ('Excavator', 120.00), ('Concrete Mixer', 40.00), ('Scissor Lift', 60.00)
+            ('Skid Steer', 'GHS (₵)', 75.00), ('Excavator', 'GHS (₵)', 120.00), ('Concrete Mixer', 'GHS (₵)', 40.00), ('Scissor Lift', 'GHS (₵)', 60.00)
         ]
-        cursor.executemany('INSERT INTO materials (name, unit, price) VALUES (?,?,?)', sample_materials)
-        cursor.executemany('INSERT INTO labor (trade, rate_per_hour) VALUES (?,?)', sample_labor)
-        cursor.executemany('INSERT INTO equipment (name, rate_per_hour) VALUES (?,?)', sample_equipment)
+        cursor.executemany('INSERT INTO materials (name, unit, currency, price) VALUES (?,?,?,?)', sample_materials)
+        cursor.executemany('INSERT INTO labor (trade, currency, rate_per_hour) VALUES (?,?,?)', sample_labor)
+        cursor.executemany('INSERT INTO equipment (name, currency, rate_per_hour) VALUES (?,?,?)', sample_equipment)
 
         conn.commit()
         conn.close()
@@ -173,8 +194,15 @@ class DatabaseManager:
     # --- Methods for Cost Library ---
     def get_items(self, table_name):
         conn = self._get_connection()
+        # Use explicit column lists to ensure consistent order regardless of migration history
+        col_map = {
+            'materials': 'id, name, unit, currency, price',
+            'labor': 'id, trade, currency, rate_per_hour',
+            'equipment': 'id, name, currency, rate_per_hour'
+        }
+        cols = col_map.get(table_name, '*')
         sort_col = "name" if table_name in ["materials", "equipment"] else "trade"
-        items = conn.cursor().execute(f"SELECT * FROM {table_name} ORDER BY {sort_col}").fetchall()
+        items = conn.cursor().execute(f"SELECT {cols} FROM {table_name} ORDER BY {sort_col}").fetchall()
         conn.close()
         return items
 
@@ -182,9 +210,9 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             sql_map = {
-                'materials': 'INSERT INTO materials (name, unit, price) VALUES (?,?,?)',
-                'labor': 'INSERT INTO labor (trade, rate_per_hour) VALUES (?,?)',
-                'equipment': 'INSERT INTO equipment (name, rate_per_hour) VALUES (?,?)'
+                'materials': 'INSERT INTO materials (name, unit, currency, price) VALUES (?,?,?,?)',
+                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour) VALUES (?,?,?)',
+                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour) VALUES (?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return False
@@ -199,13 +227,20 @@ class DatabaseManager:
     def update_item(self, table_name, item_id, data):
         conn = self._get_connection()
         sql_map = {
-            'materials': 'UPDATE materials SET name=?, unit=?, price=? WHERE id=?',
-            'labor': 'UPDATE labor SET trade=?, rate_per_hour=? WHERE id=?',
-            'equipment': 'UPDATE equipment SET name=?, rate_per_hour=? WHERE id=?'
+            'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=? WHERE id=?',
+            'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=? WHERE id=?',
+            'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=? WHERE id=?'
         }
         sql = sql_map.get(table_name)
         if not sql: return
         conn.cursor().execute(sql, (*data, item_id))
+        conn.commit()
+        conn.close()
+
+    def update_item_currency(self, table_name, item_id, currency):
+        """Updates only the currency for a specific item in any table."""
+        conn = self._get_connection()
+        conn.cursor().execute(f"UPDATE {table_name} SET currency = ? WHERE id = ?", (currency, item_id))
         conn.commit()
         conn.close()
 

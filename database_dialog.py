@@ -2,7 +2,8 @@
 
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
-                             QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView)
+                             QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView,
+                             QComboBox)
 from database import DatabaseManager
 
 
@@ -26,9 +27,9 @@ class DatabaseManagerDialog(QDialog):
         self.tabs.addTab(self.equipment_tab, "Equipment")
 
         # Setup UI for each tab
-        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Price"])
-        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Rate per Hour"])
-        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Rate per Hour"])
+        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Currency", "Price"])
+        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Currency", "Rate per Hour"])
+        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Currency", "Rate per Hour"])
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
@@ -95,19 +96,56 @@ class DatabaseManagerDialog(QDialog):
         for row_num, row_data in enumerate(items):
             table.insertRow(row_num)
             for col_num, data in enumerate(row_data):
-                # Format price/rate (last column) to 2 decimal places
-                if col_num == len(row_data) - 1:
-                    try:
-                        display_text = f"{float(data):.2f}"
-                    except (ValueError, TypeError):
-                        display_text = str(data)
-                else:
-                    display_text = str(data)
+                # Check for Currency column: Materials is col 3, Labor/Equip is col 2
+                is_currency_col = (table_name == "materials" and col_num == 3) or \
+                                 (table_name in ["labor", "equipment"] and col_num == 2)
+                
+                if is_currency_col: # Currency column
+                    combo = QComboBox()
+                    currencies = ["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"]
+                    combo.addItems(currencies)
+                    combo.setCurrentText(str(data) if data else "GHS (₵)")
                     
-                item = QTableWidgetItem(display_text)
-                table.setItem(row_num, col_num, item)
+                    # Connect change to update database
+                    item_id = int(row_data[0])
+                    combo.currentTextChanged.connect(lambda text, tid=item_id, tbl=table_name: 
+                                                   self._update_currency(tbl, tid, text))
+                    
+                    table.setCellWidget(row_num, col_num, combo)
+                    # Also set an item so sorting/filtering works (though it might be hidden)
+                    item = QTableWidgetItem(str(data))
+                    table.setItem(row_num, col_num, item)
+                else:
+                    # Format price/rate (last column) to 2 decimal places
+                    if col_num == len(row_data) - 1:
+                        try:
+                            display_text = f"{float(data):.2f}"
+                        except (ValueError, TypeError):
+                            display_text = str(data)
+                    else:
+                        display_text = str(data)
+                        
+                    item = QTableWidgetItem(display_text)
+                    table.setItem(row_num, col_num, item)
         
         self._adjust_table_widths(table)
+
+    def _update_currency(self, table_name, item_id, new_currency):
+        """Updates the currency in the database when changed in the table."""
+        self.db_manager.update_item_currency(table_name, item_id, new_currency)
+        
+        # We also need to update the hidden QTableWidgetItem for the currency column
+        # so that it stays in sync for filtering or if cellWidget is removed.
+        table = getattr(self, f"{table_name}_table")
+        currency_col = 3 if table_name == "materials" else 2
+        
+        for row in range(table.rowCount()):
+            id_item = table.item(row, 0)
+            if id_item and int(id_item.text()) == item_id:
+                hidden_item = table.item(row, currency_col)
+                if hidden_item:
+                    hidden_item.setText(new_currency)
+                break
 
     def _adjust_table_widths(self, table):
         """Helper to resize columns to contents and reset to interactive."""
@@ -135,7 +173,14 @@ class DatabaseManagerDialog(QDialog):
             return
 
         item_id = int(table.item(selected_row, 0).text())
-        current_data = [table.item(selected_row, i).text() for i in range(1, table.columnCount())]
+        current_data = []
+        for i in range(1, table.columnCount()):
+            widget = table.cellWidget(selected_row, i)
+            if isinstance(widget, QComboBox):
+                current_data.append(widget.currentText())
+            else:
+                item = table.item(selected_row, i)
+                current_data.append(item.text() if item else "")
 
         dialog = ItemDialog(table_name, self, current_data)
         if dialog.exec():
@@ -174,18 +219,26 @@ class ItemDialog(QDialog):
         self.inputs = []
 
         if table_name == "materials":
-            self.fields = [("Material", QLineEdit), ("Unit", QLineEdit), ("Price", QLineEdit)]
+            self.fields = [("Material", QLineEdit), ("Unit", QLineEdit), ("Currency", QComboBox), ("Price", QLineEdit)]
         elif table_name == "labor":
-            self.fields = [("Labor", QLineEdit), ("Rate per Hour", QLineEdit)]
+            self.fields = [("Labor", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit)]
         elif table_name == "equipment":
-            self.fields = [("Equipment", QLineEdit), ("Rate per Hour", QLineEdit)]
+            self.fields = [("Equipment", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit)]
         else:
             self.fields = []
 
         for i, (label, widget_class) in enumerate(self.fields):
             widget = widget_class()
-            if data:
+            if widget_class == QComboBox and label == "Currency":
+                currencies = ["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"]
+                widget.addItems(currencies)
+                if data:
+                    widget.setCurrentText(str(data[i]))
+                else:
+                    widget.setCurrentText("GHS (₵)")
+            elif data:
                 widget.setText(str(data[i]))
+            
             self.layout.addRow(label, widget)
             self.inputs.append(widget)
 
@@ -195,8 +248,14 @@ class ItemDialog(QDialog):
         self.layout.addWidget(self.button_box)
 
     def get_data(self):
-        data = [widget.text() for widget in self.inputs]
-        if not all(d.strip() for d in data):
+        data = []
+        for widget in self.inputs:
+            if isinstance(widget, QComboBox):
+                data.append(widget.currentText())
+            else:
+                data.append(widget.text())
+                
+        if not all(str(d).strip() for d in data):
             QMessageBox.warning(self, "Input Error", "All fields must be filled.")
             return None
         try:

@@ -341,14 +341,14 @@ class SelectItemDialog(QDialog):
         # Setup table
         self.table = QTableWidget()
         if item_type == "materials":
-            headers = ["ID", "Material", "Unit", "Price"]
-            self.table.setColumnCount(4)
+            headers = ["ID", "Material", "Unit", "Currency", "Price"]
+            self.table.setColumnCount(5)
         elif item_type == "labor":
-            headers = ["ID", "Labor", "Rate"]
-            self.table.setColumnCount(3)
+            headers = ["ID", "Labor", "Currency", "Rate"]
+            self.table.setColumnCount(4)
         else:
-            headers = ["ID", "Equipment", "Rate"]  # For equipment
-            self.table.setColumnCount(3)
+            headers = ["ID", "Equipment", "Currency", "Rate"]  # For equipment
+            self.table.setColumnCount(4)
 
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -402,17 +402,19 @@ class SelectItemDialog(QDialog):
             
             if self.item_type == "materials":
                 self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
+                self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
                 try:
-                    price_text = f"{float(item_data[3]):.2f}"
+                    price_text = f"{float(item_data[4]):.2f}"
                 except (ValueError, TypeError):
-                    price_text = str(item_data[3])
-                self.table.setItem(row, 3, QTableWidgetItem(price_text)) # Price
+                    price_text = str(item_data[4])
+                self.table.setItem(row, 4, QTableWidgetItem(price_text)) # Price
             else:
+                self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Currency
                 try:
-                    rate_text = f"{float(item_data[2]):.2f}"
+                    rate_text = f"{float(item_data[3]):.2f}"
                 except (ValueError, TypeError):
-                    rate_text = str(item_data[2])
-                self.table.setItem(row, 2, QTableWidgetItem(rate_text)) # Rate
+                    rate_text = str(item_data[3])
+                self.table.setItem(row, 3, QTableWidgetItem(rate_text)) # Rate
             
         # Adjust and reset to interactive
         for i in range(self.table.columnCount()):
