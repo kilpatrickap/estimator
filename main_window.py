@@ -1,7 +1,7 @@
 # main_window.py
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-                             QFormLayout, QLineEdit, QDialog,
+                             QFormLayout, QLineEdit, QDialog, QComboBox,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
                              QSizePolicy)
 from PyQt6.QtGui import QFont, QDoubleValidator
@@ -120,10 +120,15 @@ class NewEstimateDialog(QDialog):
         self.profit.setText("10.00")
         self.profit.setValidator(pct_validator)
 
+        self.currency = QComboBox()
+        self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
+        self.currency.setCurrentText("GHS (₵)")
+
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Client Name:", self.client_name)
         layout.addRow("Overhead (%):", self.overhead)
         layout.addRow("Profit Margin (%):", self.profit)
+        layout.addRow("Currency:", self.currency)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.accept)
@@ -145,7 +150,8 @@ class NewEstimateDialog(QDialog):
             "name": self.project_name.text(),
             "client": self.client_name.text(),
             "overhead": overhead_val,
-            "profit": profit_val
+            "profit": profit_val,
+            "currency": self.currency.currentText()
         }
 
 

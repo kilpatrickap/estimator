@@ -22,13 +22,19 @@ class EstimateWindow(QMainWindow):
                 project_name=estimate_data['name'],
                 client_name=estimate_data['client'],
                 overhead=estimate_data['overhead'],
-                profit=estimate_data['profit']
+                profit=estimate_data['profit'],
+                currency=estimate_data.get('currency', "GHS (₵)")
             )
         else:  # Fallback
             self.estimate = Estimate("Error", "Error", 0, 0)
 
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
         self.setMinimumSize(1000, 700) # Increased default minimum
+
+        # Extract currency symbol
+        import re
+        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        self.currency_symbol = match.group(1) if match else "$"
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -101,6 +107,7 @@ class EstimateWindow(QMainWindow):
         for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.grand_total_label]:
             lbl.setFont(value_font)
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+            lbl.setText(f"{self.currency_symbol}0.00")
 
         grand_font = QFont()
         grand_font.setBold(True)
@@ -244,7 +251,7 @@ class EstimateWindow(QMainWindow):
     def refresh_view(self):
         self.tree.clear()
         for i, task in enumerate(self.estimate.tasks, 1):
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"${task.get_subtotal():.2f}"])
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{self.currency_symbol}{task.get_subtotal():.2f}"])
             task_item.task_object = task  # Attach the main task object
             
             # Bold the task (parent) row
@@ -256,8 +263,8 @@ class EstimateWindow(QMainWindow):
             for j, mat in enumerate(task.materials, 1):
                 child = QTreeWidgetItem(task_item, [f"{i}.{j}",
                                                     f"Material: {mat['name']}",
-                                                    f"{mat['qty']} {mat['unit']} @ ${mat['unit_cost']:.2f}",
-                                                    f"${mat['total']:.2f}",
+                                                    f"{mat['qty']} {mat['unit']} @ {self.currency_symbol}{mat['unit_cost']:.2f}",
+                                                    f"{self.currency_symbol}{mat['total']:.2f}",
                                                     ""])
                 child.item_data = mat
                 child.item_type = 'material'
@@ -267,8 +274,8 @@ class EstimateWindow(QMainWindow):
                 child = QTreeWidgetItem(task_item,
                                         [f"{i}.{offset + j}",
                                          f"Labor: {lab['trade']}", 
-                                         f"{lab['hours']} hrs @ ${lab['rate']:.2f}/hr",
-                                         f"${lab['total']:.2f}",
+                                         f"{lab['hours']} hrs @ {self.currency_symbol}{lab['rate']:.2f}/hr",
+                                         f"{self.currency_symbol}{lab['total']:.2f}",
                                          ""])
                 child.item_data = lab
                 child.item_type = 'labor'
@@ -277,8 +284,8 @@ class EstimateWindow(QMainWindow):
             for j, equip in enumerate(task.equipment, 1):
                 child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
                                                     f"Equipment: {equip['name']}",
-                                                    f"{equip['hours']} hrs @ ${equip['rate']:.2f}/hr",
-                                                    f"${equip['total']:.2f}",
+                                                    f"{equip['hours']} hrs @ {self.currency_symbol}{equip['rate']:.2f}/hr",
+                                                    f"{self.currency_symbol}{equip['total']:.2f}",
                                                     ""])
                 child.item_data = equip
                 child.item_type = 'equipment'
@@ -297,10 +304,11 @@ class EstimateWindow(QMainWindow):
 
     def update_summary(self):
         totals = self.estimate.calculate_totals()
-        self.subtotal_label.setText(f"${totals['subtotal']:.2f}")
-        self.overhead_label.setText(f"${totals['overhead']:.2f}")
-        self.profit_label.setText(f"${totals['profit']:.2f}")
-        self.grand_total_label.setText(f"${totals['grand_total']:.2f}")
+        symbol = self.currency_symbol
+        self.subtotal_label.setText(f"{symbol}{totals['subtotal']:.2f}")
+        self.overhead_label.setText(f"{symbol}{totals['overhead']:.2f}")
+        self.profit_label.setText(f"{symbol}{totals['profit']:.2f}")
+        self.grand_total_label.setText(f"{symbol}{totals['grand_total']:.2f}")
 
     def generate_report(self):
         report_dialog = ReportDialog(self.estimate, self)
@@ -437,6 +445,11 @@ class ReportDialog(QDialog):
         self.setWindowTitle("Final Estimate Report")
         self.setMinimumSize(960, 720)
 
+        # Extract currency symbol
+        import re
+        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        self.currency_symbol = match.group(1) if match else "$"
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(15)
@@ -468,6 +481,7 @@ class ReportDialog(QDialog):
 
     def generate_report_text(self):
         totals = self.estimate.calculate_totals()
+        symbol = self.currency_symbol
         report = []
         sep_long = "=" * 80
         sep_short = "-" * 80
@@ -477,6 +491,7 @@ class ReportDialog(QDialog):
         report.append(sep_short)
         report.append(f"{'Project:':<10} {self.estimate.project_name}")
         report.append(f"{'Client:':<10} {self.estimate.client_name}")
+        report.append(f"{'Currency:':<10} {self.estimate.currency}")
         report.append(sep_long)
 
         for i, task in enumerate(self.estimate.tasks, 1):
@@ -485,30 +500,30 @@ class ReportDialog(QDialog):
                 report.append("  Materials:")
                 for m in task.materials:
                     report.append(
-                        f"    - {m['name']:<30} {m['qty']:>8.2f} {m['unit']:<10} @ ${m['unit_cost']:>8.2f} = ${m['total']:>10.2f}")
+                        f"    - {m['name']:<30} {m['qty']:>8.2f} {m['unit']:<10} @ {symbol}{m['unit_cost']:>8.2f} = {symbol}{m['total']:>10.2f}")
             if task.labor:
                 report.append("  Labor:")
                 for l in task.labor:
                     report.append(
-                        f"    - {l['trade']:<30} {l['hours']:>8.2f} {'hrs':<10} @ ${l['rate']:>8.2f} = ${l['total']:>10.2f}")
+                        f"    - {l['trade']:<30} {l['hours']:>8.2f} {'hrs':<10} @ {symbol}{l['rate']:>8.2f} = {symbol}{l['total']:>10.2f}")
             if task.equipment:
                 report.append("  Equipment:")
                 for e in task.equipment:
                     report.append(
-                        f"    - {e['name']:<30} {e['hours']:>8.2f} {'hrs':<10} @ ${e['rate']:>8.2f} = ${e['total']:>10.2f}")
+                        f"    - {e['name']:<30} {e['hours']:>8.2f} {'hrs':<10} @ {symbol}{e['rate']:>8.2f} = {symbol}{e['total']:>10.2f}")
 
             report.append(f"{'':<65}----------")
-            report.append(f"{'Task Subtotal:':>65} ${task.get_subtotal():>10.2f}")
+            report.append(f"{'Task Subtotal:':>65} {symbol}{task.get_subtotal():>10.2f}")
 
         report.append("\n" + sep_long)
         report.append("SUMMARY".center(80))
         report.append(sep_short)
-        report.append(f"{'Total Direct Costs (Subtotal)':<65} ${totals['subtotal']:.2f}")
-        report.append(f"Overhead ({self.estimate.overhead_percent}%):{'.' * 45} ${totals['overhead']:>10.2f}")
-        report.append(f"{'Total Cost':<65} ${totals['subtotal'] + totals['overhead']:.2f}")
-        report.append(f"Profit Margin ({self.estimate.profit_margin_percent}%):{'.' * 42} ${totals['profit']:>10.2f}")
+        report.append(f"{'Total Direct Costs (Subtotal)':<65} {symbol}{totals['subtotal']:.2f}")
+        report.append(f"Overhead ({self.estimate.overhead_percent}%):{'.' * 45} {symbol}{totals['overhead']:>10.2f}")
+        report.append(f"{'Total Cost':<65} {symbol}{totals['subtotal'] + totals['overhead']:.2f}")
+        report.append(f"Profit Margin ({self.estimate.profit_margin_percent}%):{'.' * 42} {symbol}{totals['profit']:>10.2f}")
         report.append(sep_short)
-        report.append(f"{'GRAND TOTAL':<65} ${totals['grand_total']:>10.2f}")
+        report.append(f"{'GRAND TOTAL':<65} {symbol}{totals['grand_total']:>10.2f}")
         report.append(sep_long)
 
         self.report_text.setText("\n".join(report))

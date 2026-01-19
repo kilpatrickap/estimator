@@ -185,7 +185,7 @@ class ItemDialog(QDialog):
         for i, (label, widget_class) in enumerate(self.fields):
             widget = widget_class()
             if data:
-                widget.setText(data[i])
+                widget.setText(str(data[i]))
             self.layout.addRow(label, widget)
             self.inputs.append(widget)
 

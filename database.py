@@ -31,23 +31,29 @@ class Task:
 
 
 class Estimate:
-    def __init__(self, project_name, client_name, overhead, profit):
+    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)"):
         self.id = None  # Will be set when loaded/saved
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead
         self.profit_margin_percent = profit
+        self.currency = currency
         self.tasks = []
 
     def add_task(self, task): self.tasks.append(task)
 
     def calculate_totals(self):
-        subtotal = sum(task.get_subtotal() for task in self.tasks)
-        overhead_cost = subtotal * (self.overhead_percent / 100.0)
-        total_cost = subtotal + overhead_cost
-        profit_amount = total_cost * (self.profit_margin_percent / 100.0)
-        grand_total = total_cost + profit_amount
-        return {"subtotal": subtotal, "overhead": overhead_cost, "profit": profit_amount, "grand_total": grand_total}
+        subtotal = sum(t.get_subtotal() for t in self.tasks)
+        overhead = subtotal * (self.overhead_percent / 100)
+        profit = (subtotal + overhead) * (self.profit_margin_percent / 100)
+        grand_total = subtotal + overhead + profit
+        return {
+            "subtotal": subtotal,
+            "overhead": overhead,
+            "profit": profit,
+            "grand_total": grand_total,
+            "currency": self.currency
+        }
 
 
 DB_FILE = "construction_costs.db"
@@ -60,6 +66,24 @@ class DatabaseManager:
         self.db_file = db_file
         if not os.path.exists(self.db_file):
             self._init_db()
+        else:
+            self._migrate_db()
+
+    def _migrate_db(self):
+        """Adds missing columns to the database if they don't exist."""
+        conn = self._get_connection()
+        cursor = conn.cursor()
+        try:
+            # Check if currency column exists in estimates table
+            cursor.execute("PRAGMA table_info(estimates)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'currency' not in columns:
+                cursor.execute("ALTER TABLE estimates ADD COLUMN currency TEXT")
+                conn.commit()
+        except sqlite3.Error:
+            pass
+        finally:
+            conn.close()
 
     def _get_connection(self):
         conn = sqlite3.connect(self.db_file)
@@ -85,6 +109,7 @@ class DatabaseManager:
                 client_name TEXT,
                 overhead_percent REAL,
                 profit_margin_percent REAL,
+                currency TEXT,
                 date_created TEXT
             )
         ''')
@@ -205,10 +230,11 @@ class DatabaseManager:
         cursor = conn.cursor()
         try:
             # 1. Save main estimate record
-            sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, date_created) VALUES (?, ?, ?, ?, ?)"
+            sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created) VALUES (?, ?, ?, ?, ?, ?)"
             cursor.execute(sql, (
                 estimate_obj.project_name, estimate_obj.client_name,
                 estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
+                estimate_obj.currency,
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ))
             estimate_id = cursor.lastrowid
@@ -265,7 +291,7 @@ class DatabaseManager:
         if not est_data: return None
 
         loaded_estimate = Estimate(est_data['project_name'], est_data['client_name'], est_data['overhead_percent'],
-                                   est_data['profit_margin_percent'])
+                                   est_data['profit_margin_percent'], currency=est_data['currency'] or "GHS (₵)")
         loaded_estimate.id = est_data['id']
 
         cursor.execute("SELECT * FROM tasks WHERE estimate_id = ?", (estimate_id,))
