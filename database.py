@@ -101,6 +101,18 @@ class DatabaseManager:
             if 'currency' not in columns:
                 cursor.execute("ALTER TABLE equipment ADD COLUMN currency TEXT DEFAULT 'GHS (₵)'")
                 conn.commit()
+
+            # Add Date, Location, Remarks to materials, labor, and equipment
+            for table in ['materials', 'labor', 'equipment']:
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = [info['name'] for info in cursor.fetchall()]
+                if 'date_added' not in columns:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN date_added TEXT")
+                if 'location' not in columns:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN location TEXT")
+                if 'remarks' not in columns:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN remarks TEXT")
+                conn.commit()
         except sqlite3.Error:
             pass
         finally:
@@ -118,9 +130,9 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         # --- Core Cost Tables ---
-        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL)')
-        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL)')
-        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL)')
+        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, remarks TEXT)')
 
         # --- Estimate Storage Tables (Updated Schema) ---
         cursor.execute('''
@@ -196,9 +208,9 @@ class DatabaseManager:
         conn = self._get_connection()
         # Use explicit column lists to ensure consistent order regardless of migration history
         col_map = {
-            'materials': 'id, name, unit, currency, price',
-            'labor': 'id, trade, currency, rate_per_hour',
-            'equipment': 'id, name, currency, rate_per_hour'
+            'materials': 'id, name, unit, currency, price, date_added, location, remarks',
+            'labor': 'id, trade, currency, rate_per_hour, date_added, location, remarks',
+            'equipment': 'id, name, currency, rate_per_hour, date_added, location, remarks'
         }
         cols = col_map.get(table_name, '*')
         sort_col = "name" if table_name in ["materials", "equipment"] else "trade"
@@ -210,9 +222,9 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             sql_map = {
-                'materials': 'INSERT INTO materials (name, unit, currency, price) VALUES (?,?,?,?)',
-                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour) VALUES (?,?,?)',
-                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour) VALUES (?,?,?)'
+                'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)',
+                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)',
+                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return False
@@ -227,9 +239,9 @@ class DatabaseManager:
     def update_item(self, table_name, item_id, data):
         conn = self._get_connection()
         sql_map = {
-            'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=? WHERE id=?',
-            'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=? WHERE id=?',
-            'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=? WHERE id=?'
+            'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, remarks=? WHERE id=?',
+            'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=?, date_added=?, location=?, remarks=? WHERE id=?',
+            'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=?, date_added=?, location=?, remarks=? WHERE id=?'
         }
         sql = sql_map.get(table_name)
         if not sql: return

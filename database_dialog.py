@@ -27,9 +27,9 @@ class DatabaseManagerDialog(QDialog):
         self.tabs.addTab(self.equipment_tab, "Equipment")
 
         # Setup UI for each tab
-        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Currency", "Price"])
-        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Currency", "Rate per Hour"])
-        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Currency", "Rate per Hour"])
+        self._setup_tab(self.materials_tab, "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Remarks"])
+        self._setup_tab(self.labor_tab, "labor", ["ID", "Labor", "Currency", "Rate per Hour", "Date", "Location", "Remarks"])
+        self._setup_tab(self.equipment_tab, "equipment", ["ID", "Equipment", "Currency", "Rate per Hour", "Date", "Location", "Remarks"])
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
@@ -116,14 +116,15 @@ class DatabaseManagerDialog(QDialog):
                     item = QTableWidgetItem(str(data))
                     table.setItem(row_num, col_num, item)
                 else:
-                    # Format price/rate (last column) to 2 decimal places
-                    if col_num == len(row_data) - 1:
+                    # Format price/rate (index 4 for materials, 3 for others) to 2 decimal places
+                    price_col = 4 if table_name == "materials" else 3
+                    if col_num == price_col:
                         try:
                             display_text = f"{float(data):.2f}"
                         except (ValueError, TypeError):
-                            display_text = str(data)
+                            display_text = str(data) if data is not None else ""
                     else:
-                        display_text = str(data)
+                        display_text = str(data) if data is not None else ""
                         
                     item = QTableWidgetItem(display_text)
                     table.setItem(row_num, col_num, item)
@@ -219,11 +220,20 @@ class ItemDialog(QDialog):
         self.inputs = []
 
         if table_name == "materials":
-            self.fields = [("Material", QLineEdit), ("Unit", QLineEdit), ("Currency", QComboBox), ("Price", QLineEdit)]
+            self.fields = [
+                ("Material", QLineEdit), ("Unit", QLineEdit), ("Currency", QComboBox), 
+                ("Price", QLineEdit), ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+            ]
         elif table_name == "labor":
-            self.fields = [("Labor", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit)]
+            self.fields = [
+                ("Labor", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit),
+                ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+            ]
         elif table_name == "equipment":
-            self.fields = [("Equipment", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit)]
+            self.fields = [
+                ("Equipment", QLineEdit), ("Currency", QComboBox), ("Rate per Hour", QLineEdit),
+                ("Date", QLineEdit), ("Location", QLineEdit), ("Remarks", QLineEdit)
+            ]
         else:
             self.fields = []
 
@@ -255,12 +265,19 @@ class ItemDialog(QDialog):
             else:
                 data.append(widget.text())
                 
-        if not all(str(d).strip() for d in data):
-            QMessageBox.warning(self, "Input Error", "All fields must be filled.")
+        if not all(str(d).strip() for i, d in enumerate(data) if self.fields[i][0] not in ["Remarks", "Location", "Date"]):
+            QMessageBox.warning(self, "Input Error", "Required fields must be filled (Remarks, Location, and Date are optional).")
             return None
         try:
-            # Last field is always numeric (price/rate)
-            data[-1] = float(data[-1])
+            # Find the index of Price/Rate field to convert to float
+            price_index = -1
+            for i, (label, _) in enumerate(self.fields):
+                if label in ["Price", "Rate per Hour"]:
+                    price_index = i
+                    break
+            
+            if price_index != -1:
+                data[price_index] = float(data[price_index])
             return tuple(data)
         except ValueError:
             QMessageBox.warning(self, "Input Error", "Price/Rate must be a valid number.")
