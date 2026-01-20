@@ -38,7 +38,10 @@ class Estimate:
         self.overhead_percent = overhead
         self.profit_margin_percent = profit
         self.currency = currency
-        self.date = date or datetime.now().strftime('%Y-%m-%d')
+        if date and len(date) == 10:
+            self.date = f"{date} {datetime.now().strftime('%H:%M:%S')}"
+        else:
+            self.date = date or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.tasks = []
 
     def add_task(self, task): self.tasks.append(task)
@@ -294,15 +297,32 @@ class DatabaseManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            # 1. Save main estimate record
-            sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created) VALUES (?, ?, ?, ?, ?, ?)"
-            cursor.execute(sql, (
-                estimate_obj.project_name, estimate_obj.client_name,
-                estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                estimate_obj.currency,
-                estimate_obj.date
-            ))
-            estimate_id = cursor.lastrowid
+            if estimate_obj.id:
+                # 1. Update existing estimate record
+                sql = """UPDATE estimates 
+                         SET project_name = ?, client_name = ?, overhead_percent = ?, 
+                             profit_margin_percent = ?, currency = ?, date_created = ? 
+                         WHERE id = ?"""
+                cursor.execute(sql, (
+                    estimate_obj.project_name, estimate_obj.client_name,
+                    estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
+                    estimate_obj.currency, estimate_obj.date, estimate_obj.id
+                ))
+                estimate_id = estimate_obj.id
+                
+                # Clear existing tasks to avoid duplicates - cascading deletes items too
+                cursor.execute("DELETE FROM tasks WHERE estimate_id = ?", (estimate_id,))
+            else:
+                # 1. Save new main estimate record
+                sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created) VALUES (?, ?, ?, ?, ?, ?)"
+                cursor.execute(sql, (
+                    estimate_obj.project_name, estimate_obj.client_name,
+                    estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
+                    estimate_obj.currency,
+                    estimate_obj.date
+                ))
+                estimate_id = cursor.lastrowid
+                estimate_obj.id = estimate_id
 
             # 2. Save each task and its items
             for task_obj in estimate_obj.tasks:

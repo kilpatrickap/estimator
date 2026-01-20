@@ -513,7 +513,8 @@ class ReportDialog(QDialog):
         
         # Display date in DD-MM-YY format if it matches the DB format
         from PyQt6.QtCore import QDate
-        qdate = QDate.fromString(self.estimate.date, "yyyy-MM-dd")
+        # Parse only the date part (first 10 chars) to handle strings with time
+        qdate = QDate.fromString(self.estimate.date[:10], "yyyy-MM-dd")
         display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else self.estimate.date
         
         report.append(f"{'Date:':<12} {display_date}")

@@ -178,7 +178,8 @@ class EditEstimateDialog(QDialog):
         self.project_date_input = QDateEdit()
         self.project_date_input.setCalendarPopup(True)
         self.project_date_input.setDisplayFormat("dd-MM-yy")
-        qdate = QDate.fromString(project_date, "yyyy-MM-dd")
+        # Parse only the date part (first 10 chars) to handle strings with time
+        qdate = QDate.fromString(project_date[:10], "yyyy-MM-dd")
         if qdate.isValid():
             self.project_date_input.setDate(qdate)
         else:
