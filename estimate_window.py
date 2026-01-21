@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
                              QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
+from report_generator import ReportGenerator
 from PyQt6.QtGui import QFont, QDoubleValidator
 from PyQt6.QtCore import Qt, QDate, QTimer
 # ... imports ...
@@ -341,12 +342,24 @@ class EstimateWindow(QMainWindow):
         self.profit_label.setText(f"{symbol}{totals['profit']:.2f}")
         self.grand_total_label.setText(f"{symbol}{totals['grand_total']:.2f}")
 
+
+
     def generate_report(self):
-        report_dialog = ReportDialog(self.estimate, self)
-        report_dialog.exec()
+        filename, _ = QFileDialog.getSaveFileName(self, "Export PDF Report", 
+                                                  f"{self.estimate.project_name}_estimate.pdf",
+                                                  "PDF Files (*.pdf)")
+        if filename:
+            try:
+                # Get company name from settings
+                company_name = self.db_manager.get_setting("company_name", "")
+                
+                generator = ReportGenerator(self.estimate)
+                if generator.export_to_pdf(filename, company_name):
+                    QMessageBox.information(self, "Success", f"Report successfully exported to:\n{filename}")
+            except Exception as e:
+                QMessageBox.critical(self, "Export Error", f"Failed to generate report:\n{str(e)}")
 
 
-# --- START OF CHANGE: Updated SelectItemDialog with Search ---
 class SelectItemDialog(QDialog):
     def __init__(self, item_type, parent=None):
         super().__init__(parent)
@@ -487,108 +500,3 @@ class SelectItemDialog(QDialog):
 # --- END OF CHANGE ---
 
 
-class ReportDialog(QDialog):
-    def __init__(self, estimate, parent=None):
-        super().__init__(parent)
-        self.estimate = estimate
-        self.setWindowTitle("Final Estimate Report")
-        self.setMinimumSize(960, 720)
-
-        # Extract currency symbol
-        import re
-        match = re.search(r'\((.*?)\)', self.estimate.currency)
-        self.currency_symbol = match.group(1) if match else "$"
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
-
-        self.report_text = QTextEdit()
-        self.report_text.setReadOnly(True)
-        # Use a more modern monospace font
-        self.report_text.setFont(QFont("Consolas", 11) if sys.platform == "win32" else QFont("Monospace", 11))
-        self.report_text.setStyleSheet("border: 1px solid #dcdfe6; border-radius: 4px; background-color: white; padding: 10px;")
-        layout.addWidget(self.report_text)
-
-        button_layout = QHBoxLayout()
-        button_layout.addStretch(1)
-        
-        save_btn = QPushButton("Save to File")
-        save_btn.setMinimumHeight(40)
-        save_btn.clicked.connect(self.save_report)
-        
-        close_btn = QPushButton("Close")
-        close_btn.setMinimumHeight(40)
-        close_btn.setStyleSheet("QPushButton { background-color: #909399; color: white; }")
-        close_btn.clicked.connect(self.accept)
-        
-        button_layout.addWidget(save_btn)
-        button_layout.addWidget(close_btn)
-        layout.addLayout(button_layout)
-        
-        self.generate_report_text()
-
-    def generate_report_text(self):
-        totals = self.estimate.calculate_totals()
-        symbol = self.currency_symbol
-        report = []
-        sep_long = "=" * 80
-        sep_short = "-" * 80
-
-        report.append(sep_long)
-        report.append("CONSTRUCTION ESTIMATE".center(80))
-        report.append(sep_short)
-        report.append(f"{'Project:':<12} {self.estimate.project_name}")
-        report.append(f"{'Location:':<12} {self.estimate.client_name}")
-        
-        # Display date in DD-MM-YY format if it matches the DB format
-        from PyQt6.QtCore import QDate
-        # Parse only the date part (first 10 chars) to handle strings with time
-        qdate = QDate.fromString(self.estimate.date[:10], "yyyy-MM-dd")
-        display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else self.estimate.date
-        
-        report.append(f"{'Date:':<12} {display_date}")
-        report.append(f"{'Currency:':<12} {self.estimate.currency}")
-        report.append(sep_long)
-
-        for i, task in enumerate(self.estimate.tasks, 1):
-            report.append(f"\nTASK {i}: {task.description.upper()}")
-            if task.materials:
-                report.append("  Materials:")
-                for m in task.materials:
-                    report.append(
-                        f"    - {m['name']:<30} {m['qty']:>8.2f} {m['unit']:<10} @ {symbol}{m['unit_cost']:>8.2f} = {symbol}{m['total']:>10.2f}")
-            if task.labor:
-                report.append("  Labor:")
-                for l in task.labor:
-                    report.append(
-                        f"    - {l['trade']:<30} {l['hours']:>8.2f} {'hrs':<10} @ {symbol}{l['rate']:>8.2f} = {symbol}{l['total']:>10.2f}")
-            if task.equipment:
-                report.append("  Equipment:")
-                for e in task.equipment:
-                    report.append(
-                        f"    - {e['name']:<30} {e['hours']:>8.2f} {'hrs':<10} @ {symbol}{e['rate']:>8.2f} = {symbol}{e['total']:>10.2f}")
-
-            report.append(f"{'':<65}----------")
-            report.append(f"{'Task Subtotal:':>65} {symbol}{task.get_subtotal():>10.2f}")
-
-        report.append("\n" + sep_long)
-        report.append("SUMMARY".center(80))
-        report.append(sep_short)
-        report.append(f"{'Total Direct Costs (Subtotal)':<65} {symbol}{totals['subtotal']:.2f}")
-        report.append(f"Overhead ({self.estimate.overhead_percent}%):{'.' * 45} {symbol}{totals['overhead']:>10.2f}")
-        report.append(f"{'Total Cost':<65} {symbol}{totals['subtotal'] + totals['overhead']:.2f}")
-        report.append(f"Profit Margin ({self.estimate.profit_margin_percent}%):{'.' * 42} {symbol}{totals['profit']:>10.2f}")
-        report.append(sep_short)
-        report.append(f"{'GRAND TOTAL':<65} {symbol}{totals['grand_total']:>10.2f}")
-        report.append(sep_long)
-
-        self.report_text.setText("\n".join(report))
-
-    def save_report(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Report", f"{self.estimate.project_name}_estimate.txt",
-                                                  "Text Files (*.txt)")
-        if filename:
-            with open(filename, 'w') as f:
-                f.write(self.report_text.toPlainText())
-            QMessageBox.information(self, "Success", f"Report saved to {filename}")
