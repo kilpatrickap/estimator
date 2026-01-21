@@ -8,7 +8,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
 from report_generator import ReportGenerator
 from PyQt6.QtGui import QFont, QDoubleValidator
 from PyQt6.QtCore import Qt, QDate, QTimer
-# ... imports ...
+from database import DatabaseManager
+from models import Estimate, Task
 
 
 class EstimateWindow(QMainWindow):
@@ -60,6 +61,9 @@ class EstimateWindow(QMainWindow):
         import re
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
+
+
+
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -192,7 +196,7 @@ class EstimateWindow(QMainWindow):
         save_estimate_btn.clicked.connect(self.save_estimate)
         generate_report_btn.clicked.connect(self.generate_report)
 
-        self.refresh_view()
+        self.refresh_tree()
 
     def _get_selected_task_object(self):
         """Helper to find the parent task object from any selection in the tree."""
