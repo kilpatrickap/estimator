@@ -28,8 +28,8 @@ class ReportGenerator:
                 table.items th {{ background-color: #f5f5f5; padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
                 table.items td {{ padding: 10px; border-bottom: 1px solid #eee; }}
                 .total-row td {{ font-weight: bold; background-color: #f9f9f9; }}
-                .grand-total { font-size: 18px; font-weight: bold; color: #2e7d32; padding-top: 20px; text-align: right; }
-                .footer { margin-top: 50px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
+                .grand-total {{ font-size: 18px; font-weight: bold; color: #2e7d32; padding-top: 20px; text-align: right; }}
+                .footer {{ margin-top: 50px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
             </style>
         </head>
         <body>

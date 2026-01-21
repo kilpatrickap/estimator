@@ -439,7 +439,7 @@ class DatabaseManager:
         """Retrieves the N most recent estimates."""
         conn = self._get_connection()
         try:
-            sql = "SELECT id, project_name, client_name, date_created FROM estimates ORDER BY date_created DESC LIMIT ?"
+            sql = "SELECT id, project_name, client_name, date_created, grand_total FROM estimates ORDER BY date_created DESC LIMIT ?"
             estimates = conn.cursor().execute(sql, (limit,)).fetchall()
             return estimates
         finally:

@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt, QDate
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
 from database import DatabaseManager
+from chart_widget import DashboardChart
 
 
 from settings_dialog import SettingsDialog
@@ -106,6 +107,9 @@ class MainWindow(QMainWindow):
         self.metrics_container.addStretch(1) 
         
         layout.addLayout(self.metrics_container)
+        
+        self.chart = DashboardChart()
+        layout.addWidget(self.chart)
 
         # Recent Estimates Section
         section_label = QLabel("Recent Estimates")
@@ -168,17 +172,27 @@ class MainWindow(QMainWindow):
         self.recent_list.clear()
         recents = self.db_manager.get_recent_estimates(5)
         
+        # Prepare chart data (Project Name, Grand Total)
+        chart_data = []
+        
         if not recents:
             item = QListWidgetItem("No estimates found. Create a new one to get started!")
             item.setFlags(Qt.ItemFlag.NoItemFlags) # Make unselectable
             self.recent_list.addItem(item)
         else:
             for est in recents:
+                # Add to chart data (Label, Value)
+                # Ensure grand_total is treated as 0 if None/Null
+                val = est['grand_total'] if est['grand_total'] is not None else 0.0
+                chart_data.append((est['project_name'][:10], val)) # Truncate label
+                
                 # Store ID in UserRole to retrieve later
                 item = QListWidgetItem(f"{est['project_name']} (Client: {est['client_name']})\n{est['date_created']}")
                 item.setData(Qt.ItemDataRole.UserRole, est['id'])
                 # Use a custom font or style if needed, but QSS handles most
                 self.recent_list.addItem(item)
+                
+        self.chart.set_data(list(reversed(chart_data))) # Show oldest on left, newest on right
 
     def open_recent_estimate(self, item):
         est_id = item.data(Qt.ItemDataRole.UserRole)
