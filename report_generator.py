@@ -101,7 +101,7 @@ class ReportGenerator:
                 try:
                     img = Image(company_logo)
                     # Resize: 5x smaller than original 40mm = 8mm
-                    max_height = 8*mm
+                    max_height = 16*mm
                     aspect = img.imageHeight / img.imageWidth
                     
                     if img.imageHeight > max_height:
