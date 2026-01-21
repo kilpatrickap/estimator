@@ -256,7 +256,7 @@ class EstimateWindow(QMainWindow):
             task_item.task_object = task  # Attach the main task object
             
             # Bold the task (parent) row
-            bold_font = QFont()
+            bold_font = self.tree.font()
             bold_font.setBold(True)
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)

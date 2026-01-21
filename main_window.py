@@ -36,7 +36,7 @@ class MainWindow(QMainWindow):
 
         subtitle = QLabel("Professional Construction Cost Estimation")
         subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #606266; font-size: 16px; margin-bottom: 30px;")
+        subtitle.setStyleSheet("color: #606266; font-size: 12pt; margin-bottom: 30px;")
         self.layout.addWidget(subtitle)
 
         # Container for buttons to control their max width on large screens

@@ -14,7 +14,7 @@ if __name__ == "__main__":
     # Apply a modern stylesheet for better look and feel and responsiveness
     app.setStyleSheet("""
         QWidget {
-            font-size: 14px;
+            font-size: 10pt;
             font-family: "Segoe UI", "Roboto", "Helvetica Neue", sans-serif;
         }
         QMainWindow {
