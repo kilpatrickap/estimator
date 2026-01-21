@@ -69,8 +69,15 @@ class EstimateWindow(QMainWindow):
             btn.setMinimumHeight(40)
             btn_layout.addWidget(btn)
         
-        remove_btn.setStyleSheet("background-color: #d32f2f;") # Red for remove
-        remove_btn.setStyleSheet(remove_btn.styleSheet() + " QPushButton:hover { background-color: #ef5350; }")
+        remove_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+            }
+            QPushButton:hover {
+                background-color: #ef5350;
+            }
+        """)
 
         left_layout.addLayout(btn_layout)
         self.splitter.addWidget(left_widget)
@@ -489,7 +496,7 @@ class ReportDialog(QDialog):
         
         close_btn = QPushButton("Close")
         close_btn.setMinimumHeight(40)
-        close_btn.setStyleSheet("background-color: #909399;")
+        close_btn.setStyleSheet("QPushButton { background-color: #909399; color: white; }")
         close_btn.clicked.connect(self.accept)
         
         button_layout.addWidget(save_btn)

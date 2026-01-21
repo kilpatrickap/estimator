@@ -15,13 +15,13 @@ if __name__ == "__main__":
     app.setStyleSheet("""
         QWidget {
             font-size: 10pt;
-            font-family: "Segoe UI", "Roboto", "Helvetica Neue", sans-serif;
+            font-family: "Segoe UI", sans-serif;
         }
         QMainWindow {
             background-color: #f5f7f9;
         }
         QPushButton {
-            background-color: #2e7d32; /* Richer Green */
+            background-color: #2e7d32;
             color: white;
             padding: 10px 20px;
             border: none;
