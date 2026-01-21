@@ -3,61 +3,7 @@
 import sqlite3
 import os
 from datetime import datetime
-
-
-# Keep the model classes here for easy access
-class Task:
-    def __init__(self, description):
-        self.description = description
-        self.materials = []
-        self.labor = []
-        self.equipment = []
-
-    def add_material(self, name, quantity, unit, unit_cost):
-        self.materials.append(
-            {'name': name, 'qty': quantity, 'unit': unit, 'unit_cost': unit_cost, 'total': quantity * unit_cost})
-
-    def add_labor(self, trade, hours, rate):
-        self.labor.append({'trade': trade, 'hours': hours, 'rate': rate, 'total': hours * rate})
-
-    def add_equipment(self, name, hours, rate):
-        self.equipment.append({'name': name, 'hours': hours, 'rate': rate, 'total': hours * rate})
-
-    def get_subtotal(self):
-        mat_total = sum(m['total'] for m in self.materials)
-        lab_total = sum(l['total'] for l in self.labor)
-        equip_total = sum(e['total'] for e in self.equipment)
-        return mat_total + lab_total + equip_total
-
-
-class Estimate:
-    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None):
-        self.id = None  # Will be set when loaded/saved
-        self.project_name = project_name
-        self.client_name = client_name
-        self.overhead_percent = overhead
-        self.profit_margin_percent = profit
-        self.currency = currency
-        if date and len(date) == 10:
-            self.date = f"{date} {datetime.now().strftime('%H:%M:%S')}"
-        else:
-            self.date = date or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.tasks = []
-
-    def add_task(self, task): self.tasks.append(task)
-
-    def calculate_totals(self):
-        subtotal = sum(t.get_subtotal() for t in self.tasks)
-        overhead = subtotal * (self.overhead_percent / 100)
-        profit = (subtotal + overhead) * (self.profit_margin_percent / 100)
-        grand_total = subtotal + overhead + profit
-        return {
-            "subtotal": subtotal,
-            "overhead": overhead,
-            "profit": profit,
-            "grand_total": grand_total,
-            "currency": self.currency
-        }
+from models import Task, Estimate
 
 
 DB_FILE = "construction_costs.db"
@@ -78,13 +24,23 @@ class DatabaseManager:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            # Check if currency column exists in estimates table
+            # Check if grand_total column exists in estimates table
             cursor.execute("PRAGMA table_info(estimates)")
             columns = [info['name'] for info in cursor.fetchall()]
-            if 'currency' not in columns:
-                cursor.execute("ALTER TABLE estimates ADD COLUMN currency TEXT")
+
+            if 'grand_total' not in columns:
+                cursor.execute("ALTER TABLE estimates ADD COLUMN grand_total REAL DEFAULT 0.0")
                 conn.commit()
-            
+
+            # Create settings table if it doesn't exist
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT
+                )
+            ''')
+            conn.commit()
+
             # Check if currency column exists in materials table
             cursor.execute("PRAGMA table_info(materials)")
             columns = [info['name'] for info in cursor.fetchall()]
@@ -139,6 +95,9 @@ class DatabaseManager:
         cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        
+        # --- Settings Table ---
+        cursor.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
 
         # --- Estimate Storage Tables (Updated Schema) ---
         cursor.execute('''
@@ -149,7 +108,8 @@ class DatabaseManager:
                 overhead_percent REAL,
                 profit_margin_percent REAL,
                 currency TEXT,
-                date_created TEXT
+                date_created TEXT,
+                grand_total REAL DEFAULT 0.0
             )
         ''')
         cursor.execute('''
@@ -213,6 +173,11 @@ class DatabaseManager:
         cursor.executemany('INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_materials)
         cursor.executemany('INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_labor)
         cursor.executemany('INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_equipment)
+        
+        # Insert default settings
+        cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('currency', 'GHS (₵)'))
+        cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('overhead', '15.0'))
+        cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('profit', '10.0'))
 
         conn.commit()
         conn.close()
@@ -296,17 +261,22 @@ class DatabaseManager:
     def save_estimate(self, estimate_obj):
         conn = self._get_connection()
         cursor = conn.cursor()
+        
+        # Calculate grand total for storage
+        totals = estimate_obj.calculate_totals()
+        grand_total = totals['grand_total']
+        
         try:
             if estimate_obj.id:
                 # 1. Update existing estimate record
                 sql = """UPDATE estimates 
                          SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                             profit_margin_percent = ?, currency = ?, date_created = ? 
+                             profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ? 
                          WHERE id = ?"""
                 cursor.execute(sql, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                    estimate_obj.currency, estimate_obj.date, estimate_obj.id
+                    estimate_obj.currency, estimate_obj.date, grand_total, estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
                 
@@ -314,12 +284,13 @@ class DatabaseManager:
                 cursor.execute("DELETE FROM tasks WHERE estimate_id = ?", (estimate_id,))
             else:
                 # 1. Save new main estimate record
-                sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created) VALUES (?, ?, ?, ?, ?, ?)"
+                sql = "INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total) VALUES (?, ?, ?, ?, ?, ?, ?)"
                 cursor.execute(sql, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency,
-                    estimate_obj.date
+                    estimate_obj.date,
+                    grand_total
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -463,3 +434,52 @@ class DatabaseManager:
         finally:
             conn.close()
     # --- END OF CHANGE ---
+
+    def get_recent_estimates(self, limit=5):
+        """Retrieves the N most recent estimates."""
+        conn = self._get_connection()
+        try:
+            sql = "SELECT id, project_name, client_name, date_created FROM estimates ORDER BY date_created DESC LIMIT ?"
+            estimates = conn.cursor().execute(sql, (limit,)).fetchall()
+            return estimates
+        finally:
+            conn.close()
+
+    def get_total_estimates_count(self):
+        """Returns the total number of estimates."""
+        conn = self._get_connection()
+        try:
+            return conn.cursor().execute("SELECT COUNT(*) FROM estimates").fetchone()[0]
+        finally:
+            conn.close()
+
+    def get_total_estimates_value(self):
+        """Returns the sum of grand_total for all estimates."""
+        conn = self._get_connection()
+        try:
+            val = conn.cursor().execute("SELECT SUM(grand_total) FROM estimates").fetchone()[0]
+            return val if val else 0.0
+        finally:
+            conn.close()
+
+    def get_setting(self, key, default=None):
+        """Retrieves a setting value by key."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("SELECT value FROM settings WHERE key = ?", (key,))
+            result = cursor.fetchone()
+            return result['value'] if result else default
+        finally:
+            conn.close()
+
+    def set_setting(self, key, value):
+        """Sets a setting value."""
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+            conn.commit()
+            return True
+        finally:
+            conn.close()

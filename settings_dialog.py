@@ -1,0 +1,61 @@
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
+                             QDialogButtonBox, QLabel, QMessageBox)
+from PyQt6.QtGui import QDoubleValidator
+from database import DatabaseManager
+
+class SettingsDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Application Settings")
+        self.setMinimumWidth(400)
+        self.db_manager = DatabaseManager()
+
+        layout = QVBoxLayout(self)
+
+        form_layout = QFormLayout()
+
+        # Default Currency
+        self.currency_combo = QComboBox()
+        self.currency_combo.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
+        current_currency = self.db_manager.get_setting('currency', 'GHS (₵)')
+        self.currency_combo.setCurrentText(current_currency)
+        
+        # Default Overhead
+        self.overhead_input = QLineEdit()
+        pct_validator = QDoubleValidator(0.0, 100.0, 2)
+        self.overhead_input.setValidator(pct_validator)
+        self.overhead_input.setText(self.db_manager.get_setting('overhead', '15.00'))
+
+        # Default Profit
+        self.profit_input = QLineEdit()
+        self.profit_input.setValidator(pct_validator)
+        self.profit_input.setText(self.db_manager.get_setting('profit', '10.00'))
+
+        # Company Name (for reports)
+        self.company_name = QLineEdit()
+        self.company_name.setText(self.db_manager.get_setting('company_name', ''))
+        self.company_name.setPlaceholderText("Your Company Name")
+
+        form_layout.addRow("Default Currency:", self.currency_combo)
+        form_layout.addRow("Default Overhead (%):", self.overhead_input)
+        form_layout.addRow("Default Profit (%):", self.profit_input)
+        form_layout.addRow("Company Name:", self.company_name)
+
+        layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.save_settings)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+    def save_settings(self):
+        try:
+            self.db_manager.set_setting('currency', self.currency_combo.currentText())
+            self.db_manager.set_setting('overhead', float(self.overhead_input.text()))
+            self.db_manager.set_setting('profit', float(self.profit_input.text()))
+            self.db_manager.set_setting('company_name', self.company_name.text())
+            
+            QMessageBox.information(self, "Success", "Settings saved successfully.")
+            self.accept()
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Invalid numeric values for Overhead or Profit.")

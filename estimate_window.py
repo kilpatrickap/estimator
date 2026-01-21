@@ -6,8 +6,8 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
 from PyQt6.QtGui import QFont, QDoubleValidator
-from PyQt6.QtCore import Qt, QDate
-from database import DatabaseManager, Estimate, Task
+from PyQt6.QtCore import Qt, QDate, QTimer
+# ... imports ...
 
 
 class EstimateWindow(QMainWindow):
@@ -29,7 +29,30 @@ class EstimateWindow(QMainWindow):
         else:  # Fallback
             self.estimate = Estimate("Error", "Error", 0, 0)
 
+        # Setup Auto-Save
+        self.autosave_timer = QTimer(self)
+        self.autosave_timer.timeout.connect(self.auto_save)
+        self.autosave_timer.start(60000) # Auto-save every 60 seconds
+
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
+# ...
+    def auto_save(self):
+        """Silently saves the estimate if it has been saved before (has an ID)."""
+        if self.estimate.id:
+            # We save everything, including grand_total
+            self.db_manager.save_estimate(self.estimate)
+            # Optional: Update status bar to show "Auto-saved at HH:MM"
+            self.statusBar().showMessage(f"Auto-saved at {datetime.now().strftime('%H:%M')}", 3000)
+
+    def save_estimate(self):
+        reply = QMessageBox.question(self, "Confirm Save",
+                                     "Do you want to save this estimate to the database?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.db_manager.save_estimate(self.estimate):
+                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
+            else:
+                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
         self.setMinimumSize(1000, 700) # Increased default minimum
 
         # Extract currency symbol

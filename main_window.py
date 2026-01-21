@@ -3,75 +3,200 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
-                             QSizePolicy)
-from PyQt6.QtGui import QFont, QDoubleValidator
+                             QSizePolicy, QFrame, QListWidget, QListWidgetItem)
+from PyQt6.QtGui import QFont, QDoubleValidator, QIcon
 from PyQt6.QtCore import Qt, QDate
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
 from database import DatabaseManager
 
 
+from settings_dialog import SettingsDialog
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(1200, 800)
         self.db_manager = DatabaseManager()
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
-        self.layout = QVBoxLayout(self.central_widget)
-        self.layout.setContentsMargins(40, 40, 40, 40)
         
-        self.layout.addStretch(1)
+        # Main Horizontal Layout: Sidebar + Content
+        self.main_layout = QHBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
 
+        self._setup_sidebar()
+        self._setup_content_area()
+        self.refresh_dashboard()
+
+    def _setup_sidebar(self):
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("Sidebar")
+        self.sidebar.setFixedWidth(280)
+        
+        layout = QVBoxLayout(self.sidebar)
+        layout.setContentsMargins(30, 40, 30, 40)
+        layout.setSpacing(20)
+
+        # Title
         title = QLabel("Estimator Pro")
-        title_font = QFont()
-        title_font.setPointSize(32)
-        title_font.setBold(True)
-        title.setFont(title_font)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        title.setStyleSheet("color: #2e7d32; margin-bottom: 10px;")
-        self.layout.addWidget(title)
+        title.setObjectName("SidebarTitle")
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        layout.addWidget(title)
 
-        subtitle = QLabel("Professional Construction Cost Estimation")
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        subtitle.setStyleSheet("color: #606266; font-size: 12pt; margin-bottom: 30px;")
-        self.layout.addWidget(subtitle)
+        subtitle = QLabel("Professional Construction\nCost Estimation")
+        subtitle.setObjectName("SidebarSubtitle")
+        layout.addWidget(subtitle)
 
-        # Container for buttons to control their max width on large screens
-        button_container = QWidget()
-        button_layout = QVBoxLayout(button_container)
-        button_layout.setSpacing(15)
-
+        # Buttons
         self.new_estimate_btn = QPushButton("Create New Estimate")
-        self.new_estimate_btn.setMinimumHeight(50)
-
+        self.new_estimate_btn.setObjectName("SidebarBtn")
+        
         self.load_estimate_btn = QPushButton("Load Saved Estimate")
-        self.load_estimate_btn.setMinimumHeight(50)
-
+        self.load_estimate_btn.setObjectName("SidebarBtn")
+        
         self.manage_db_btn = QPushButton("Manage Cost Database")
-        self.manage_db_btn.setMinimumHeight(50)
+        self.manage_db_btn.setObjectName("SidebarBtn")
 
-        button_layout.addWidget(self.new_estimate_btn)
-        button_layout.addWidget(self.load_estimate_btn)
-        button_layout.addWidget(self.manage_db_btn)
+        self.settings_btn = QPushButton("Settings")
+        self.settings_btn.setObjectName("SidebarBtn")
+
+        layout.addWidget(self.new_estimate_btn)
+        layout.addWidget(self.load_estimate_btn)
+        layout.addWidget(self.manage_db_btn)
+        layout.addWidget(self.settings_btn)
+        layout.addStretch(1)
         
-        # Center the button container and limit its width
-        hbox = QHBoxLayout()
-        hbox.addStretch(1)
-        hbox.addWidget(button_container, 2) # Take up 2 units, stretches take 1 each side
-        hbox.addStretch(1)
-        
-        self.layout.addLayout(hbox)
-        self.layout.addStretch(1)
-
-        self.estimate_win = None
-        self.db_dialog = None
-
+        # Connect buttons
         self.new_estimate_btn.clicked.connect(self.new_estimate)
         self.load_estimate_btn.clicked.connect(self.load_estimate)
         self.manage_db_btn.clicked.connect(self.manage_database)
+        self.settings_btn.clicked.connect(self.open_settings)
+
+        self.main_layout.addWidget(self.sidebar)
+
+    def _setup_content_area(self):
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: #f5f7f9;")
+        
+        layout = QVBoxLayout(self.content_widget)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(30)
+
+        # Header
+        header_layout = QHBoxLayout()
+        header = QLabel("Dashboard")
+        header.setStyleSheet("font-size: 28px; font-weight: bold; color: #424242;")
+        header_layout.addWidget(header)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+
+        # Metrics Row
+        self.metrics_container = QHBoxLayout()
+        self.metrics_container.setSpacing(20)
+        
+        self.total_estimates_card = self._create_metric_card("Total Estimates", "0")
+        self.total_value_card = self._create_metric_card("Total Value", "$0.00")
+        
+        self.metrics_container.addWidget(self.total_estimates_card)
+        self.metrics_container.addWidget(self.total_value_card)
+        self.metrics_container.addStretch(1) 
+        
+        layout.addLayout(self.metrics_container)
+
+        # Recent Estimates Section
+        section_label = QLabel("Recent Estimates")
+        section_label.setObjectName("SectionHeader")
+        layout.addWidget(section_label)
+
+        self.recent_list = QListWidget()
+        self.recent_list.setStyleSheet("""
+            QListWidget {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                background-color: white;
+                padding: 10px;
+            }
+            QListWidget::item {
+                padding: 15px;
+                border-bottom: 1px solid #f0f0f0;
+            }
+            QListWidget::item:last {
+                border-bottom: none;
+            }
+            QListWidget::item:hover {
+                background-color: #f5f7f9;
+            }
+        """)
+        self.recent_list.itemDoubleClicked.connect(self.open_recent_estimate)
+        layout.addWidget(self.recent_list)
+
+        self.main_layout.addWidget(self.content_widget)
+
+    def _create_metric_card(self, label_text, value_text):
+        card = QFrame()
+        card.setObjectName("MetricCard")
+        card.setFixedSize(220, 120)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 20, 20, 20)
+        
+        value = QLabel(value_text)
+        value.setObjectName("MetricValue")
+        label = QLabel(label_text)
+        label.setObjectName("MetricLabel")
+        
+        card_layout.addWidget(value)
+        card_layout.addWidget(label)
+        card.value_label = value # Store reference to update later
+        return card
+
+    def refresh_dashboard(self):
+        """Refreshes the metrics and recent list."""
+        # Update Metrics
+        count = self.db_manager.get_total_estimates_count()
+        self.total_estimates_card.value_label.setText(str(count))
+        
+        total_value = self.db_manager.get_total_estimates_value()
+        # Use simple formatting for now, assuming mostly one currency or just showing raw value
+        # Ideally we'd segregate by currency, but for now let's just show the number
+        self.total_value_card.value_label.setText(f"{total_value:,.2f}")
+
+        # Update Recent List
+        self.recent_list.clear()
+        recents = self.db_manager.get_recent_estimates(5)
+        
+        if not recents:
+            item = QListWidgetItem("No estimates found. Create a new one to get started!")
+            item.setFlags(Qt.ItemFlag.NoItemFlags) # Make unselectable
+            self.recent_list.addItem(item)
+        else:
+            for est in recents:
+                # Store ID in UserRole to retrieve later
+                item = QListWidgetItem(f"{est['project_name']} (Client: {est['client_name']})\n{est['date_created']}")
+                item.setData(Qt.ItemDataRole.UserRole, est['id'])
+                # Use a custom font or style if needed, but QSS handles most
+                self.recent_list.addItem(item)
+
+    def open_recent_estimate(self, item):
+        est_id = item.data(Qt.ItemDataRole.UserRole)
+        if est_id:
+            estimate_obj = self.db_manager.load_estimate_details(est_id)
+            if estimate_obj:
+                self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
+                self.estimate_win.show()
+                # Refresh dashboard when the estimate window closes could be a nice addition
+            else:
+                QMessageBox.critical(self, "Error", "Failed to load the selected estimate.")
+
+    # --- Button Actions ---
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        if dialog.exec():
+            # If settings changed, maybe refresh dashboard or similar
+            pass
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
@@ -79,6 +204,7 @@ class MainWindow(QMainWindow):
             estimate_data = dialog.get_data()
             self.estimate_win = EstimateWindow(estimate_data=estimate_data)
             self.estimate_win.show()
+            self.refresh_dashboard()
 
     def load_estimate(self):
         dialog = LoadEstimateDialog(self)
@@ -88,8 +214,11 @@ class MainWindow(QMainWindow):
             if estimate_obj:
                 self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
                 self.estimate_win.show()
+                self.refresh_dashboard()
             else:
                 QMessageBox.critical(self, "Error", "Failed to load the selected estimate.")
+        else:
+            self.refresh_dashboard() # In case they deleted something
 
     def manage_database(self):
         self.db_dialog = DatabaseManagerDialog(self)
@@ -99,6 +228,7 @@ class MainWindow(QMainWindow):
 class NewEstimateDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.db_manager = DatabaseManager()
         self.setWindowTitle("New Project Details")
         self.setMinimumWidth(480)
         layout = QFormLayout(self)
@@ -115,19 +245,24 @@ class NewEstimateDialog(QDialog):
         pct_validator = QDoubleValidator(0.0, 100.0, 2)
         pct_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
 
+        # Load defaults from settings
+        default_overhead = self.db_manager.get_setting('overhead', '15.00')
+        default_profit = self.db_manager.get_setting('profit', '10.00')
+        default_currency = self.db_manager.get_setting('currency', 'GHS (₵)')
+
         self.overhead = QLineEdit()
         self.overhead.setPlaceholderText("0.00%")
-        self.overhead.setText("15.00")
+        self.overhead.setText(str(default_overhead))
         self.overhead.setValidator(pct_validator)
         
         self.profit = QLineEdit()
         self.profit.setPlaceholderText("0.00%")
-        self.profit.setText("10.00")
+        self.profit.setText(str(default_profit))
         self.profit.setValidator(pct_validator)
 
         self.currency = QComboBox()
         self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-        self.currency.setCurrentText("GHS (₵)")
+        self.currency.setCurrentText(default_currency)
 
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Location:", self.location)
@@ -229,11 +364,8 @@ class LoadEstimateDialog(QDialog):
 
         self.load_estimates()
 
-        # --- START OF FIX ---
-        # Corrected the typo QDialogButton-Box to QDialogButtonBox
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel)
-        # --- END OF FIX ---
         self.button_box.button(QDialogButtonBox.StandardButton.Open).setText("Load Selected")
         self.button_box.accepted.connect(self.accept_selection)
         self.button_box.rejected.connect(self.reject)
@@ -273,7 +405,7 @@ class LoadEstimateDialog(QDialog):
         selected_rows = self.table.selectionModel().selectedRows()
         if not selected_rows:
             QMessageBox.warning(self, "Selection Error", "Please select an estimate first.")
-            return None, None, None
+            return None, None, None, None
 
         row_index = selected_rows[0].row()
         est_id = int(self.table.item(row_index, 0).text())
