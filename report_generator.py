@@ -28,7 +28,7 @@ class ReportGenerator:
                 table.items th {{ background-color: #f5f5f5; padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
                 table.items td {{ padding: 10px; border-bottom: 1px solid #eee; }}
                 .total-row td {{ font-weight: bold; background-color: #f9f9f9; }}
-                .grand-total {{ font-size: 18px; font-weight: bold; color: #2e7d32; padding-top: 20px; text-align: right; }}
+                .grand-total {{ font-size: 18px; font-weight: bold; color: #2e7d32; border-top: 2px solid #2e7d32; padding-top: 10px; text-align: right; }}
                 .footer {{ margin-top: 50px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
             </style>
         </head>
@@ -97,27 +97,47 @@ class ReportGenerator:
             else:
                 html += "<p>No items in this task.</p>"
 
+
         # Summary
+        summary_rows = ""
+        for i, task in enumerate(self.estimate.tasks, 1):
+             summary_rows += f"""
+                <tr>
+                    <td>Task {i}: {task.description}</td>
+                    <td style="text-align: right;">{symbol}{task.get_subtotal():,.2f}</td>
+                </tr>
+             """
+
         html += f"""
-            <div style="page-break-inside: avoid;">
+            <div style="page-break-inside: avoid; margin-top: 40px;">
                 <h2>Summary</h2>
-                <table style="width: 50%; margin-left: auto;">
+                <table style="width: 60%; margin-left: auto; border-collapse: collapse;">
+                    {summary_rows}
                     <tr>
-                        <td>Subtotal:</td>
-                        <td style="text-align: right;">{symbol}{totals['subtotal']:,.2f}</td>
+                        <td style="border-top: 2px solid #333; font-weight: bold;">Sub Totals :</td>
+                        <td style="text-align: right; border-top: 2px solid #333; font-weight: bold;">{symbol}{totals['subtotal']:,.2f}</td>
+                    </tr>
+                    
+                    <tr style="height: 20px;"></tr>
+                    
+                    <tr>
+                        <td style="font-weight: bold;">Add :</td>
+                        <td></td>
                     </tr>
                     <tr>
                         <td>Overhead ({self.estimate.overhead_percent}%):</td>
                         <td style="text-align: right;">{symbol}{totals['overhead']:,.2f}</td>
                     </tr>
                     <tr>
-                        <td>Profit Margin ({self.estimate.profit_margin_percent}%):</td>
-                        <td style="text-align: right;">{symbol}{totals['profit']:,.2f}</td>
+                        <td style="border-bottom: 2px solid #333;">Profit Margin ({self.estimate.profit_margin_percent}%):</td>
+                        <td style="text-align: right; border-bottom: 2px solid #333;">{symbol}{totals['profit']:,.2f}</td>
                     </tr>
+                    
                     <tr style="height: 20px;"></tr>
+                    
                     <tr>
-                        <td class="grand-total">GRAND TOTAL:</td>
-                        <td class="grand-total" style="text-align: right;">{symbol}{totals['grand_total']:,.2f}</td>
+                        <td class="grand-total" style="border-top: none;">GRAND TOTAL :</td>
+                        <td class="grand-total" style="text-align: right; border-top: none;">{symbol}{totals['grand_total']:,.2f}</td>
                     </tr>
                 </table>
             </div>
