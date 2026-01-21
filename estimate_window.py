@@ -38,23 +38,7 @@ class EstimateWindow(QMainWindow):
 
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
 # ...
-    def auto_save(self):
-        """Silently saves the estimate if it has been saved before (has an ID)."""
-        if self.estimate.id:
-            # We save everything, including grand_total
-            self.db_manager.save_estimate(self.estimate)
-            # Optional: Update status bar to show "Auto-saved at HH:MM"
-            self.statusBar().showMessage(f"Auto-saved at {datetime.now().strftime('%H:%M')}", 3000)
 
-    def save_estimate(self):
-        reply = QMessageBox.question(self, "Confirm Save",
-                                     "Do you want to save this estimate to the database?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.db_manager.save_estimate(self.estimate):
-                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
-            else:
-                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
         self.setMinimumSize(1000, 700) # Increased default minimum
 
         # Extract currency symbol
@@ -196,7 +180,7 @@ class EstimateWindow(QMainWindow):
         save_estimate_btn.clicked.connect(self.save_estimate)
         generate_report_btn.clicked.connect(self.generate_report)
 
-        self.refresh_tree()
+        self.refresh_view()
 
     def _get_selected_task_object(self):
         """Helper to find the parent task object from any selection in the tree."""
@@ -345,6 +329,24 @@ class EstimateWindow(QMainWindow):
         self.overhead_label.setText(f"{symbol}{totals['overhead']:.2f}")
         self.profit_label.setText(f"{symbol}{totals['profit']:.2f}")
         self.grand_total_label.setText(f"{symbol}{totals['grand_total']:.2f}")
+
+    def auto_save(self):
+        """Silently saves the estimate if it has been saved before (has an ID)."""
+        if self.estimate.id:
+            self.db_manager.save_estimate(self.estimate)
+            self.statusBar().showMessage(f"Auto-saved at {datetime.now().strftime('%H:%M')}", 3000)
+
+    def save_estimate(self):
+        reply = QMessageBox.question(self, "Confirm Save",
+                                     "Do you want to save this estimate to the database?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.db_manager.save_estimate(self.estimate):
+                # Update ID if it was a new estimate
+                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
+            else:
+                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
+
 
 
 
