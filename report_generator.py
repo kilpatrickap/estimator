@@ -1,6 +1,8 @@
-from PyQt6.QtGui import QTextDocument, QFont
+from PyQt6.QtGui import QTextDocument, QFont, QPageSize
+from PyQt6.QtPrintSupport import QPrinter
 from PyQt6.QtCore import QSizeF, QDate
 import sys
+
 
 class ReportGenerator:
     def __init__(self, estimate):
@@ -26,8 +28,8 @@ class ReportGenerator:
                 table.items th {{ background-color: #f5f5f5; padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }}
                 table.items td {{ padding: 10px; border-bottom: 1px solid #eee; }}
                 .total-row td {{ font-weight: bold; background-color: #f9f9f9; }}
-                .grand-total {{ font-size: 18px; font-weight: bold; color: #2e7d32; text-align: right; margin-top: 30px; }}
-                .footer {{ margin-top: 50px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }}
+                .grand-total { font-size: 18px; font-weight: bold; color: #2e7d32; padding-top: 20px; text-align: right; }
+                .footer { margin-top: 50px; font-size: 12px; color: #777; text-align: center; border-top: 1px solid #eee; padding-top: 10px; }
             </style>
         </head>
         <body>
@@ -112,9 +114,10 @@ class ReportGenerator:
                         <td>Profit Margin ({self.estimate.profit_margin_percent}%):</td>
                         <td style="text-align: right;">{symbol}{totals['profit']:,.2f}</td>
                     </tr>
+                    <tr style="height: 20px;"></tr>
                     <tr>
                         <td class="grand-total">GRAND TOTAL:</td>
-                        <td class="grand-total">{symbol}{totals['grand_total']:,.2f}</td>
+                        <td class="grand-total" style="text-align: right;">{symbol}{totals['grand_total']:,.2f}</td>
                     </tr>
                 </table>
             </div>
@@ -135,7 +138,7 @@ class ReportGenerator:
         printer = QPrinter(QPrinter.PrinterMode.HighResolution)
         printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
         printer.setOutputFileName(filename)
-        printer.setPageSize(QPrinter.PageSize.A4)
+        printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
         
         doc.print(printer)
         return True
