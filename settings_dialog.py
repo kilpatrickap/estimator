@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
-                             QDialogButtonBox, QLabel, QMessageBox)
+                             QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout)
 from PyQt6.QtGui import QDoubleValidator
 from database import DatabaseManager
 
@@ -36,10 +36,23 @@ class SettingsDialog(QDialog):
         self.company_name.setText(self.db_manager.get_setting('company_name', ''))
         self.company_name.setPlaceholderText("Your Company Name")
 
+        # Company Logo
+        self.logo_path = QLineEdit()
+        self.logo_path.setReadOnly(True)
+        self.logo_path.setText(self.db_manager.get_setting('company_logo', ''))
+        self.logo_path.setPlaceholderText("No logo selected")
+        
+        logo_layout = QHBoxLayout()
+        logo_layout.addWidget(self.logo_path)
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_logo)
+        logo_layout.addWidget(browse_btn)
+
         form_layout.addRow("Default Currency:", self.currency_combo)
         form_layout.addRow("Default Overhead (%):", self.overhead_input)
         form_layout.addRow("Default Profit (%):", self.profit_input)
         form_layout.addRow("Company Name:", self.company_name)
+        form_layout.addRow("Company Logo:", logo_layout)
 
         layout.addLayout(form_layout)
 
@@ -48,12 +61,18 @@ class SettingsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
+    def browse_logo(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Logo", "", "Images (*.png *.jpg *.jpeg)")
+        if file_path:
+            self.logo_path.setText(file_path)
+
     def save_settings(self):
         try:
             self.db_manager.set_setting('currency', self.currency_combo.currentText())
             self.db_manager.set_setting('overhead', float(self.overhead_input.text()))
             self.db_manager.set_setting('profit', float(self.profit_input.text()))
             self.db_manager.set_setting('company_name', self.company_name.text())
+            self.db_manager.set_setting('company_logo', self.logo_path.text())
             
             QMessageBox.information(self, "Success", "Settings saved successfully.")
             self.accept()

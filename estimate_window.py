@@ -358,9 +358,10 @@ class EstimateWindow(QMainWindow):
             try:
                 # Get company name from settings
                 company_name = self.db_manager.get_setting("company_name", "")
+                company_logo = self.db_manager.get_setting("company_logo", "")
                 
                 generator = ReportGenerator(self.estimate)
-                if generator.export_to_pdf(filename, company_name):
+                if generator.export_to_pdf(filename, company_name, company_logo):
                     QMessageBox.information(self, "Success", f"Report successfully exported to:\n{filename}")
             except Exception as e:
                 QMessageBox.critical(self, "Export Error", f"Failed to generate report:\n{str(e)}")
