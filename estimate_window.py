@@ -207,6 +207,20 @@ class EstimateWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", "Failed to save the estimate.")
 
+    def _apply_currency_conversion(self, price, item_currency):
+        """Applies conversion rate if item currency differs from estimate currency."""
+        if not item_currency or item_currency == self.estimate.currency:
+            return price
+            
+        try:
+            rate = float(self.db_manager.get_setting('conversion_rate', '1.0'))
+        except (ValueError, TypeError):
+            rate = 1.0
+            
+        # Simple logic: multiply by rate if currencies differ. 
+        # Assumes rate is correctly set for Foreign -> Local conversion.
+        return price * rate
+
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")
         if ok and text:
@@ -221,7 +235,8 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, quantity = dialog.get_selection()
             if item and quantity > 0:
-                task_obj.add_material(item['name'], quantity, item['unit'], item['price'])
+                price = self._apply_currency_conversion(item['price'], item['currency'])
+                task_obj.add_material(item['name'], quantity, item['unit'], price)
                 self.refresh_view()
 
     def add_labor(self):
@@ -232,7 +247,8 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, hours = dialog.get_selection()
             if item and hours > 0:
-                task_obj.add_labor(item['trade'], hours, item['rate_per_hour'])
+                rate = self._apply_currency_conversion(item['rate_per_hour'], item['currency'])
+                task_obj.add_labor(item['trade'], hours, rate)
                 self.refresh_view()
 
     def add_equipment(self):
@@ -243,7 +259,8 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, hours = dialog.get_selection()
             if item and hours > 0:
-                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'])
+                rate = self._apply_currency_conversion(item['rate_per_hour'], item['currency'])
+                task_obj.add_equipment(item['name'], hours, rate)
                 self.refresh_view()
 
     def remove_item(self):

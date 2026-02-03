@@ -13,6 +13,7 @@ from chart_widget import DashboardChart
 
 
 from settings_dialog import SettingsDialog
+from currency_conversion_dialog import CurrencyConversionDialog
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -65,10 +66,14 @@ class MainWindow(QMainWindow):
         self.settings_btn = QPushButton("Settings")
         self.settings_btn.setObjectName("SidebarBtn")
 
+        self.currency_conv_btn = QPushButton("Currency Conversion")
+        self.currency_conv_btn.setObjectName("SidebarBtn")
+
         layout.addWidget(self.new_estimate_btn)
         layout.addWidget(self.load_estimate_btn)
         layout.addWidget(self.manage_db_btn)
         layout.addWidget(self.settings_btn)
+        layout.addWidget(self.currency_conv_btn)
         layout.addStretch(1)
         
         # Connect buttons
@@ -76,6 +81,7 @@ class MainWindow(QMainWindow):
         self.load_estimate_btn.clicked.connect(self.load_estimate)
         self.manage_db_btn.clicked.connect(self.manage_database)
         self.settings_btn.clicked.connect(self.open_settings)
+        self.currency_conv_btn.clicked.connect(self.open_currency_conversion_dialog)
 
         self.main_layout.addWidget(self.sidebar)
 
@@ -211,6 +217,10 @@ class MainWindow(QMainWindow):
         if dialog.exec():
             # If settings changed, maybe refresh dashboard or similar
             pass
+
+    def open_currency_conversion_dialog(self):
+        dialog = CurrencyConversionDialog(self)
+        dialog.exec()
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
