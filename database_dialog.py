@@ -51,6 +51,7 @@ class DatabaseManagerDialog(QDialog):
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
+        table.verticalHeader().setDefaultSectionSize(45)  # Fix truncated fields
         table.setShowGrid(True)
         table.setColumnHidden(0, True)
         layout.addWidget(table)

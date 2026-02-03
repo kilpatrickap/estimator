@@ -442,6 +442,7 @@ class SelectItemDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.verticalHeader().setDefaultSectionSize(45)  # Consistent row height
         self.table.setShowGrid(True)
         self.table.setColumnHidden(0, True)
         layout.addWidget(self.table)
