@@ -371,7 +371,7 @@ class LoadEstimateDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setMinimumSectionSize(100) # Ensure a reasonable minimum
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setDefaultSectionSize(45)  # Consistent row height
+        self.table.verticalHeader().setDefaultSectionSize(50)  # Adjusted to 50px
         self.table.setShowGrid(True)
         self.table.setColumnHidden(0, True)
         layout.addWidget(self.table)

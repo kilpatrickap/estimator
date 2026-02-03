@@ -25,9 +25,18 @@ class CurrencyConversionDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["Currency", "Conversion Rate", "Operator", "Effective Date"])
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setDefaultSectionSize(45)  # Fix truncated fields
+        
+        # Columns 1, 2, 3 contain widgets, so we set widths manually
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
+        
+        self.table.setColumnWidth(1, 150) # Conversion Rate
+        self.table.setColumnWidth(2, 180) # Operator
+        
+        self.table.verticalHeader().setDefaultSectionSize(50)
         layout.addWidget(self.table)
 
         self.populate_table()

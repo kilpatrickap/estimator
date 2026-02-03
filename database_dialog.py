@@ -51,7 +51,7 @@ class DatabaseManagerDialog(QDialog):
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.horizontalHeader().setStretchLastSection(True)
-        table.verticalHeader().setDefaultSectionSize(45)  # Fix truncated fields
+        table.verticalHeader().setDefaultSectionSize(50)  # Adjusted to 50px
         table.setShowGrid(True)
         table.setColumnHidden(0, True)
         layout.addWidget(table)
@@ -193,12 +193,32 @@ class DatabaseManagerDialog(QDialog):
 
     def _adjust_table_widths(self, table):
         """Helper to resize columns to contents and reset to interactive."""
+        header = table.horizontalHeader()
         for i in range(table.columnCount()):
-            table.resizeColumnToContents(i)
+            header.setSectionResizeMode(i, QHeaderView.ResizeMode.ResizeToContents)
+        
+        # Identify columns that contain widgets and force a minimum width
+        # This is because ResizeToContents doesn't account for the dropdown/arrow button width
+        table_name = ""
+        if table == getattr(self, "materials_table", None): table_name = "materials"
+        elif table == getattr(self, "labor_table", None): table_name = "labor"
+        elif table == getattr(self, "equipment_table", None): table_name = "equipment"
+        
+        if table_name == "materials":
+            # Currency is col 3, Date is col 5
+            header.setSectionResizeMode(3, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(5, QHeaderView.ResizeMode.Interactive)
+            table.setColumnWidth(3, 120)
+            table.setColumnWidth(5, 120)
+        elif table_name in ["labor", "equipment"]:
+            # Currency is col 2, Date is col 4
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Interactive)
+            header.setSectionResizeMode(4, QHeaderView.ResizeMode.Interactive)
+            table.setColumnWidth(2, 120)
+            table.setColumnWidth(4, 120)
         
         # Reset to interactive to allow user adjustment
-        table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        table.horizontalHeader().setStretchLastSection(True)
+        header.setStretchLastSection(True)
 
     def add_item(self, table_name):
         dialog = ItemDialog(table_name, self)
