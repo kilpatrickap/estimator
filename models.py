@@ -46,17 +46,24 @@ class Estimate:
 
     def add_task(self, task): self.tasks.append(task)
 
-    def _get_item_total_in_base_currency(self, item):
-        """Converts item total to base currency using exchange rates."""
-        # item is a dict with 'total' and 'currency' (if added by UI)
-        # Note: We need to ensure items store their original currency and unit cost
-        # Let's assume the item dict has 'currency' and 'total_original'
-        currency = item.get('currency', self.currency)
+    def convert_to_base_currency(self, amount, currency_code):
+        """Converts any amount to base currency using exchange rates."""
+        currency = currency_code or self.currency
         if currency == self.currency:
-            return item['total']
+            return amount
         
-        rate = self.exchange_rates.get(currency, {}).get('rate', 1.0)
-        return item['total'] * rate
+        rate_data = self.exchange_rates.get(currency, {})
+        rate = rate_data.get('rate', 1.0)
+        operator = rate_data.get('operator', '*')
+        
+        if operator == '/':
+            return amount / rate if rate != 0 else 0.0
+        else:
+            return amount * rate
+
+    def _get_item_total_in_base_currency(self, item):
+        """Helper to get total from an item dict."""
+        return self.convert_to_base_currency(item['total'], item.get('currency'))
 
     def calculate_totals(self):
         # We need to sum up task subtotals. 

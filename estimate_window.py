@@ -286,6 +286,10 @@ class EstimateWindow(QMainWindow):
 
     def refresh_view(self):
         self.tree.clear()
+        
+        # We will display everything in Base Currency
+        base_sym = self.currency_symbol
+
         for i, task in enumerate(self.estimate.tasks, 1):
             # Calculate converted subtotal for task
             task_subtotal_converted = 0
@@ -293,7 +297,7 @@ class EstimateWindow(QMainWindow):
             for l in task.labor: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(l)
             for e in task.equipment: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(e)
             
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{self.currency_symbol}{task_subtotal_converted:.2f}"])
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_subtotal_converted:,.2f}"])
             task_item.task_object = task  # Attach the main task object
             
             # Bold the task (parent) row
@@ -303,34 +307,41 @@ class EstimateWindow(QMainWindow):
                 task_item.setFont(col, bold_font)
 
             for j, mat in enumerate(task.materials, 1):
-                sym = self._get_currency_symbol(mat.get('currency'))
+                # Convert values to Base Currency
+                uc_conv = self.estimate.convert_to_base_currency(mat['unit_cost'], mat.get('currency'))
+                total_conv = self.estimate.convert_to_base_currency(mat['total'], mat.get('currency'))
+                
                 child = QTreeWidgetItem(task_item, [f"{i}.{j}",
                                                     f"Material: {mat['name']}",
-                                                    f"{mat['qty']} {mat['unit']} @ {sym}{mat['unit_cost']:.2f}",
-                                                    f"{sym}{mat['total']:.2f}",
+                                                    f"{mat['qty']} {mat['unit']} @ {base_sym}{uc_conv:,.2f}",
+                                                    f"{base_sym}{total_conv:,.2f}",
                                                     ""])
                 child.item_data = mat
                 child.item_type = 'material'
 
             offset = len(task.materials)
             for j, lab in enumerate(task.labor, 1):
-                sym = self._get_currency_symbol(lab.get('currency'))
+                rate_conv = self.estimate.convert_to_base_currency(lab['rate'], lab.get('currency'))
+                total_conv = self.estimate.convert_to_base_currency(lab['total'], lab.get('currency'))
+
                 child = QTreeWidgetItem(task_item,
                                         [f"{i}.{offset + j}",
                                          f"Labor: {lab['trade']}", 
-                                         f"{lab['hours']} hrs @ {sym}{lab['rate']:.2f}/hr",
-                                         f"{sym}{lab['total']:.2f}",
+                                         f"{lab['hours']} hrs @ {base_sym}{rate_conv:,.2f}/hr",
+                                         f"{base_sym}{total_conv:,.2f}",
                                          ""])
                 child.item_data = lab
                 child.item_type = 'labor'
 
             offset += len(task.labor)
             for j, equip in enumerate(task.equipment, 1):
-                sym = self._get_currency_symbol(equip.get('currency'))
+                rate_conv = self.estimate.convert_to_base_currency(equip['rate'], equip.get('currency'))
+                total_conv = self.estimate.convert_to_base_currency(equip['total'], equip.get('currency'))
+
                 child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
                                                     f"Equipment: {equip['name']}",
-                                                    f"{equip['hours']} hrs @ {sym}{equip['rate']:.2f}/hr",
-                                                    f"{sym}{equip['total']:.2f}",
+                                                    f"{equip['hours']} hrs @ {base_sym}{rate_conv:,.2f}/hr",
+                                                    f"{base_sym}{total_conv:,.2f}",
                                                     ""])
                 child.item_data = equip
                 child.item_type = 'equipment'

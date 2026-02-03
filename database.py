@@ -86,6 +86,13 @@ class DatabaseManager:
                     FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
                 )
             ''')
+            # Add operator column to estimate_exchange_rates if not exists
+            cursor.execute("PRAGMA table_info(estimate_exchange_rates)")
+            columns = [info['name'] for info in cursor.fetchall()]
+            if 'operator' not in columns:
+                cursor.execute("ALTER TABLE estimate_exchange_rates ADD COLUMN operator TEXT DEFAULT '*'")
+                conn.commit()
+                
             conn.commit()
         except sqlite3.Error:
             pass
@@ -169,6 +176,7 @@ class DatabaseManager:
                 currency TEXT NOT NULL,
                 rate REAL DEFAULT 1.0,
                 date TEXT,
+                operator TEXT DEFAULT '*',
                 FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
             )
         ''')
@@ -348,15 +356,16 @@ class DatabaseManager:
             # 3. Save exchange rates
             cursor.execute("DELETE FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
             for curr, data in estimate_obj.exchange_rates.items():
-                cursor.execute("INSERT INTO estimate_exchange_rates (estimate_id, currency, rate, date) VALUES (?, ?, ?, ?)",
-                               (estimate_id, curr, data['rate'], data['date']))
+                # Default to '*' if not present
+                op = data.get('operator', '*')
+                cursor.execute("INSERT INTO estimate_exchange_rates (estimate_id, currency, rate, date, operator) VALUES (?, ?, ?, ?, ?)",
+                               (estimate_id, curr, data['rate'], data['date'], op))
             
             conn.commit()
             return True
         except sqlite3.Error as e:
             print(f"Database error: {e}")
             conn.rollback()
-            return False
         finally:
             conn.close()
 
@@ -419,9 +428,13 @@ class DatabaseManager:
             loaded_estimate.add_task(task_obj)
 
         # Load exchange rates
-        cursor.execute("SELECT currency, rate, date FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
+        cursor.execute("SELECT currency, rate, date, operator FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
         for row in cursor.fetchall():
-            loaded_estimate.exchange_rates[row['currency']] = {'rate': row['rate'], 'date': row['date']}
+            loaded_estimate.exchange_rates[row['currency']] = {
+                'rate': row['rate'], 
+                'date': row['date'],
+                'operator': row['operator']
+            }
 
         conn.close()
         return loaded_estimate
