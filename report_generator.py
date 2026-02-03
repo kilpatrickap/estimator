@@ -153,24 +153,36 @@ class ReportGenerator:
             story.append(Spacer(1, 20))
 
             # 3. Tasks
+            # 3. Tasks
             for i, task in enumerate(self.estimate.tasks, 1):
                 story.append(Paragraph(f"Task {i}: {task.description}", self.styles['TaskTitle']))
                 
                 # Items Header
                 data = [['Type', 'Description', 'Quantity', 'Rate', 'Total']]
                 
-                # Items Rows
-                # Combine all for simplicity
+                task_subtotal_base = 0
+                
+                # Materials
                 for m in task.materials:
-                    data.append(['Material', m['name'], f"{m['qty']} {m['unit']}", f"{symbol}{m['unit_cost']:,.2f}", f"{symbol}{m['total']:,.2f}"])
+                    item_symbol = m['currency'].split('(')[-1].strip(')') if '(' in m.get('currency', '') else symbol
+                    data.append(['Material', m['name'], f"{m['qty']} {m['unit']}", f"{item_symbol}{m['unit_cost']:,.2f}", f"{item_symbol}{m['total']:,.2f}"])
+                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(m)
+                
+                # Labor
                 for l in task.labor:
-                    data.append(['Labor', l['trade'], f"{l['hours']} hrs", f"{symbol}{l['rate']:,.2f}", f"{symbol}{l['total']:,.2f}"])
+                    item_symbol = l['currency'].split('(')[-1].strip(')') if '(' in l.get('currency', '') else symbol
+                    data.append(['Labor', l['trade'], f"{l['hours']} hrs", f"{item_symbol}{l['rate']:,.2f}", f"{item_symbol}{l['total']:,.2f}"])
+                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(l)
+                
+                # Equipment
                 for e in task.equipment:
-                    data.append(['Equipment', e['name'], f"{e['hours']} hrs", f"{symbol}{e['rate']:,.2f}", f"{symbol}{e['total']:,.2f}"])
+                    item_symbol = e['currency'].split('(')[-1].strip(')') if '(' in e.get('currency', '') else symbol
+                    data.append(['Equipment', e['name'], f"{e['hours']} hrs", f"{item_symbol}{e['rate']:,.2f}", f"{item_symbol}{e['total']:,.2f}"])
+                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(e)
                 
                 if len(data) > 1:
                     # Add Subtotal Row
-                    data.append(['', '', '', 'Task Subtotal:', f"{symbol}{task.get_subtotal():,.2f}"])
+                    data.append(['', '', '', 'Task Subtotal (Base):', f"{symbol}{task_subtotal_base:,.2f}"])
                     
                     t = Table(data, colWidths=[25*mm, 65*mm, 25*mm, 25*mm, 30*mm])
                     t.setStyle(TableStyle([
@@ -193,15 +205,34 @@ class ReportGenerator:
 
             # 4. Summary Section
             story.append(Spacer(1, 10))
-            story.append(Paragraph("Summary", self.styles['Heading2']))
+            story.append(Paragraph("Summary (Converted to Base Currency)", self.styles['Heading2']))
             
+            # Exchange Rates Used
+            if self.estimate.exchange_rates:
+                rates_data = [["Currency", "Exchange Rate", "Date"]]
+                for curr, rdata in self.estimate.exchange_rates.items():
+                    rates_data.append([curr, f"{rdata['rate']:,.4f}", rdata['date']])
+                
+                story.append(Paragraph("Exchange Rates Used:", self.styles['Normal']))
+                rates_table = Table(rates_data, colWidths=[60*mm, 40*mm, 40*mm])
+                rates_table.setStyle(TableStyle([
+                    ('FONTNAME', (0,0), (-1,0), self.bold_font_name),
+                    ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+                    ('FONTSIZE', (0,0), (-1,-1), 9),
+                ]))
+                story.append(rates_table)
+                story.append(Spacer(1, 15))
+
             # Build Summary Data
-            # Rows: Task List... Subtotal... Spacer... Add... Overhead... Profit... Spacer... Grand Total
             summary_data = []
             
             # Task break down
             for i, task in enumerate(self.estimate.tasks, 1):
-                summary_data.append([f"Task {i}: {task.description}", f"{symbol}{task.get_subtotal():,.2f}"])
+                task_total = 0
+                for m in task.materials: task_total += self.estimate._get_item_total_in_base_currency(m)
+                for l in task.labor: task_total += self.estimate._get_item_total_in_base_currency(l)
+                for e in task.equipment: task_total += self.estimate._get_item_total_in_base_currency(e)
+                summary_data.append([f"Task {i}: {task.description}", f"{symbol}{task_total:,.2f}"])
                 
             # Subtotals line
             summary_data.append(["Sub Totals :", f"{symbol}{totals['subtotal']:,.2f}"])

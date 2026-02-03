@@ -10,6 +10,7 @@ from PyQt6.QtGui import QFont, QDoubleValidator
 from PyQt6.QtCore import Qt, QDate, QTimer
 from database import DatabaseManager
 from models import Estimate, Task
+from currency_conversion_dialog import CurrencyConversionDialog
 
 
 class EstimateWindow(QMainWindow):
@@ -156,11 +157,14 @@ class EstimateWindow(QMainWindow):
         action_layout.setContentsMargins(0, 20, 0, 0)
         
         save_estimate_btn = QPushButton("Save Estimate")
+        exchange_rates_btn = QPushButton("Exchange Rates")
         generate_report_btn = QPushButton("Generate Report")
         save_estimate_btn.setMinimumHeight(45)
+        exchange_rates_btn.setMinimumHeight(45)
         generate_report_btn.setMinimumHeight(45)
         
         action_layout.addWidget(save_estimate_btn)
+        action_layout.addWidget(exchange_rates_btn)
         action_layout.addWidget(generate_report_btn)
         right_layout.addLayout(action_layout)
         right_layout.addStretch()
@@ -178,6 +182,7 @@ class EstimateWindow(QMainWindow):
         add_equipment_btn.clicked.connect(self.add_equipment)
         remove_btn.clicked.connect(self.remove_item)
         save_estimate_btn.clicked.connect(self.save_estimate)
+        exchange_rates_btn.clicked.connect(self.open_exchange_rates)
         generate_report_btn.clicked.connect(self.generate_report)
 
         self.refresh_view()
@@ -207,19 +212,10 @@ class EstimateWindow(QMainWindow):
             else:
                 QMessageBox.critical(self, "Error", "Failed to save the estimate.")
 
-    def _apply_currency_conversion(self, price, item_currency):
-        """Applies conversion rate if item currency differs from estimate currency."""
-        if not item_currency or item_currency == self.estimate.currency:
-            return price
-            
-        try:
-            rate = float(self.db_manager.get_setting('conversion_rate', '1.0'))
-        except (ValueError, TypeError):
-            rate = 1.0
-            
-        # Simple logic: multiply by rate if currencies differ. 
-        # Assumes rate is correctly set for Foreign -> Local conversion.
-        return price * rate
+    def open_exchange_rates(self):
+        dialog = CurrencyConversionDialog(self.estimate, self)
+        if dialog.exec():
+            self.refresh_view()
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")
@@ -235,8 +231,7 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, quantity = dialog.get_selection()
             if item and quantity > 0:
-                price = self._apply_currency_conversion(item['price'], item['currency'])
-                task_obj.add_material(item['name'], quantity, item['unit'], price)
+                task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'])
                 self.refresh_view()
 
     def add_labor(self):
@@ -247,8 +242,7 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, hours = dialog.get_selection()
             if item and hours > 0:
-                rate = self._apply_currency_conversion(item['rate_per_hour'], item['currency'])
-                task_obj.add_labor(item['trade'], hours, rate)
+                task_obj.add_labor(item['trade'], hours, item['rate_per_hour'], currency=item['currency'])
                 self.refresh_view()
 
     def add_equipment(self):
@@ -259,8 +253,7 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, hours = dialog.get_selection()
             if item and hours > 0:
-                rate = self._apply_currency_conversion(item['rate_per_hour'], item['currency'])
-                task_obj.add_equipment(item['name'], hours, rate)
+                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'], currency=item['currency'])
                 self.refresh_view()
 
     def remove_item(self):
@@ -285,10 +278,22 @@ class EstimateWindow(QMainWindow):
 
         self.refresh_view()
 
+    def _get_currency_symbol(self, currency_text):
+        if not currency_text: return "$"
+        import re
+        match = re.search(r'\((.*?)\)', currency_text)
+        return match.group(1) if match else "$"
+
     def refresh_view(self):
         self.tree.clear()
         for i, task in enumerate(self.estimate.tasks, 1):
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{self.currency_symbol}{task.get_subtotal():.2f}"])
+            # Calculate converted subtotal for task
+            task_subtotal_converted = 0
+            for m in task.materials: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(m)
+            for l in task.labor: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(l)
+            for e in task.equipment: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(e)
+            
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{self.currency_symbol}{task_subtotal_converted:.2f}"])
             task_item.task_object = task  # Attach the main task object
             
             # Bold the task (parent) row
@@ -298,31 +303,34 @@ class EstimateWindow(QMainWindow):
                 task_item.setFont(col, bold_font)
 
             for j, mat in enumerate(task.materials, 1):
+                sym = self._get_currency_symbol(mat.get('currency'))
                 child = QTreeWidgetItem(task_item, [f"{i}.{j}",
                                                     f"Material: {mat['name']}",
-                                                    f"{mat['qty']} {mat['unit']} @ {self.currency_symbol}{mat['unit_cost']:.2f}",
-                                                    f"{self.currency_symbol}{mat['total']:.2f}",
+                                                    f"{mat['qty']} {mat['unit']} @ {sym}{mat['unit_cost']:.2f}",
+                                                    f"{sym}{mat['total']:.2f}",
                                                     ""])
                 child.item_data = mat
                 child.item_type = 'material'
 
             offset = len(task.materials)
             for j, lab in enumerate(task.labor, 1):
+                sym = self._get_currency_symbol(lab.get('currency'))
                 child = QTreeWidgetItem(task_item,
                                         [f"{i}.{offset + j}",
                                          f"Labor: {lab['trade']}", 
-                                         f"{lab['hours']} hrs @ {self.currency_symbol}{lab['rate']:.2f}/hr",
-                                         f"{self.currency_symbol}{lab['total']:.2f}",
+                                         f"{lab['hours']} hrs @ {sym}{lab['rate']:.2f}/hr",
+                                         f"{sym}{lab['total']:.2f}",
                                          ""])
                 child.item_data = lab
                 child.item_type = 'labor'
 
             offset += len(task.labor)
             for j, equip in enumerate(task.equipment, 1):
+                sym = self._get_currency_symbol(equip.get('currency'))
                 child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
                                                     f"Equipment: {equip['name']}",
-                                                    f"{equip['hours']} hrs @ {self.currency_symbol}{equip['rate']:.2f}/hr",
-                                                    f"{self.currency_symbol}{equip['total']:.2f}",
+                                                    f"{equip['hours']} hrs @ {sym}{equip['rate']:.2f}/hr",
+                                                    f"{sym}{equip['total']:.2f}",
                                                     ""])
                 child.item_data = equip
                 child.item_type = 'equipment'

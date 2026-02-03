@@ -74,7 +74,19 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN remarks TEXT")
                 if 'contact' not in columns:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN contact TEXT")
-                conn.commit()
+            
+            # Create estimate_exchange_rates table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS estimate_exchange_rates (
+                    id INTEGER PRIMARY KEY,
+                    estimate_id INTEGER NOT NULL,
+                    currency TEXT NOT NULL,
+                    rate REAL DEFAULT 1.0,
+                    date TEXT,
+                    FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
+                )
+            ''')
+            conn.commit()
         except sqlite3.Error:
             pass
         finally:
@@ -148,6 +160,16 @@ class DatabaseManager:
                 hours REAL,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
+            CREATE TABLE estimate_exchange_rates (
+                id INTEGER PRIMARY KEY,
+                estimate_id INTEGER NOT NULL,
+                currency TEXT NOT NULL,
+                rate REAL DEFAULT 1.0,
+                date TEXT,
+                FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE
             )
         ''')
 
@@ -322,6 +344,13 @@ class DatabaseManager:
                     if equip_id:
                         cursor.execute("INSERT INTO estimate_equipment (task_id, equipment_id, hours) VALUES (?, ?, ?)",
                                        (task_id, equip_id, equip['hours']))
+            
+            # 3. Save exchange rates
+            cursor.execute("DELETE FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
+            for curr, data in estimate_obj.exchange_rates.items():
+                cursor.execute("INSERT INTO estimate_exchange_rates (estimate_id, currency, rate, date) VALUES (?, ?, ?, ?)",
+                               (estimate_id, curr, data['rate'], data['date']))
+            
             conn.commit()
             return True
         except sqlite3.Error as e:
@@ -359,35 +388,40 @@ class DatabaseManager:
 
             # Load materials
             mat_sql = """
-                SELECT m.name, m.unit, m.price, em.quantity
+                SELECT m.name, m.unit, m.price, em.quantity, m.currency
                 FROM estimate_materials em JOIN materials m ON em.material_id = m.id
                 WHERE em.task_id = ?
             """
             cursor.execute(mat_sql, (task_data['id'],))
             for mat in cursor.fetchall():
-                task_obj.add_material(mat['name'], mat['quantity'], mat['unit'], mat['price'])
+                task_obj.add_material(mat['name'], mat['quantity'], mat['unit'], mat['price'], currency=mat['currency'])
 
             # Load labor
             lab_sql = """
-                SELECT l.trade, l.rate_per_hour, el.hours
+                SELECT l.trade, l.rate_per_hour, el.hours, l.currency
                 FROM estimate_labor el JOIN labor l ON el.labor_id = l.id
                 WHERE el.task_id = ?
             """
             cursor.execute(lab_sql, (task_data['id'],))
             for lab in cursor.fetchall():
-                task_obj.add_labor(lab['trade'], lab['hours'], lab['rate_per_hour'])
+                task_obj.add_labor(lab['trade'], lab['hours'], lab['rate_per_hour'], currency=lab['currency'])
 
             # Load equipment
             equip_sql = """
-                SELECT e.name, e.rate_per_hour, ee.hours
+                SELECT e.name, e.rate_per_hour, ee.hours, e.currency
                 FROM estimate_equipment ee JOIN equipment e ON ee.equipment_id = e.id
                 WHERE ee.task_id = ?
             """
             cursor.execute(equip_sql, (task_data['id'],))
             for equip in cursor.fetchall():
-                task_obj.add_equipment(equip['name'], equip['hours'], equip['rate_per_hour'])
+                task_obj.add_equipment(equip['name'], equip['hours'], equip['rate_per_hour'], currency=equip['currency'])
 
             loaded_estimate.add_task(task_obj)
+
+        # Load exchange rates
+        cursor.execute("SELECT currency, rate, date FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
+        for row in cursor.fetchall():
+            loaded_estimate.exchange_rates[row['currency']] = {'rate': row['rate'], 'date': row['date']}
 
         conn.close()
         return loaded_estimate
