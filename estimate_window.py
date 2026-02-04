@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt, QDate, QTimer
 from database import DatabaseManager
 from models import Estimate, Task
 from currency_conversion_dialog import CurrencyConversionDialog
+from profit_overhead_dialog import ProfitOverheadDialog
 
 
 class EstimateWindow(QMainWindow):
@@ -137,8 +138,10 @@ class EstimateWindow(QMainWindow):
         self.grand_total_label.setStyleSheet("color: #2e7d32;")
 
         summary_layout.addRow("Subtotal:", self.subtotal_label)
-        summary_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
-        summary_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
+        self.overhead_pct_label = QLabel(f"Overhead ({self.estimate.overhead_percent}%):")
+        summary_layout.addRow(self.overhead_pct_label, self.overhead_label)
+        self.profit_pct_label = QLabel(f"Profit ({self.estimate.profit_margin_percent}%):")
+        summary_layout.addRow(self.profit_pct_label, self.profit_label)
         
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
@@ -158,13 +161,16 @@ class EstimateWindow(QMainWindow):
         
         save_estimate_btn = QPushButton("Save Estimate")
         exchange_rates_btn = QPushButton("Exchange Rates")
+        profit_overheads_btn = QPushButton("Profit & Overheads")
         generate_report_btn = QPushButton("Generate Report")
         save_estimate_btn.setMinimumHeight(45)
         exchange_rates_btn.setMinimumHeight(45)
+        profit_overheads_btn.setMinimumHeight(45)
         generate_report_btn.setMinimumHeight(45)
         
         action_layout.addWidget(save_estimate_btn)
         action_layout.addWidget(exchange_rates_btn)
+        action_layout.addWidget(profit_overheads_btn)
         action_layout.addWidget(generate_report_btn)
         right_layout.addLayout(action_layout)
         right_layout.addStretch()
@@ -183,6 +189,7 @@ class EstimateWindow(QMainWindow):
         remove_btn.clicked.connect(self.remove_item)
         save_estimate_btn.clicked.connect(self.save_estimate)
         exchange_rates_btn.clicked.connect(self.open_exchange_rates)
+        profit_overheads_btn.clicked.connect(self.open_profit_overheads)
         generate_report_btn.clicked.connect(self.generate_report)
 
         self.refresh_view()
@@ -214,6 +221,11 @@ class EstimateWindow(QMainWindow):
 
     def open_exchange_rates(self):
         dialog = CurrencyConversionDialog(self.estimate, self)
+        if dialog.exec():
+            self.refresh_view()
+
+    def open_profit_overheads(self):
+        dialog = ProfitOverheadDialog(self.estimate, self)
         if dialog.exec():
             self.refresh_view()
 
@@ -362,6 +374,11 @@ class EstimateWindow(QMainWindow):
         totals = self.estimate.calculate_totals()
         symbol = self.currency_symbol
         self.subtotal_label.setText(f"{symbol}{totals['subtotal']:.2f}")
+        
+        # Update labels with current percentages
+        self.overhead_pct_label.setText(f"Overhead ({self.estimate.overhead_percent:.2f}%):")
+        self.profit_pct_label.setText(f"Profit ({self.estimate.profit_margin_percent:.2f}%):")
+        
         self.overhead_label.setText(f"{symbol}{totals['overhead']:.2f}")
         self.profit_label.setText(f"{symbol}{totals['profit']:.2f}")
         self.grand_total_label.setText(f"{symbol}{totals['grand_total']:.2f}")
