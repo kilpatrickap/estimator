@@ -161,7 +161,7 @@ class EstimateWindow(QMainWindow):
         
         save_estimate_btn = QPushButton("Save Estimate")
         exchange_rates_btn = QPushButton("Exchange Rates")
-        profit_overheads_btn = QPushButton("Profit & Overheads")
+        profit_overheads_btn = QPushButton("Profit && Overheads")
         generate_report_btn = QPushButton("Generate Report")
         save_estimate_btn.setMinimumHeight(45)
         exchange_rates_btn.setMinimumHeight(45)

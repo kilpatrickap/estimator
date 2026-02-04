@@ -6,7 +6,7 @@ class ProfitOverheadDialog(QDialog):
     def __init__(self, estimate, parent=None):
         super().__init__(parent)
         self.estimate = estimate
-        self.setWindowTitle("Estimate Profit & Overheads")
+        self.setWindowTitle("Profit & Overheads")
         self.setMinimumWidth(350)
 
         layout = QVBoxLayout(self)
