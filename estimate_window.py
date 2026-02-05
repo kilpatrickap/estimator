@@ -11,7 +11,9 @@ from PyQt6.QtCore import Qt, QDate, QTimer
 from database import DatabaseManager
 from models import Estimate, Task
 from currency_conversion_dialog import CurrencyConversionDialog
+from currency_conversion_dialog import CurrencyConversionDialog
 from profit_overhead_dialog import ProfitOverheadDialog
+from edit_item_dialog import EditItemDialog
 
 
 class EstimateWindow(QMainWindow):
@@ -191,6 +193,8 @@ class EstimateWindow(QMainWindow):
         exchange_rates_btn.clicked.connect(self.open_exchange_rates)
         profit_overheads_btn.clicked.connect(self.open_profit_overheads)
         generate_report_btn.clicked.connect(self.generate_report)
+        
+        self.tree.itemDoubleClicked.connect(self.edit_item)
 
         self.refresh_view()
 
@@ -228,6 +232,14 @@ class EstimateWindow(QMainWindow):
         dialog = ProfitOverheadDialog(self.estimate, self)
         if dialog.exec():
             self.refresh_view()
+
+    def edit_item(self, item, column):
+        """Opens the edit dialog for the double-clicked item."""
+        if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+            # It is a valid child item (material/labor/equipment)
+            dialog = EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self)
+            if dialog.exec():
+                self.refresh_view()
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")
