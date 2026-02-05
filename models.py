@@ -7,18 +7,18 @@ class Task:
         self.labor = []
         self.equipment = []
 
-    def add_material(self, name, quantity, unit, unit_cost, currency=None):
+    def add_material(self, name, quantity, unit, unit_cost, currency=None, formula=None):
         self.materials.append(
             {'name': name, 'qty': quantity, 'unit': unit, 'unit_cost': unit_cost, 
-             'total': quantity * unit_cost, 'currency': currency})
+             'total': quantity * unit_cost, 'currency': currency, 'formula': formula})
 
-    def add_labor(self, trade, hours, rate, currency=None):
+    def add_labor(self, trade, hours, rate, currency=None, formula=None):
         self.labor.append({'trade': trade, 'hours': hours, 'rate': rate, 
-                           'total': hours * rate, 'currency': currency})
+                           'total': hours * rate, 'currency': currency, 'formula': formula})
 
-    def add_equipment(self, name, hours, rate, currency=None):
+    def add_equipment(self, name, hours, rate, currency=None, formula=None):
         self.equipment.append({'name': name, 'hours': hours, 'rate': rate, 
-                               'total': hours * rate, 'currency': currency})
+                               'total': hours * rate, 'currency': currency, 'formula': formula})
 
     def get_subtotal(self):
         """Note: This returns the raw sum of items, NOT converted to base currency."""

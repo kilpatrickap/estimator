@@ -74,6 +74,14 @@ class DatabaseManager:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN remarks TEXT")
                 if 'contact' not in columns:
                     cursor.execute(f"ALTER TABLE {table} ADD COLUMN contact TEXT")
+
+            # Check if formula column exists in estimate items tables
+            for table in ['estimate_materials', 'estimate_labor', 'estimate_equipment']:
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = [info['name'] for info in cursor.fetchall()]
+                if 'formula' not in columns:
+                    cursor.execute(f"ALTER TABLE {table} ADD COLUMN formula TEXT")
+                    conn.commit()
             
             # Create estimate_exchange_rates table
             cursor.execute('''
@@ -145,6 +153,7 @@ class DatabaseManager:
                 task_id INTEGER NOT NULL,
                 material_id INTEGER NOT NULL,
                 quantity REAL,
+                formula TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE CASCADE
             )
@@ -155,6 +164,7 @@ class DatabaseManager:
                 task_id INTEGER NOT NULL,
                 labor_id INTEGER NOT NULL,
                 hours REAL,
+                formula TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(labor_id) REFERENCES labor(id) ON DELETE CASCADE
             )
@@ -165,6 +175,7 @@ class DatabaseManager:
                 task_id INTEGER NOT NULL,
                 equipment_id INTEGER NOT NULL,
                 hours REAL,
+                formula TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
             )
@@ -336,22 +347,22 @@ class DatabaseManager:
                     material_id = self.get_item_id_by_name("materials", material['name'], cursor)
                     if material_id:
                         cursor.execute(
-                            "INSERT INTO estimate_materials (task_id, material_id, quantity) VALUES (?, ?, ?)",
-                            (task_id, material_id, material['qty']))
+                            "INSERT INTO estimate_materials (task_id, material_id, quantity, formula) VALUES (?, ?, ?, ?)",
+                            (task_id, material_id, material['qty'], material.get('formula')))
 
                 # Save labor
                 for labor in task_obj.labor:
                     labor_id = self.get_item_id_by_name("labor", labor['trade'], cursor)
                     if labor_id:
-                        cursor.execute("INSERT INTO estimate_labor (task_id, labor_id, hours) VALUES (?, ?, ?)",
-                                       (task_id, labor_id, labor['hours']))
+                        cursor.execute("INSERT INTO estimate_labor (task_id, labor_id, hours, formula) VALUES (?, ?, ?, ?)",
+                                       (task_id, labor_id, labor['hours'], labor.get('formula')))
 
                 # Save equipment
                 for equip in task_obj.equipment:
                     equip_id = self.get_item_id_by_name("equipment", equip['name'], cursor)
                     if equip_id:
-                        cursor.execute("INSERT INTO estimate_equipment (task_id, equipment_id, hours) VALUES (?, ?, ?)",
-                                       (task_id, equip_id, equip['hours']))
+                        cursor.execute("INSERT INTO estimate_equipment (task_id, equipment_id, hours, formula) VALUES (?, ?, ?, ?)",
+                                       (task_id, equip_id, equip['hours'], equip.get('formula')))
             
             # 3. Save exchange rates
             cursor.execute("DELETE FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
@@ -397,33 +408,33 @@ class DatabaseManager:
 
             # Load materials
             mat_sql = """
-                SELECT m.name, m.unit, m.price, em.quantity, m.currency
+                SELECT m.name, m.unit, m.price, em.quantity, m.currency, em.formula
                 FROM estimate_materials em JOIN materials m ON em.material_id = m.id
                 WHERE em.task_id = ?
             """
             cursor.execute(mat_sql, (task_data['id'],))
             for mat in cursor.fetchall():
-                task_obj.add_material(mat['name'], mat['quantity'], mat['unit'], mat['price'], currency=mat['currency'])
+                task_obj.add_material(mat['name'], mat['quantity'], mat['unit'], mat['price'], currency=mat['currency'], formula=mat['formula'])
 
             # Load labor
             lab_sql = """
-                SELECT l.trade, l.rate_per_hour, el.hours, l.currency
+                SELECT l.trade, l.rate_per_hour, el.hours, l.currency, el.formula
                 FROM estimate_labor el JOIN labor l ON el.labor_id = l.id
                 WHERE el.task_id = ?
             """
             cursor.execute(lab_sql, (task_data['id'],))
             for lab in cursor.fetchall():
-                task_obj.add_labor(lab['trade'], lab['hours'], lab['rate_per_hour'], currency=lab['currency'])
+                task_obj.add_labor(lab['trade'], lab['hours'], lab['rate_per_hour'], currency=lab['currency'], formula=lab['formula'])
 
             # Load equipment
             equip_sql = """
-                SELECT e.name, e.rate_per_hour, ee.hours, e.currency
+                SELECT e.name, e.rate_per_hour, ee.hours, e.currency, ee.formula
                 FROM estimate_equipment ee JOIN equipment e ON ee.equipment_id = e.id
                 WHERE ee.task_id = ?
             """
             cursor.execute(equip_sql, (task_data['id'],))
             for equip in cursor.fetchall():
-                task_obj.add_equipment(equip['name'], equip['hours'], equip['rate_per_hour'], currency=equip['currency'])
+                task_obj.add_equipment(equip['name'], equip['hours'], equip['rate_per_hour'], currency=equip['currency'], formula=equip['formula'])
 
             loaded_estimate.add_task(task_obj)
 
