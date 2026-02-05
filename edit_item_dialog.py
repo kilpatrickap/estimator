@@ -59,7 +59,7 @@ class EditItemDialog(QDialog):
             text = text[1:]
             
         # 2. formatting: replace x/X with *
-        clean_text = text.replace('x', '*').replace('X', '*')
+        clean_text = text.replace('x', '*').replace('X', '*').replace('%', '/100')
         
         # 3. Remove unit-like patterns
         # Remove /text (e.g. /hr, /day)
