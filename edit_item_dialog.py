@@ -33,7 +33,7 @@ class EditItemDialog(QDialog):
         double_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
         
         # 1. Quantity / Hours
-        qty_label = "Quantity:" if item_type == 'material' else "Hours:"
+        qty_label = "Output : "
         self.qty_input = QLineEdit()
         self.qty_input.setValidator(double_validator)
         
@@ -66,4 +66,4 @@ class EditItemDialog(QDialog):
             
             self.accept()
         except ValueError:
-             QMessageBox.warning(self, "Invalid Input", "Please enter a valid number for Quantity/Hours.")
+             QMessageBox.warning(self, "Invalid Input", "Please enter a valid number for Output.")

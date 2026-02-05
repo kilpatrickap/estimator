@@ -478,7 +478,7 @@ class SelectItemDialog(QDialog):
 
         # Setup input and buttons
         form_layout = QFormLayout()
-        label_text = "Quantity:" if item_type == "materials" else "Hours:"
+        label_text = "Output : "
         
         # Validator for numerical input
         num_validator = QDoubleValidator(0.01, 1000000.0, 2)
