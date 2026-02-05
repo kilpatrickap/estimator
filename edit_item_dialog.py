@@ -35,10 +35,15 @@ class EditItemDialog(QDialog):
         # 1. Quantity / Hours
         qty_label = "Output : "
         self.qty_input = QLineEdit()
-        self.qty_input.setValidator(double_validator)
+        # Removed validator to allow formula input
         
         initial_qty = item_data.get('qty') if item_type == 'material' else item_data.get('hours')
-        self.qty_input.setText(f"{initial_qty}")
+        
+        # Show formula if exists, otherwise show value
+        if item_data.get('formula'):
+            self.qty_input.setText(item_data['formula'])
+        else:
+            self.qty_input.setText(f"{initial_qty}")
         form_layout.addRow(qty_label, self.qty_input)
         
         layout.addLayout(form_layout)
@@ -48,9 +53,41 @@ class EditItemDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
 
-    def save(self):
+    def parse_formula(self, text):
+        # 1. Remove leading '='
+        if text.startswith('='):
+            text = text[1:]
+            
+        # 2. formatting: replace x/X with *
+        clean_text = text.replace('x', '*').replace('X', '*')
+        
+        # 3. Remove unit-like patterns
+        # Remove /text (e.g. /hr, /day)
+        clean_text = re.sub(r'\/[a-zA-Z]+', '', clean_text)
+        # Remove text+numbers (e.g. m3, hrs, kg)
+        clean_text = re.sub(r'[a-zA-Z]+[0-9]*', '', clean_text)
+        
         try:
-            qty = float(self.qty_input.text())
+            # Eval the cleaned math string
+            # explicit conversion to float to ensure result is numeric
+            return float(eval(clean_text, {"__builtins__": None}, {}))
+        except Exception:
+            raise ValueError(f"Could not parse formula: {text}")
+
+    def save(self):
+        input_text = self.qty_input.text().strip()
+        
+        try:
+            if input_text.startswith('='):
+                qty = self.parse_formula(input_text)
+                # Store the formula so it can be shown again
+                self.item_data['formula'] = input_text
+            else:
+                qty = float(input_text)
+                # Clear formula if user overwrote with specific number
+                if 'formula' in self.item_data:
+                    del self.item_data['formula']
+
             rate = self.original_rate or 0.0
             
             # Commit changes to the dictionary
@@ -65,5 +102,7 @@ class EditItemDialog(QDialog):
             self.item_data['total'] = qty * rate
             
             self.accept()
-        except ValueError:
-             QMessageBox.warning(self, "Invalid Input", "Please enter a valid number for Output.")
+        except ValueError as e:
+             QMessageBox.warning(self, "Invalid Input", f"Error: {str(e)}\nPlease enter a valid number or formula starting with '='.")
+        except Exception as e:
+             QMessageBox.warning(self, "Error", f"An unexpected error occurred: {str(e)}")
