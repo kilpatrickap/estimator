@@ -337,7 +337,7 @@ class EstimateWindow(QMainWindow):
                 
                 child = QTreeWidgetItem(task_item, [f"{i}.{j}",
                                                     f"Material: {mat['name']}",
-                                                    f"{mat['qty']} {mat['unit']} @ {base_sym}{uc_conv:,.2f}",
+                                                    f"{mat['qty']:.2f} {mat['unit']} @ {base_sym}{uc_conv:,.2f}",
                                                     f"{base_sym}{total_conv:,.2f}",
                                                     ""])
                 child.item_data = mat
@@ -351,7 +351,7 @@ class EstimateWindow(QMainWindow):
                 child = QTreeWidgetItem(task_item,
                                         [f"{i}.{offset + j}",
                                          f"Labor: {lab['trade']}", 
-                                         f"{lab['hours']} hrs @ {base_sym}{rate_conv:,.2f}/hr",
+                                         f"{lab['hours']:.2f} hrs @ {base_sym}{rate_conv:,.2f}/hr",
                                          f"{base_sym}{total_conv:,.2f}",
                                          ""])
                 child.item_data = lab
@@ -364,7 +364,7 @@ class EstimateWindow(QMainWindow):
 
                 child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
                                                     f"Equipment: {equip['name']}",
-                                                    f"{equip['hours']} hrs @ {base_sym}{rate_conv:,.2f}/hr",
+                                                    f"{equip['hours']:.2f} hrs @ {base_sym}{rate_conv:,.2f}/hr",
                                                     f"{base_sym}{total_conv:,.2f}",
                                                     ""])
                 child.item_data = equip
@@ -476,29 +476,7 @@ class SelectItemDialog(QDialog):
         self.table.setColumnHidden(0, True)
         layout.addWidget(self.table)
 
-        # Setup input and buttons
-        form_layout = QFormLayout()
-        label_text = "Output : "
-        
-        # Validator for numerical input
-        num_validator = QDoubleValidator(0.01, 1000000.0, 2)
-        num_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
-
-        self.input_field = QTextEdit()
-        self.input_field.setPlaceholderText("0.00")
-        self.input_field.setPlainText("1.00")
-        self.input_field.setAcceptRichText(False)
-        self.input_field.setMinimumHeight(100)
-        self.input_field.setStyleSheet("padding: 5px;")
-        
-        form_layout.addRow(label_text, self.input_field)
-        # Help Label
-        help_text = "Enter value or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
-        help_label = QLabel(help_text)
-        help_label.setStyleSheet("color: gray; font-style: italic; font-size: 10pt;")
-        form_layout.addRow("", help_label)
-        
-        layout.addLayout(form_layout)
+        layout.addWidget(self.table)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         # Ensure buttons don't steal 'Enter' from the text area
@@ -603,17 +581,8 @@ class SelectItemDialog(QDialog):
         if selected_row < 0:
             return None, 0, None
             
-        input_text = self.input_field.toPlainText().strip()
+        value = 1.00
         formula = None
-        
-        try:
-            if input_text.startswith('='):
-                value = self.parse_formula(input_text)
-                formula = input_text
-            else:
-                value = float(input_text)
-        except ValueError:
-            value = 0.0
             
         # Use the filtered list to get the correct item
         selected_item = self.current_items[selected_row]
