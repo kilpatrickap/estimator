@@ -253,9 +253,9 @@ class EstimateWindow(QMainWindow):
 
         dialog = SelectItemDialog("materials", self)
         if dialog.exec():
-            item, quantity = dialog.get_selection()
+            item, quantity, formula = dialog.get_selection()
             if item and quantity > 0:
-                task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'])
+                task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
                 self.refresh_view()
 
     def add_labor(self):
@@ -264,9 +264,9 @@ class EstimateWindow(QMainWindow):
 
         dialog = SelectItemDialog("labor", self)
         if dialog.exec():
-            item, hours = dialog.get_selection()
+            item, hours, formula = dialog.get_selection()
             if item and hours > 0:
-                task_obj.add_labor(item['trade'], hours, item['rate_per_hour'], currency=item['currency'])
+                task_obj.add_labor(item['trade'], hours, item['rate_per_hour'], currency=item['currency'], formula=formula)
                 self.refresh_view()
 
     def add_equipment(self):
@@ -275,9 +275,9 @@ class EstimateWindow(QMainWindow):
 
         dialog = SelectItemDialog("equipment", self)
         if dialog.exec():
-            item, hours = dialog.get_selection()
+            item, hours, formula = dialog.get_selection()
             if item and hours > 0:
-                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'], currency=item['currency'])
+                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'], currency=item['currency'], formula=formula)
                 self.refresh_view()
 
     def remove_item(self):
@@ -484,15 +484,27 @@ class SelectItemDialog(QDialog):
         num_validator = QDoubleValidator(0.01, 1000000.0, 2)
         num_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
 
-        self.input_field = QLineEdit()
+        self.input_field = QTextEdit()
         self.input_field.setPlaceholderText("0.00")
-        self.input_field.setText("1.00")
-        self.input_field.setValidator(num_validator)
+        self.input_field.setPlainText("1.00")
+        self.input_field.setAcceptRichText(False)
+        self.input_field.setMinimumHeight(100)
+        self.input_field.setStyleSheet("padding: 5px;")
         
         form_layout.addRow(label_text, self.input_field)
+        # Help Label
+        help_text = "Enter value or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
+        help_label = QLabel(help_text)
+        help_label.setStyleSheet("color: gray; font-style: italic; font-size: 10pt;")
+        form_layout.addRow("", help_label)
+        
         layout.addLayout(form_layout)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        # Ensure buttons don't steal 'Enter' from the text area
+        for button in self.button_box.buttons():
+            button.setAutoDefault(False)
+            button.setDefault(False)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
@@ -555,19 +567,57 @@ class SelectItemDialog(QDialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
 
+    def parse_formula(self, text):
+        import re
+        if text.startswith('='):
+            text = text[1:]
+            
+        # Split by ';' and take the first part (the formula)
+        text = text.split(';')[0]
+        
+        # Extract comments and replace with placeholders to protect content
+        comments = []
+        def replace_comment(match):
+            comments.append(match.group(0))
+            return f"__COMMENT_{len(comments)-1}__"
+            
+        # Replace "comments" with placeholders
+        temp_text = re.sub(r'"[^"]*"', replace_comment, text)
+            
+        # Apply formatting to non-comment parts
+        clean_text = temp_text.replace('x', '*').replace('X', '*').replace('%', '/100')
+        
+        # Remove placeholders
+        clean_text = re.sub(r'__COMMENT_\d+__', '', clean_text)
+        
+        clean_text = re.sub(r'\/[a-zA-Z]+', '', clean_text)
+        clean_text = re.sub(r'[a-zA-Z]+[0-9]*', '', clean_text)
+        
+        try:
+            return float(eval(clean_text, {"__builtins__": None}, {}))
+        except Exception:
+            raise ValueError(f"Could not parse formula: {text}")
+
     def get_selection(self):
         selected_row = self.table.currentRow()
         if selected_row < 0:
-            return None, 0
+            return None, 0, None
             
+        input_text = self.input_field.toPlainText().strip()
+        formula = None
+        
         try:
-            value = float(self.input_field.text())
+            if input_text.startswith('='):
+                value = self.parse_formula(input_text)
+                formula = input_text
+            else:
+                value = float(input_text)
         except ValueError:
             value = 0.0
             
         # Use the filtered list to get the correct item
         selected_item = self.current_items[selected_row]
-        return selected_item, value
+        return selected_item, value, formula
 
 
 # --- END OF CHANGE ---
