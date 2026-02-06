@@ -1,8 +1,31 @@
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QTextEdit, QHBoxLayout,
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QTextEdit, QHBoxLayout, QPlainTextEdit,
                              QDialogButtonBox, QLabel, QMessageBox, QComboBox, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QDoubleValidator
+from PyQt6.QtGui import QDoubleValidator, QPainter, QColor
 import re
+
+class ZebraInput(QPlainTextEdit):
+    def paintEvent(self, event):
+        painter = QPainter(self.viewport())
+        color_1 = QColor("#ffffff")
+        color_2 = QColor("#f2f7ff") 
+        
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = int(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + int(self.blockBoundingRect(block).height())
+        
+        while block.isValid() and top <= event.rect().bottom():
+            if block.isVisible():
+                color = color_2 if block_number % 2 == 1 else color_1
+                painter.fillRect(0, top, self.viewport().width(), int(self.blockBoundingRect(block).height()), color)
+            
+            block = block.next()
+            top = bottom
+            bottom = top + int(self.blockBoundingRect(block).height())
+            block_number += 1
+            
+        super().paintEvent(event)
 
 class EditItemDialog(QDialog):
     def __init__(self, item_data, item_type, estimate_currency, parent=None):
@@ -38,10 +61,9 @@ class EditItemDialog(QDialog):
         # Left: Input
         input_container = QVBoxLayout()
         input_container.addWidget(QLabel("Formula Input:"))
-        self.qty_input = QTextEdit()
+        self.qty_input = ZebraInput()
         self.qty_input.setMinimumHeight(300)
-        self.qty_input.setAcceptRichText(False)
-        self.qty_input.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
+        self.qty_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.qty_input.setStyleSheet("padding: 5px; font-family: Consolas, monospace;")
         self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Wall A\" ;")
         input_container.addWidget(self.qty_input)
