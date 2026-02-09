@@ -118,10 +118,8 @@ class ReportGenerator:
                     print(f"Error loading logo: {e}")
 
             if logo_img and company_name:
-                # Logo LEFT of company name
                 company_para = Paragraph(company_name, self.styles['Heading3'])
                 header_data = [[logo_img, company_para]]
-                # Small column for logo, rest for name
                 header_table = Table(header_data, colWidths=[15*mm, 155*mm])
                 header_table.setStyle(TableStyle([
                     ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -153,34 +151,45 @@ class ReportGenerator:
             story.append(Spacer(1, 20))
 
             # 3. Tasks
-            # 3. Tasks
             for i, task in enumerate(self.estimate.tasks, 1):
                 story.append(Paragraph(f"Task {i}: {task.description}", self.styles['TaskTitle']))
                 
                 # Items Header
                 data = [['Type', 'Description', 'Quantity', 'Rate', 'Total']]
-                
                 task_subtotal_base = 0
+
+                # Generic resource iteration
+                resources = [
+                    ('materials', 'Material', 'name', 'unit', 'qty', 'unit_cost'),
+                    ('labor', 'Labor', 'trade', 'hours', 'hours', 'rate'),
+                    ('equipment', 'Equipment', 'name', 'hours', 'hours', 'rate')
+                ]
+
+                has_items = False
+                for res_attr, label, name_key, unit_attr, qty_key, rate_key in resources:
+                    items = getattr(task, res_attr)
+                    for item in items:
+                        has_items = True
+                        # Extract currency symbol
+                        curr = item.get('currency', '')
+                        item_symbol = curr.split('(')[-1].strip(')') if '(' in curr else symbol
+                        
+                        # Format Unit
+                        if res_attr == 'materials':
+                            unit_str = f"{item['qty']} {item['unit']}"
+                        else:
+                            unit_str = f"{item['hours']} hrs"
+
+                        data.append([
+                            label, 
+                            item[name_key], 
+                            unit_str, 
+                            f"{item_symbol}{item.get(rate_key, 0):,.2f}", # Use .get with default 0 just in case
+                            f"{item_symbol}{item.get('total', 0):,.2f}"
+                        ])
+                        task_subtotal_base += self.estimate._get_item_total_in_base_currency(item)
                 
-                # Materials
-                for m in task.materials:
-                    item_symbol = m['currency'].split('(')[-1].strip(')') if '(' in m.get('currency', '') else symbol
-                    data.append(['Material', m['name'], f"{m['qty']} {m['unit']}", f"{item_symbol}{m['unit_cost']:,.2f}", f"{item_symbol}{m['total']:,.2f}"])
-                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(m)
-                
-                # Labor
-                for l in task.labor:
-                    item_symbol = l['currency'].split('(')[-1].strip(')') if '(' in l.get('currency', '') else symbol
-                    data.append(['Labor', l['trade'], f"{l['hours']} hrs", f"{item_symbol}{l['rate']:,.2f}", f"{item_symbol}{l['total']:,.2f}"])
-                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(l)
-                
-                # Equipment
-                for e in task.equipment:
-                    item_symbol = e['currency'].split('(')[-1].strip(')') if '(' in e.get('currency', '') else symbol
-                    data.append(['Equipment', e['name'], f"{e['hours']} hrs", f"{item_symbol}{e['rate']:,.2f}", f"{item_symbol}{e['total']:,.2f}"])
-                    task_subtotal_base += self.estimate._get_item_total_in_base_currency(e)
-                
-                if len(data) > 1:
+                if has_items:
                     # Add Subtotal Row
                     data.append(['', '', '', 'Task Subtotal (Base):', f"{symbol}{task_subtotal_base:,.2f}"])
                     
@@ -229,9 +238,8 @@ class ReportGenerator:
             # Task break down
             for i, task in enumerate(self.estimate.tasks, 1):
                 task_total = 0
-                for m in task.materials: task_total += self.estimate._get_item_total_in_base_currency(m)
-                for l in task.labor: task_total += self.estimate._get_item_total_in_base_currency(l)
-                for e in task.equipment: task_total += self.estimate._get_item_total_in_base_currency(e)
+                for item in task.all_items:
+                    task_total += self.estimate._get_item_total_in_base_currency(item)
                 summary_data.append([f"Task {i}: {task.description}", f"{symbol}{task_total:,.2f}"])
                 
             # Subtotals line

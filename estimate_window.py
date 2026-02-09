@@ -1,22 +1,26 @@
 from datetime import datetime
+import re
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTreeWidget, QTreeWidgetItem, QLabel, QFormLayout, QMessageBox,
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QTextEdit, QFileDialog, QDialogButtonBox, QLineEdit,
+                             QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
-from report_generator import ReportGenerator
-from PyQt6.QtGui import QFont, QDoubleValidator
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QDate, QTimer
+
 from database import DatabaseManager
 from models import Estimate, Task
-from currency_conversion_dialog import CurrencyConversionDialog
+from report_generator import ReportGenerator
 from currency_conversion_dialog import CurrencyConversionDialog
 from profit_overhead_dialog import ProfitOverheadDialog
 from edit_item_dialog import EditItemDialog
 
 
 class EstimateWindow(QMainWindow):
+    """
+    Main window for editing a specific Estimate.
+    """
     def __init__(self, estimate_data=None, estimate_object=None, parent=None):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
@@ -32,171 +36,159 @@ class EstimateWindow(QMainWindow):
                 currency=estimate_data.get('currency', "GHS (₵)"),
                 date=estimate_data.get('date')
             )
-        else:  # Fallback
+        else:
             self.estimate = Estimate("Error", "Error", 0, 0)
 
         # Setup Auto-Save
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.auto_save)
-        self.autosave_timer.start(60000) # Auto-save every 60 seconds
+        self.autosave_timer.start(60000)  # Auto-save every 60 seconds
 
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
-# ...
-
-        self.setMinimumSize(1000, 700) # Increased default minimum
+        self.setMinimumSize(1000, 700)
 
         # Extract currency symbol
-        import re
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
 
+        self._init_ui()
 
-
-
+    def _init_ui(self):
+        """Initializes the UI components."""
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
 
-        # Use QSplitter for responsiveness
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # Left side - Tree view and action buttons
-        left_widget = QWidget()
-        left_layout = QVBoxLayout(left_widget)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        self.splitter.addWidget(self._create_tree_panel())
+        self.splitter.addWidget(self._create_summary_panel())
         
+        self.splitter.setStretchFactor(0, 3)
+        self.splitter.setStretchFactor(1, 1)
+        
+        self.main_layout.addWidget(self.splitter)
+        self.refresh_view()
+
+    def _create_tree_panel(self):
+        """Creates the left panel with TreeWidget and buttons."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(0, 0, 0, 0)
+
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate"])
         header = self.tree.header()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header.setStretchLastSection(True)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        left_layout.addWidget(self.tree)
+        layout.addWidget(self.tree)
 
+        # Action Buttons
         btn_layout = QHBoxLayout()
-        add_task_btn = QPushButton("Add Task")
-        add_material_btn = QPushButton("Add Material")
-        add_labor_btn = QPushButton("Add Labor")
-        add_equipment_btn = QPushButton("Add Equipment")
-        remove_btn = QPushButton("Remove Selected")
-        
-        # Give buttons a bit more style and minimum width
-        for btn in [add_task_btn, add_material_btn, add_labor_btn, add_equipment_btn, remove_btn]:
+        buttons = [
+            ("Add Task", self.add_task),
+            ("Add Material", lambda: self._add_resource("materials")),
+            ("Add Labor", lambda: self._add_resource("labor")),
+            ("Add Equipment", lambda: self._add_resource("equipment")),
+            ("Remove Selected", self.remove_item)
+        ]
+
+        for text, slot in buttons:
+            btn = QPushButton(text)
             btn.setMinimumHeight(40)
+            btn.clicked.connect(slot)
+            if text == "Remove Selected":
+                btn.setStyleSheet("""
+                    QPushButton { background-color: #d32f2f; color: white; }
+                    QPushButton:hover { background-color: #ef5350; }
+                """)
             btn_layout.addWidget(btn)
+
+        layout.addLayout(btn_layout)
         
-        remove_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #d32f2f;
-                color: white;
-            }
-            QPushButton:hover {
-                background-color: #ef5350;
-            }
-        """)
+        self.tree.itemDoubleClicked.connect(self.edit_item)
+        return panel
 
-        left_layout.addLayout(btn_layout)
-        self.splitter.addWidget(left_widget)
+    def _create_summary_panel(self):
+        """Creates the right panel with summary and main actions."""
+        panel = QWidget()
+        layout = QVBoxLayout(panel)
+        layout.setContentsMargins(10, 0, 0, 0)
 
-        # Right side - Summary and main actions
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(10, 0, 0, 0)
-
+        # Summary Box
         summary_group = QFrame()
         summary_group.setFrameShape(QFrame.Shape.StyledPanel)
         summary_group.setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; } QLabel { border: none; }")
         
-        summary_layout = QFormLayout(summary_group)
-        summary_layout.setContentsMargins(20, 20, 20, 20)
-        summary_layout.setSpacing(15)
+        form_layout = QFormLayout(summary_group)
+        form_layout.setContentsMargins(20, 20, 20, 20)
+        form_layout.setSpacing(15)
 
         title_font = QFont()
         title_font.setBold(True)
         title_font.setPointSize(16)
-
         summary_title = QLabel("Project Summary")
         summary_title.setFont(title_font)
         summary_title.setStyleSheet("color: #2e7d32; margin-bottom: 10px;")
-        summary_layout.addRow(summary_title)
+        form_layout.addRow(summary_title)
 
         value_font = QFont()
         value_font.setPointSize(12)
 
-        self.subtotal_label = QLabel("$0.00")
-        self.overhead_label = QLabel("$0.00")
-        self.profit_label = QLabel("$0.00")
-        self.grand_total_label = QLabel("$0.00")
+        self.subtotal_label = QLabel(f"{self.currency_symbol}0.00")
+        self.overhead_label = QLabel(f"{self.currency_symbol}0.00")
+        self.profit_label = QLabel(f"{self.currency_symbol}0.00")
+        self.grand_total_label = QLabel(f"{self.currency_symbol}0.00")
         
-        for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.grand_total_label]:
+        for lbl in [self.subtotal_label, self.overhead_label, self.profit_label]:
             lbl.setFont(value_font)
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
-            lbl.setText(f"{self.currency_symbol}0.00")
 
         grand_font = QFont()
         grand_font.setBold(True)
         grand_font.setPointSize(18)
         self.grand_total_label.setFont(grand_font)
         self.grand_total_label.setStyleSheet("color: #2e7d32;")
+        self.grand_total_label.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        summary_layout.addRow("Subtotal:", self.subtotal_label)
+        form_layout.addRow("Subtotal:", self.subtotal_label)
         self.overhead_pct_label = QLabel(f"Overhead ({self.estimate.overhead_percent}%):")
-        summary_layout.addRow(self.overhead_pct_label, self.overhead_label)
+        form_layout.addRow(self.overhead_pct_label, self.overhead_label)
         self.profit_pct_label = QLabel(f"Profit ({self.estimate.profit_margin_percent}%):")
-        summary_layout.addRow(self.profit_pct_label, self.profit_label)
+        form_layout.addRow(self.profit_pct_label, self.profit_label)
         
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
         line.setStyleSheet("background-color: #dcdfe6; max-height: 1px;")
-        summary_layout.addRow(line)
+        form_layout.addRow(line)
         
         grand_total_desc = QLabel("GRAND TOTAL:")
         grand_total_desc.setFont(grand_font)
-        summary_layout.addRow(grand_total_desc, self.grand_total_label)
+        form_layout.addRow(grand_total_desc, self.grand_total_label)
         
-        right_layout.addWidget(summary_group)
+        layout.addWidget(summary_group)
 
-        action_layout = QVBoxLayout() # Changed to vertical for better fitting
+        # Main Actions
+        action_layout = QVBoxLayout()
         action_layout.setSpacing(10)
         action_layout.setContentsMargins(0, 20, 0, 0)
         
-        save_estimate_btn = QPushButton("Save Estimate")
-        exchange_rates_btn = QPushButton("Exchange Rates")
-        profit_overheads_btn = QPushButton("Profit && Overheads")
-        generate_report_btn = QPushButton("Generate Report")
-        save_estimate_btn.setMinimumHeight(45)
-        exchange_rates_btn.setMinimumHeight(45)
-        profit_overheads_btn.setMinimumHeight(45)
-        generate_report_btn.setMinimumHeight(45)
+        actions = [
+            ("Save Estimate", self.save_estimate),
+            ("Exchange Rates", self.open_exchange_rates),
+            ("Profit & Overheads", self.open_profit_overheads),
+            ("Generate Report", self.generate_report)
+        ]
         
-        action_layout.addWidget(save_estimate_btn)
-        action_layout.addWidget(exchange_rates_btn)
-        action_layout.addWidget(profit_overheads_btn)
-        action_layout.addWidget(generate_report_btn)
-        right_layout.addLayout(action_layout)
-        right_layout.addStretch()
+        for text, slot in actions:
+            btn = QPushButton(text)
+            btn.setMinimumHeight(45)
+            btn.clicked.connect(slot)
+            action_layout.addWidget(btn)
 
-        self.splitter.addWidget(right_widget)
-        self.splitter.setStretchFactor(0, 3) # Left side gets more space
-        self.splitter.setStretchFactor(1, 1)
-        
-        self.main_layout.addWidget(self.splitter)
-
-        # Connect signals
-        add_task_btn.clicked.connect(self.add_task)
-        add_material_btn.clicked.connect(self.add_material)
-        add_labor_btn.clicked.connect(self.add_labor)
-        add_equipment_btn.clicked.connect(self.add_equipment)
-        remove_btn.clicked.connect(self.remove_item)
-        save_estimate_btn.clicked.connect(self.save_estimate)
-        exchange_rates_btn.clicked.connect(self.open_exchange_rates)
-        profit_overheads_btn.clicked.connect(self.open_profit_overheads)
-        generate_report_btn.clicked.connect(self.generate_report)
-        
-        self.tree.itemDoubleClicked.connect(self.edit_item)
-
-        self.refresh_view()
+        layout.addLayout(action_layout)
+        layout.addStretch()
+        return panel
 
     def _get_selected_task_object(self):
         """Helper to find the parent task object from any selection in the tree."""
@@ -205,40 +197,49 @@ class EstimateWindow(QMainWindow):
             QMessageBox.warning(self, "Selection Error", "Please select an item in a task.")
             return None
 
-        task_item = selected if not selected.parent() else selected.parent()
-
-        if not hasattr(task_item, 'task_object'):
-            QMessageBox.warning(self, "Selection Error", "Invalid item selected. Please select a task.")
-            return None
-
-        return task_item.task_object
+        # Traverse up to find the task item (which has task_object)
+        candidate = selected
+        while candidate:
+            if hasattr(candidate, 'task_object'):
+                return candidate.task_object
+            candidate = candidate.parent()
+        
+        QMessageBox.warning(self, "Selection Error", "Invalid item selected. Please select a task.")
+        return None
 
     def save_estimate(self):
-        reply = QMessageBox.question(self, "Confirm Save",
-                                     "Do you want to save this estimate to the database?",
+        """Saves the estimate to DB."""
+        if not self._confirm_action("Confirm Save", "Do you want to save this estimate?"):
+            return
+
+        if self.db_manager.save_estimate(self.estimate):
+            QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
+        else:
+            QMessageBox.critical(self, "Error", "Failed to save the estimate.")
+
+    def auto_save(self):
+        """Silently saves the estimate if it has an ID."""
+        if self.estimate.id:
+            self.db_manager.save_estimate(self.estimate)
+            self.statusBar().showMessage(f"Auto-saved at {datetime.now().strftime('%H:%M')}", 3000)
+
+    def _confirm_action(self, title, message):
+        reply = QMessageBox.question(self, title, message, 
                                      QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.db_manager.save_estimate(self.estimate):
-                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
-            else:
-                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
+        return reply == QMessageBox.StandardButton.Yes
 
     def open_exchange_rates(self):
-        dialog = CurrencyConversionDialog(self.estimate, self)
-        if dialog.exec():
+        if CurrencyConversionDialog(self.estimate, self).exec():
             self.refresh_view()
 
     def open_profit_overheads(self):
-        dialog = ProfitOverheadDialog(self.estimate, self)
-        if dialog.exec():
+        if ProfitOverheadDialog(self.estimate, self).exec():
             self.refresh_view()
 
     def edit_item(self, item, column):
         """Opens the edit dialog for the double-clicked item."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
-            # It is a valid child item (material/labor/equipment)
-            dialog = EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self)
-            if dialog.exec():
+            if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
                 self.refresh_view()
 
     def add_task(self):
@@ -247,136 +248,101 @@ class EstimateWindow(QMainWindow):
             self.estimate.add_task(Task(text))
             self.refresh_view()
 
-    def add_material(self):
+    def _add_resource(self, resource_type):
+        """Generic method to add material, labor, or equipment."""
         task_obj = self._get_selected_task_object()
         if not task_obj: return
 
-        dialog = SelectItemDialog("materials", self)
+        dialog = SelectItemDialog(resource_type, self)
         if dialog.exec():
             item, quantity, formula = dialog.get_selection()
             if item and quantity > 0:
-                task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
-                self.refresh_view()
-
-    def add_labor(self):
-        task_obj = self._get_selected_task_object()
-        if not task_obj: return
-
-        dialog = SelectItemDialog("labor", self)
-        if dialog.exec():
-            item, hours, formula = dialog.get_selection()
-            if item and hours > 0:
-                task_obj.add_labor(item['trade'], hours, item['rate_per_hour'], currency=item['currency'], formula=formula)
-                self.refresh_view()
-
-    def add_equipment(self):
-        task_obj = self._get_selected_task_object()
-        if not task_obj: return
-
-        dialog = SelectItemDialog("equipment", self)
-        if dialog.exec():
-            item, hours, formula = dialog.get_selection()
-            if item and hours > 0:
-                task_obj.add_equipment(item['name'], hours, item['rate_per_hour'], currency=item['currency'], formula=formula)
+                if resource_type == 'materials':
+                    task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
+                elif resource_type == 'labor':
+                    task_obj.add_labor(item['trade'], quantity, item['rate_per_hour'], currency=item['currency'], formula=formula)
+                elif resource_type == 'equipment':
+                    task_obj.add_equipment(item['name'], quantity, item['rate_per_hour'], currency=item['currency'], formula=formula)
                 self.refresh_view()
 
     def remove_item(self):
         selected = self.tree.currentItem()
         if not selected: return
 
-        if hasattr(selected, 'item_type'):  # It's a material, labor, or equipment item
+        if hasattr(selected, 'item_type'):
+            # Removing a child item
             parent_item = selected.parent()
-            task_obj = parent_item.task_object
-            item_data = selected.item_data
+            task_obj = getattr(parent_item, 'task_object', None) # Should adhere to parent's task_object
+            if not task_obj: return # Should not happen
 
+            item_data = selected.item_data
             if selected.item_type == 'material':
                 task_obj.materials.remove(item_data)
             elif selected.item_type == 'labor':
                 task_obj.labor.remove(item_data)
             elif selected.item_type == 'equipment':
                 task_obj.equipment.remove(item_data)
-
-        elif hasattr(selected, 'task_object'):  # It's a top-level task item
-            task_obj = selected.task_object
-            self.estimate.tasks.remove(task_obj)
+        
+        elif hasattr(selected, 'task_object'):
+            # Removing a whole task
+            self.estimate.tasks.remove(selected.task_object)
 
         self.refresh_view()
 
-    def _get_currency_symbol(self, currency_text):
-        if not currency_text: return "$"
-        import re
-        match = re.search(r'\((.*?)\)', currency_text)
-        return match.group(1) if match else "$"
-
     def refresh_view(self):
+        """Refreshes the tree view and summaries."""
         self.tree.clear()
-        
-        # We will display everything in Base Currency
         base_sym = self.currency_symbol
 
+        bold_font = self.tree.font()
+        bold_font.setBold(True)
+
         for i, task in enumerate(self.estimate.tasks, 1):
-            # Calculate converted subtotal for task
-            task_subtotal_converted = 0
-            for m in task.materials: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(m)
-            for l in task.labor: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(l)
-            for e in task.equipment: task_subtotal_converted += self.estimate._get_item_total_in_base_currency(e)
+            # Calculate total for display
+            task_total = sum([
+                sum(self.estimate._get_item_total_in_base_currency(m) for m in task.materials),
+                sum(self.estimate._get_item_total_in_base_currency(l) for l in task.labor),
+                sum(self.estimate._get_item_total_in_base_currency(e) for e in task.equipment)
+            ])
             
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_subtotal_converted:,.2f}"])
-            task_item.task_object = task  # Attach the main task object
-            
-            # Bold the task (parent) row
-            bold_font = self.tree.font()
-            bold_font.setBold(True)
+            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_total:,.2f}"])
+            task_item.task_object = task
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)
 
-            for j, mat in enumerate(task.materials, 1):
-                # Convert values to Base Currency
-                uc_conv = self.estimate.convert_to_base_currency(mat['unit_cost'], mat.get('currency'))
-                total_conv = self.estimate.convert_to_base_currency(mat['total'], mat.get('currency'))
-                
-                child = QTreeWidgetItem(task_item, [f"{i}.{j}",
-                                                    f"Material: {mat['name']}",
-                                                    f"{mat['qty']:.2f} {mat['unit']} @ {base_sym}{uc_conv:,.2f}",
-                                                    f"{base_sym}{total_conv:,.2f}",
-                                                    ""])
-                child.item_data = mat
-                child.item_type = 'material'
-
-            offset = len(task.materials)
-            for j, lab in enumerate(task.labor, 1):
-                rate_conv = self.estimate.convert_to_base_currency(lab['rate'], lab.get('currency'))
-                total_conv = self.estimate.convert_to_base_currency(lab['total'], lab.get('currency'))
-
-                child = QTreeWidgetItem(task_item,
-                                        [f"{i}.{offset + j}",
-                                         f"Labor: {lab['trade']}", 
-                                         f"{lab['hours']:.2f} hrs @ {base_sym}{rate_conv:,.2f}/hr",
-                                         f"{base_sym}{total_conv:,.2f}",
-                                         ""])
-                child.item_data = lab
-                child.item_type = 'labor'
-
-            offset += len(task.labor)
-            for j, equip in enumerate(task.equipment, 1):
-                rate_conv = self.estimate.convert_to_base_currency(equip['rate'], equip.get('currency'))
-                total_conv = self.estimate.convert_to_base_currency(equip['total'], equip.get('currency'))
-
-                child = QTreeWidgetItem(task_item, [f"{i}.{offset + j}",
-                                                    f"Equipment: {equip['name']}",
-                                                    f"{equip['hours']:.2f} hrs @ {base_sym}{rate_conv:,.2f}/hr",
-                                                    f"{base_sym}{total_conv:,.2f}",
-                                                    ""])
-                child.item_data = equip
-                child.item_type = 'equipment'
+            # Define configurations for each type of resource
+            # (list_attr, display_name, name_key, unit_func, qty_key, rate_key, type_code)
+            resources = [
+                ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
+                ('labor', 'Labor', 'trade', lambda x: 'hrs', 'hours', 'rate', 'labor'),
+                ('equipment', 'Equipment', 'name', lambda x: 'hrs', 'hours', 'rate', 'equipment')
+            ]
+            
+            sub_idx = 1
+            for list_attr, label_prefix, name_key, unit_func, qty_key, rate_key, type_code in resources:
+                items = getattr(task, list_attr)
+                for item in items:
+                    uc_conv = self.estimate.convert_to_base_currency(item[rate_key], item.get('currency'))
+                    total_conv = self.estimate.convert_to_base_currency(item['total'], item.get('currency'))
+                    
+                    unit_str = unit_func(item)
+                    qty_val = item[qty_key]
+                    
+                    child = QTreeWidgetItem(task_item, [
+                        f"{i}.{sub_idx}",
+                        f"{label_prefix}: {item[name_key]}",
+                        f"{qty_val:.2f} {unit_str} @ {base_sym}{uc_conv:,.2f}",
+                        f"{base_sym}{total_conv:,.2f}",
+                        ""
+                    ])
+                    child.item_data = item
+                    child.item_type = type_code
+                    sub_idx += 1
 
         self.tree.expandAll()
-        
-        # Adjust widths
         for i in range(self.tree.columnCount()):
             self.tree.resizeColumnToContents(i)
-            
-        # Switch to interactive to allow manual adjustment
+        
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
 
@@ -384,36 +350,14 @@ class EstimateWindow(QMainWindow):
 
     def update_summary(self):
         totals = self.estimate.calculate_totals()
-        symbol = self.currency_symbol
-        self.subtotal_label.setText(f"{symbol}{totals['subtotal']:.2f}")
+        sym = self.currency_symbol
         
-        # Update labels with current percentages
+        self.subtotal_label.setText(f"{sym}{totals['subtotal']:,.2f}")
         self.overhead_pct_label.setText(f"Overhead ({self.estimate.overhead_percent:.2f}%):")
         self.profit_pct_label.setText(f"Profit ({self.estimate.profit_margin_percent:.2f}%):")
-        
-        self.overhead_label.setText(f"{symbol}{totals['overhead']:.2f}")
-        self.profit_label.setText(f"{symbol}{totals['profit']:.2f}")
-        self.grand_total_label.setText(f"{symbol}{totals['grand_total']:.2f}")
-
-    def auto_save(self):
-        """Silently saves the estimate if it has been saved before (has an ID)."""
-        if self.estimate.id:
-            self.db_manager.save_estimate(self.estimate)
-            self.statusBar().showMessage(f"Auto-saved at {datetime.now().strftime('%H:%M')}", 3000)
-
-    def save_estimate(self):
-        reply = QMessageBox.question(self, "Confirm Save",
-                                     "Do you want to save this estimate to the database?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.Yes:
-            if self.db_manager.save_estimate(self.estimate):
-                # Update ID if it was a new estimate
-                QMessageBox.information(self, "Success", "Estimate has been saved successfully.")
-            else:
-                QMessageBox.critical(self, "Error", "Failed to save the estimate.")
-
-
-
+        self.overhead_label.setText(f"{sym}{totals['overhead']:,.2f}")
+        self.profit_label.setText(f"{sym}{totals['profit']:,.2f}")
+        self.grand_total_label.setText(f"{sym}{totals['grand_total']:,.2f}")
 
     def generate_report(self):
         filename, _ = QFileDialog.getSaveFileName(self, "Export PDF Report", 
@@ -421,7 +365,6 @@ class EstimateWindow(QMainWindow):
                                                   "PDF Files (*.pdf)")
         if filename:
             try:
-                # Get company name from settings
                 company_name = self.db_manager.get_setting("company_name", "")
                 company_logo = self.db_manager.get_setting("company_logo", "")
                 
@@ -433,162 +376,104 @@ class EstimateWindow(QMainWindow):
 
 
 class SelectItemDialog(QDialog):
+    """Dialog for selecting items from the database."""
     def __init__(self, item_type, parent=None):
         super().__init__(parent)
         self.item_type = item_type
         singular_name = item_type[:-1] if item_type.endswith('s') else item_type
         self.setWindowTitle(f"Select {singular_name.capitalize()}")
-        self.resize(800, 500) # Widen the window by 2x (assuming ~400 default)
+        self.resize(800, 500)
+        
         self.db_manager = DatabaseManager()
-
         self.all_items = self.db_manager.get_items(item_type)
         self.current_items = []
 
+        self._init_ui()
+
+    def _init_ui(self):
         layout = QVBoxLayout(self)
 
-        # Add search bar
+        # Search
         search_layout = QHBoxLayout()
         search_layout.addWidget(QLabel("Search:"))
         search_input = QLineEdit()
         search_input.setPlaceholderText("Type to filter...")
+        search_input.textChanged.connect(self.filter_items)
         search_layout.addWidget(search_input)
         layout.addLayout(search_layout)
 
-        # Setup table
+        # Table
         self.table = QTableWidget()
-        if item_type == "materials":
-            headers = ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]
-            self.table.setColumnCount(9)
-        elif item_type == "labor":
-            headers = ["ID", "Labor", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
-            self.table.setColumnCount(8)
-        else:
-            headers = ["ID", "Equipment", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]  # For equipment
-            self.table.setColumnCount(8)
-
-        self.table.setHorizontalHeaderLabels(headers)
+        self._setup_table_headers()
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setDefaultSectionSize(50)  # Adjusted to 50px
+        self.table.verticalHeader().setDefaultSectionSize(50)
         self.table.setShowGrid(True)
-        self.table.setColumnHidden(0, True)
+        self.table.setColumnHidden(0, True) # Hide ID
         layout.addWidget(self.table)
 
-        layout.addWidget(self.table)
-
+        # Buttons
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        # Ensure buttons don't steal 'Enter' from the text area
         for button in self.button_box.buttons():
             button.setAutoDefault(False)
-            button.setDefault(False)
         self.button_box.accepted.connect(self.accept)
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        # Connect search signal and populate table initially
-        search_input.textChanged.connect(self.filter_items)
-        self.filter_items("")  # Populate with all items
+        self.filter_items("")
+
+    def _setup_table_headers(self):
+        if self.item_type == "materials":
+            headers = ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]
+        else:
+            name_label = "Labor" if self.item_type == "labor" else "Equipment"
+            headers = ["ID", name_label, "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
+        
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
 
     def filter_items(self, text):
-        """Filters and repopulates the table based on the search text."""
-        self.table.setRowCount(0)
-        self.current_items.clear()
         search_text = text.lower()
-
-        for item in self.all_items:
-            item_name = item[1].lower()  # Column 1 is always name/trade in the DB record
-            if search_text in item_name:
-                self.current_items.append(item)
+        self.current_items = [
+            item for item in self.all_items 
+            if search_text in item[1].lower() # item[1] is name/trade
+        ]
 
         self.table.setRowCount(len(self.current_items))
         for row, item_data in enumerate(self.current_items):
-            self.table.setItem(row, 0, QTableWidgetItem(str(item_data[0]))) # ID
-            self.table.setItem(row, 1, QTableWidgetItem(item_data[1])) # Name/Trade
+            self._fill_row(row, item_data)
             
-            if self.item_type == "materials":
-                self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
-                self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
-                try:
-                    price_text = f"{float(item_data[4]):.2f}"
-                except (ValueError, TypeError):
-                    price_text = str(item_data[4])
-                self.table.setItem(row, 4, QTableWidgetItem(price_text)) # Price
-                
-                # Additional columns
-                qdate = QDate.fromString(str(item_data[5]), "yyyy-MM-dd")
-                display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[5])
-                self.table.setItem(row, 5, QTableWidgetItem(display_date)) # Date
-                self.table.setItem(row, 6, QTableWidgetItem(str(item_data[6]) if item_data[6] else "")) # Location
-                self.table.setItem(row, 7, QTableWidgetItem(str(item_data[7]) if item_data[7] else "")) # Contact
-                self.table.setItem(row, 8, QTableWidgetItem(str(item_data[8]) if item_data[8] else "")) # Remarks
-            else:
-                self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Currency
-                try:
-                    rate_text = f"{float(item_data[3]):.2f}"
-                except (ValueError, TypeError):
-                    rate_text = str(item_data[3])
-                self.table.setItem(row, 3, QTableWidgetItem(rate_text)) # Rate
-
-                # Additional columns
-                qdate = QDate.fromString(str(item_data[4]), "yyyy-MM-dd")
-                display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[4])
-                self.table.setItem(row, 4, QTableWidgetItem(display_date)) # Date
-                self.table.setItem(row, 5, QTableWidgetItem(str(item_data[5]) if item_data[5] else "")) # Location
-                self.table.setItem(row, 6, QTableWidgetItem(str(item_data[6]) if item_data[6] else "")) # Contact
-                self.table.setItem(row, 7, QTableWidgetItem(str(item_data[7]) if item_data[7] else "")) # Remarks
-            
-        # Adjust and reset to interactive
-        for i in range(self.table.columnCount()):
-            self.table.resizeColumnToContents(i)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.table.horizontalHeader().setStretchLastSection(True)
-
-    def parse_formula(self, text):
-        import re
-        if text.startswith('='):
-            text = text[1:]
-            
-        # Split by ';' and take the first part (the formula)
-        text = text.split(';')[0]
+    def _fill_row(self, row, item_data):
+        self.table.setItem(row, 0, QTableWidgetItem(str(item_data[0]))) # ID
+        self.table.setItem(row, 1, QTableWidgetItem(item_data[1])) # Name
         
-        # Extract comments and replace with placeholders to protect content
-        comments = []
-        def replace_comment(match):
-            comments.append(match.group(0))
-            return f"__COMMENT_{len(comments)-1}__"
+        col_offset = 2
+        if self.item_type == "materials":
+            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
+            self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):.2f}")) # Price
+            date_idx = 5
+        else:
+            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Currency
+            self.table.setItem(row, 3, QTableWidgetItem(f"{float(item_data[3]):.2f}")) # Rate
+            date_idx = 4
             
-        # Replace "comments" with placeholders
-        temp_text = re.sub(r'"[^"]*"', replace_comment, text)
-            
-        # Apply formatting to non-comment parts
-        clean_text = temp_text.replace('x', '*').replace('X', '*').replace('%', '/100')
+        # Common end columns
+        qdate = QDate.fromString(str(item_data[date_idx]), "yyyy-MM-dd")
+        display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[date_idx])
+        self.table.setItem(row, col_offset + (3 if self.item_type == "materials" else 2), QTableWidgetItem(display_date))
         
-        # Remove placeholders
-        clean_text = re.sub(r'__COMMENT_\d+__', '', clean_text)
-        
-        clean_text = re.sub(r'\/[a-zA-Z]+', '', clean_text)
-        clean_text = re.sub(r'[a-zA-Z]+[0-9]*', '', clean_text)
-        
-        try:
-            return float(eval(clean_text, {"__builtins__": None}, {}))
-        except Exception:
-            raise ValueError(f"Could not parse formula: {text}")
+        # Location, Contact, Remarks
+        for i in range(1, 4):
+             val = item_data[date_idx + i] if len(item_data) > date_idx + i else ""
+             self.table.setItem(row, col_offset + (3 if self.item_type == "materials" else 2) + i, QTableWidgetItem(str(val) if val else ""))
 
     def get_selection(self):
+        """Returns the selected item, quantity (default 1), and formula (None)."""
         selected_row = self.table.currentRow()
         if selected_row < 0:
             return None, 0, None
             
-        value = 1.00
-        formula = None
-            
-        # Use the filtered list to get the correct item
-        selected_item = self.current_items[selected_row]
-        return selected_item, value, formula
-
-
-# --- END OF CHANGE ---
-
-
+        return self.current_items[selected_row], 1.00, None
