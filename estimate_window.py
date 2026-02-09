@@ -1,12 +1,13 @@
 from datetime import datetime
 import re
+import copy
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
                              QTreeWidget, QTreeWidgetItem, QLabel, QFormLayout, QMessageBox,
                              QInputDialog, QDialog, QTableWidget, QTableWidgetItem, QHeaderView,
                              QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QKeySequence
 from PyQt6.QtCore import Qt, QDate, QTimer
 
 from database import DatabaseManager
@@ -39,6 +40,10 @@ class EstimateWindow(QMainWindow):
         else:
             self.estimate = Estimate("Error", "Error", 0, 0)
 
+        # Undo/Redo Stacks
+        self.undo_stack = []
+        self.redo_stack = []
+
         # Setup Auto-Save
         self.autosave_timer = QTimer(self)
         self.autosave_timer.timeout.connect(self.auto_save)
@@ -58,6 +63,27 @@ class EstimateWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
+
+        # --- Toolbar / Action Bar for Undo/Redo ---
+        toolbar_layout = QHBoxLayout()
+        
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.setShortcut(QKeySequence.StandardKey.Undo)
+        self.undo_btn.clicked.connect(self.undo)
+        self.undo_btn.setEnabled(False)
+        self.undo_btn.setToolTip("Undo last action (Ctrl+Z)")
+        
+        self.redo_btn = QPushButton("Redo")
+        self.redo_btn.setShortcut(QKeySequence.StandardKey.Redo)
+        self.redo_btn.clicked.connect(self.redo)
+        self.redo_btn.setEnabled(False)
+        self.redo_btn.setToolTip("Redo last undone action (Ctrl+Y)")
+        
+        toolbar_layout.addWidget(self.undo_btn)
+        toolbar_layout.addWidget(self.redo_btn)
+        toolbar_layout.addStretch()
+        
+        self.main_layout.addLayout(toolbar_layout)
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         
@@ -87,9 +113,9 @@ class EstimateWindow(QMainWindow):
         btn_layout = QHBoxLayout()
         buttons = [
             ("Add Task", self.add_task),
-            ("Add Material", lambda: self._add_resource("materials")),
-            ("Add Labor", lambda: self._add_resource("labor")),
-            ("Add Equipment", lambda: self._add_resource("equipment")),
+            ("Add Material", lambda _: self._add_resource("materials")),
+            ("Add Labor", lambda _: self._add_resource("labor")),
+            ("Add Equipment", lambda _: self._add_resource("equipment")),
             ("Remove Selected", self.remove_item)
         ]
 
@@ -190,6 +216,56 @@ class EstimateWindow(QMainWindow):
         layout.addStretch()
         return panel
 
+    # --- UNDO / REDO LOGIC ---
+    def save_state(self):
+        """Takes a snapshot of the current estimate and pushes it to the undo stack."""
+        snapshot = copy.deepcopy(self.estimate)
+        self.undo_stack.append(snapshot)
+        self.redo_stack.clear() # New action invalidates redo history
+        self._update_undo_redo_buttons()
+
+    def undo(self):
+        if not self.undo_stack: return
+        
+        # Save current state to redo stack
+        current_state = copy.deepcopy(self.estimate)
+        self.redo_stack.append(current_state)
+        
+        # Restore previous state
+        previous_state = self.undo_stack.pop()
+        self.estimate = previous_state
+        
+        self.refresh_view()
+        self._update_undo_redo_buttons()
+        
+        # Ensure currency symbol updates if changed
+        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        self.currency_symbol = match.group(1) if match else "$"
+
+    def redo(self):
+        if not self.redo_stack: return
+        
+        # Save current state to undo stack
+        current_state = copy.deepcopy(self.estimate)
+        self.undo_stack.append(current_state)
+        
+        # Restore next state
+        next_state = self.redo_stack.pop()
+        self.estimate = next_state
+        
+        self.refresh_view()
+        self._update_undo_redo_buttons()
+        
+        # Ensure currency symbol updates if changed
+        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        self.currency_symbol = match.group(1) if match else "$"
+
+    def _update_undo_redo_buttons(self):
+        self.undo_btn.setEnabled(len(self.undo_stack) > 0)
+        self.redo_btn.setEnabled(len(self.redo_stack) > 0)
+
+    # -------------------------
+
     def _get_selected_task_object(self):
         """Helper to find the parent task object from any selection in the tree."""
         selected = self.tree.currentItem()
@@ -229,22 +305,40 @@ class EstimateWindow(QMainWindow):
         return reply == QMessageBox.StandardButton.Yes
 
     def open_exchange_rates(self):
+        self.save_state()
         if CurrencyConversionDialog(self.estimate, self).exec():
             self.refresh_view()
+        else:
+            # If cancelled, rudimentary revert if no deep modification happened.
+            # However, if dialog modified list in place even before OK, we rely on undo stack pop?
+            # Ideally dialogs should work on copies. Assuming they modify live obj on OK only,
+            # cancelling means no change. If no change, we have a redundant state on stack.
+            # We can pop it.
+            self.undo_stack.pop()
+            self._update_undo_redo_buttons()
 
     def open_profit_overheads(self):
+        self.save_state()
         if ProfitOverheadDialog(self.estimate, self).exec():
             self.refresh_view()
+        else:
+            self.undo_stack.pop()
+            self._update_undo_redo_buttons()
 
     def edit_item(self, item, column):
         """Opens the edit dialog for the double-clicked item."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+            self.save_state()
             if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
                 self.refresh_view()
+            else:
+                self.undo_stack.pop()
+                self._update_undo_redo_buttons()
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")
         if ok and text:
+            self.save_state()
             self.estimate.add_task(Task(text))
             self.refresh_view()
 
@@ -257,6 +351,7 @@ class EstimateWindow(QMainWindow):
         if dialog.exec():
             item, quantity, formula = dialog.get_selection()
             if item and quantity > 0:
+                self.save_state() # Save before modification
                 if resource_type == 'materials':
                     task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
                 elif resource_type == 'labor':
@@ -268,6 +363,15 @@ class EstimateWindow(QMainWindow):
     def remove_item(self):
         selected = self.tree.currentItem()
         if not selected: return
+
+        # Check validity before saving state
+        valid_selection = False
+        if hasattr(selected, 'item_type'): valid_selection = True
+        elif hasattr(selected, 'task_object'): valid_selection = True
+        
+        if not valid_selection: return
+
+        self.save_state() # Save before delete
 
         if hasattr(selected, 'item_type'):
             # Removing a child item
@@ -407,7 +511,8 @@ class SelectItemDialog(QDialog):
         self._setup_table_headers()
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.verticalHeader().setDefaultSectionSize(50)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setWordWrap(True)
         self.table.setShowGrid(True)
         self.table.setColumnHidden(0, True) # Hide ID
         layout.addWidget(self.table)
@@ -444,6 +549,9 @@ class SelectItemDialog(QDialog):
         self.table.setRowCount(len(self.current_items))
         for row, item_data in enumerate(self.current_items):
             self._fill_row(row, item_data)
+        
+        self.table.resizeColumnsToContents()
+        self.table.resizeRowsToContents()
             
     def _fill_row(self, row, item_data):
         self.table.setItem(row, 0, QTableWidgetItem(str(item_data[0]))) # ID
