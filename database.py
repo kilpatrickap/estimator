@@ -42,6 +42,9 @@ class DatabaseManager:
         try:
             # 1. Update 'estimates' table
             self._ensure_column(cursor, "estimates", "grand_total", "grand_total REAL DEFAULT 0.0")
+            self._ensure_column(cursor, "estimates", "rate_id", "rate_id TEXT")
+            self._ensure_column(cursor, "estimates", "unit", "unit TEXT")
+            self._ensure_column(cursor, "estimates", "remarks", "remarks TEXT")
 
             # 2. Create 'settings' table
             cursor.execute('''
@@ -120,7 +123,10 @@ class DatabaseManager:
                 profit_margin_percent REAL,
                 currency TEXT,
                 date_created TEXT,
-                grand_total REAL DEFAULT 0.0
+                grand_total REAL DEFAULT 0.0,
+                rate_id TEXT,
+                unit TEXT,
+                remarks TEXT
             )
         ''')
         cursor.execute('''
@@ -315,12 +321,13 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ? 
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, remarks = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                    estimate_obj.currency, estimate_obj.date, grand_total, estimate_obj.id
+                    estimate_obj.currency, estimate_obj.date, grand_total, 
+                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.remarks, estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
                 # Wipe tasks to rebuild tree (simplest way to handle hierarchy changes)
@@ -328,12 +335,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, remarks) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                    estimate_obj.currency, estimate_obj.date, grand_total
+                    estimate_obj.currency, estimate_obj.date, grand_total, 
+                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.remarks
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -404,9 +412,15 @@ class DatabaseManager:
             loaded_estimate = Estimate(
                 est_data['project_name'], est_data['client_name'], 
                 est_data['overhead_percent'], est_data['profit_margin_percent'], 
-                currency=est_data['currency'] or "GHS (₵)", date=est_data['date_created']
+                currency=est_data['currency'] or "GHS (₵)", date=est_data['date_created'],
+                unit=est_data['unit'] or "", remarks=est_data['remarks'] or ""
             )
             loaded_estimate.id = est_data['id']
+            # Defensive check for rate_id column
+            try:
+                loaded_estimate.rate_id = est_data['rate_id']
+            except (IndexError, KeyError):
+                loaded_estimate.rate_id = None
 
             cursor.execute("SELECT * FROM tasks WHERE estimate_id = ?", (estimate_id,))
             tasks_data = cursor.fetchall()
@@ -546,5 +560,35 @@ class DatabaseManager:
             conn.cursor().execute("REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
             conn.commit()
             return True
+        finally:
+            conn.close()
+
+    def convert_to_rate_db(self, estimate_obj):
+        """Copies an estimate to construction_rates.db and assigns a rate_ID."""
+        import copy
+        rates_db_manager = DatabaseManager("construction_rates.db")
+        
+        # Clone for the new database
+        rate_estimate = copy.deepcopy(estimate_obj)
+        rate_estimate.id = None # New entry in the rates DB
+        
+        # Determine the next rate_ID
+        count = rates_db_manager.get_total_estimates_count()
+        rate_estimate.rate_id = f"RATE-{count + 1:04d}"
+        
+        if rates_db_manager.save_estimate(rate_estimate):
+            return rate_estimate.rate_id
+        return None
+
+    def get_rates_data(self):
+        """Fetches all rates from construction_rates.db for the manager window."""
+        rates_db = DatabaseManager("construction_rates.db")
+        conn = rates_db._get_connection()
+        try:
+            return conn.cursor().execute("""
+                SELECT rate_id, project_name, unit, currency, grand_total, date_created, remarks 
+                FROM estimates 
+                ORDER BY rate_id DESC
+            """).fetchall()
         finally:
             conn.close()

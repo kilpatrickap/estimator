@@ -39,13 +39,16 @@ class Task:
 
 class Estimate:
     """Represents a project estimate with multiple tasks and global settings."""
-    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None):
+    def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None, unit="", remarks=""):
         self.id = None
+        self.rate_id = None
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead
         self.profit_margin_percent = profit
         self.currency = currency
+        self.unit = unit
+        self.remarks = remarks
         
         if date:
             self.date = date if len(date) > 10 else f"{date} {datetime.now().strftime('%H:%M:%S')}"

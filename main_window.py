@@ -11,6 +11,7 @@ from estimate_window import EstimateWindow
 from database import DatabaseManager
 from chart_widget import DashboardChart
 from settings_dialog import SettingsDialog
+from rate_manager_dialog import RateManagerDialog
 
 
 class MainWindow(QMainWindow):
@@ -55,6 +56,7 @@ class MainWindow(QMainWindow):
             ("Create New Estimate", self.new_estimate),
             ("Load Saved Estimate", self.load_estimate),
             ("Manage Cost Database", self.manage_database),
+            ("Manage Rate Database", self.manage_rate_database),
             ("Settings", self.open_settings)
         ]
 
@@ -66,6 +68,10 @@ class MainWindow(QMainWindow):
 
         layout.addStretch(1)
         self.main_layout.addWidget(self.sidebar)
+
+    def manage_rate_database(self):
+        """Opens the Rate Manager Dialog."""
+        RateManagerDialog(self).exec()
 
     def _setup_content_area(self):
         """Creates the main dashboard content area."""

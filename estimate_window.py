@@ -203,7 +203,8 @@ class EstimateWindow(QMainWindow):
             ("Save Estimate", self.save_estimate),
             ("Exchange Rates", self.open_exchange_rates),
             ("Profit & Overheads", self.open_profit_overheads),
-            ("Generate Report", self.generate_report)
+            ("Generate Report", self.generate_report),
+            ("Convert to Rate", self.convert_to_rate)
         ]
         
         for text, slot in actions:
@@ -215,6 +216,23 @@ class EstimateWindow(QMainWindow):
         layout.addLayout(action_layout)
         layout.addStretch()
         return panel
+
+    def convert_to_rate(self):
+        """Copies the existing estimate into construction_rates.db with a rate_ID."""
+        unit, ok1 = QInputDialog.getText(self, "Rate Unit", "Enter unit for this rate (e.g., m2, kg, item):")
+        if not ok1: return
+        
+        remarks, ok2 = QInputDialog.getText(self, "Rate Remarks", "Enter remarks for this rate:")
+        if not ok2: return
+
+        self.estimate.unit = unit
+        self.estimate.remarks = remarks
+        
+        rate_id = self.db_manager.convert_to_rate_db(self.estimate)
+        if rate_id:
+            QMessageBox.information(self, "Success", f"Estimate successfully converted to rate.\nRate ID: {rate_id}\nSaved in construction_rates.db")
+        else:
+            QMessageBox.critical(self, "Error", "Failed to convert estimate to rate.")
 
     # --- UNDO / REDO LOGIC ---
     def save_state(self):
