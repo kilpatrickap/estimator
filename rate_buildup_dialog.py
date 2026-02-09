@@ -1,10 +1,14 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, 
-                             QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton)
+                             QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
+                             QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
+                             QComboBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont
 from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
+from currency_conversion_dialog import CurrencyConversionDialog
 import re
+import copy
 
 class RateBuildUpDialog(QDialog):
     """
@@ -18,12 +22,33 @@ class RateBuildUpDialog(QDialog):
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
         self.setMinimumSize(1000, 750)
         
+        # Undo/Redo Stacks
+        self.undo_stack = []
+        self.redo_stack = []
+        
         # Extract currency symbol
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
         
         self._init_ui()
         self.refresh_view()
+
+    def _save_state(self):
+        """Saves current estimate state to undo stack."""
+        self.undo_stack.append(copy.deepcopy(self.estimate))
+        self.redo_stack.clear() # Clear redo when a new action is performed
+
+    def undo(self):
+        if self.undo_stack:
+            self.redo_stack.append(copy.deepcopy(self.estimate))
+            self.estimate = self.undo_stack.pop()
+            self.refresh_view()
+
+    def redo(self):
+        if self.redo_stack:
+            self.undo_stack.append(copy.deepcopy(self.estimate))
+            self.estimate = self.redo_stack.pop()
+            self.refresh_view()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -45,6 +70,54 @@ class RateBuildUpDialog(QDialog):
         h_layout.addWidget(desc_label)
         layout.addWidget(header)
 
+        # Toolbar Section
+        toolbar = QHBoxLayout()
+        
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.clicked.connect(self.undo)
+        self.redo_btn = QPushButton("Redo")
+        self.redo_btn.clicked.connect(self.redo)
+        
+        add_task_btn = QPushButton("Add Task")
+        add_task_btn.clicked.connect(self.add_task)
+        add_mat_btn = QPushButton("Add Material")
+        add_mat_btn.clicked.connect(lambda: self.add_resource("materials"))
+        add_lab_btn = QPushButton("Add Labor")
+        add_lab_btn.clicked.connect(lambda: self.add_resource("labor"))
+        add_eqp_btn = QPushButton("Add Equipment")
+        add_eqp_btn.clicked.connect(lambda: self.add_resource("equipment"))
+        
+        ex_rate_btn = QPushButton("Exchange Rates")
+        ex_rate_btn.clicked.connect(self.open_exchange_rates)
+        
+        remove_btn = QPushButton("Remove Selected")
+        remove_btn.setStyleSheet("background-color: #fce4ec; color: #c62828;")
+        remove_btn.clicked.connect(self.remove_selected)
+        
+        toolbar.addWidget(self.undo_btn)
+        toolbar.addWidget(self.redo_btn)
+        toolbar.addSpacing(20)
+        
+        # Base Currency Selector
+        toolbar.addWidget(QLabel("Base Currency:"))
+        self.currency_combo = QComboBox()
+        self.currencies = ["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"]
+        self.currency_combo.addItems(self.currencies)
+        self.currency_combo.setCurrentText(self.estimate.currency)
+        self.currency_combo.currentTextChanged.connect(self.change_base_currency)
+        toolbar.addWidget(self.currency_combo)
+        toolbar.addWidget(ex_rate_btn)
+        
+        toolbar.addSpacing(20)
+        toolbar.addWidget(add_task_btn)
+        toolbar.addWidget(add_mat_btn)
+        toolbar.addWidget(add_lab_btn)
+        toolbar.addWidget(add_eqp_btn)
+        toolbar.addStretch()
+        toolbar.addWidget(remove_btn)
+        
+        layout.addLayout(toolbar)
+
         # Build-up Tree
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate"])
@@ -60,9 +133,9 @@ class RateBuildUpDialog(QDialog):
         summary_layout = QHBoxLayout()
         summary_layout.addStretch()
         
-        total_label = QLabel(f"TOTAL RATE: {self.currency_symbol}{totals['grand_total']:,.2f}")
-        total_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; padding: 10px;")
-        summary_layout.addWidget(total_label)
+        self.total_label = QLabel(f"TOTAL RATE: {self.currency_symbol}{totals['grand_total']:,.2f}")
+        self.total_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; padding: 10px;")
+        summary_layout.addWidget(self.total_label)
         layout.addLayout(summary_layout)
 
         # Footer
@@ -84,6 +157,102 @@ class RateBuildUpDialog(QDialog):
         footer_layout.addWidget(save_btn)
         layout.addLayout(footer_layout)
 
+    def open_exchange_rates(self):
+        self._save_state()
+        if CurrencyConversionDialog(self.estimate, self).exec():
+            self.refresh_view()
+        else:
+            self.undo_stack.pop()
+            self._update_undo_redo_buttons()
+
+    def change_base_currency(self, new_currency):
+        if new_currency == self.estimate.currency:
+            return
+        self._save_state()
+        self.estimate.currency = new_currency
+        self.refresh_view()
+
+    def add_task(self):
+        desc, ok = QInputDialog.getText(self, "Add Task", "Task Description:")
+        if ok and desc:
+            self._save_state()
+            from models import Task
+            self.estimate.add_task(Task(desc))
+            self.refresh_view()
+
+    def add_resource(self, table_name):
+        # We need a selected task in the tree
+        selected = self.tree.currentItem()
+        if not selected:
+            QMessageBox.warning(self, "No Selection", "Please select a Task in the tree first.")
+            return
+            
+        # If a child is selected, find its parent task
+        task_item = selected if not selected.parent() else selected.parent()
+        if task_item.parent(): # Should not happen with current tree structure
+             task_item = task_item.parent()
+             
+        task_idx = self.tree.indexOfTopLevelItem(task_item)
+        if task_idx < 0:
+            QMessageBox.warning(self, "Selection Error", "Please select a valid Task.")
+            return
+            
+        task_obj = self.estimate.tasks[task_idx]
+        
+        dialog = CostSelectionDialog(table_name, self)
+        if dialog.exec():
+            selected_data = dialog.selected_item
+            if selected_data:
+                self._save_state()
+                if table_name == "materials":
+                    task_obj.add_material(
+                        selected_data['name'], 1.0, selected_data['unit'], 
+                        selected_data['price'], selected_data['currency']
+                    )
+                elif table_name == "labor":
+                    task_obj.add_labor(
+                        selected_data['trade'], 1.0, selected_data['rate_per_hour'], 
+                        selected_data['currency']
+                    )
+                elif table_name == "equipment":
+                    task_obj.add_equipment(
+                        selected_data['name'], 1.0, selected_data['rate_per_hour'], 
+                        selected_data['currency']
+                    )
+                self.refresh_view()
+
+    def remove_selected(self):
+        item = self.tree.currentItem()
+        if not item:
+            return
+
+        self._save_state()
+        parent = item.parent()
+        if not parent:
+            # It's a task
+            idx = self.tree.indexOfTopLevelItem(item)
+            if 0 <= idx < len(self.estimate.tasks):
+                self.estimate.tasks.pop(idx)
+        else:
+            # It's a resource
+            task_idx = self.tree.indexOfTopLevelItem(parent)
+            task_obj = self.estimate.tasks[task_idx]
+            
+            # Identify which list it belongs to
+            # In refresh_view, we store item_data and item_type on the child
+            if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+                rtype = item.item_type
+                rdata = item.item_data
+                
+                if rtype == 'material':
+                    task_obj.materials.remove(rdata)
+                elif rtype == 'labor':
+                    task_obj.labor.remove(rdata)
+                elif rtype == 'equipment':
+                    task_obj.equipment.remove(rdata)
+        
+        self.refresh_view()
+
     def edit_item(self, item, column):
         """Opens the formula-based edit dialog for the double-clicked resource."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
@@ -102,7 +271,22 @@ class RateBuildUpDialog(QDialog):
 
     def refresh_view(self):
         self.tree.clear()
+        
+        # Update currency symbol
+        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        self.currency_symbol = match.group(1) if match else "$"
+        
         base_sym = self.currency_symbol
+        
+        # Update Combo if needed (for undo/redo)
+        if hasattr(self, 'currency_combo'):
+            self.currency_combo.blockSignals(True)
+            self.currency_combo.setCurrentText(self.estimate.currency)
+            self.currency_combo.blockSignals(False)
+            
+        # Update Total Label
+        totals = self.estimate.calculate_totals()
+        self.total_label.setText(f"TOTAL RATE: {base_sym}{totals['grand_total']:,.2f}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
@@ -160,3 +344,110 @@ class RateBuildUpDialog(QDialog):
         
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
+        
+        self._update_undo_redo_buttons()
+
+    def _update_undo_redo_buttons(self):
+        """Update Undo/Redo button states based on stacks."""
+        self.undo_btn.setEnabled(len(self.undo_stack) > 0)
+        self.redo_btn.setEnabled(len(self.redo_stack) > 0)
+
+
+class CostSelectionDialog(QDialog):
+    """Simplified dialog to select a cost from the global database."""
+    def __init__(self, table_name, parent=None):
+        super().__init__(parent)
+        self.table_name = table_name
+        self.selected_item = None
+        
+        singular = table_name[:-1] if table_name.endswith('s') else table_name
+        self.setWindowTitle(f"Select {singular.capitalize()} from Database")
+        self.setMinimumSize(800, 500)
+        
+        layout = QVBoxLayout(self)
+        
+        # Search
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Type to filter...")
+        self.search_input.textChanged.connect(self.filter_table)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
+        # Table
+        self.table = QTableWidget()
+        self.db_manager = DatabaseManager("construction_costs.db")
+        self.load_data()
+        
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.doubleClicked.connect(self.accept)
+        
+        layout.addWidget(self.table)
+        
+        # Buttons
+        btns = QHBoxLayout()
+        btns.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        select_btn = QPushButton("Select")
+        select_btn.clicked.connect(self.accept)
+        select_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        
+        btns.addWidget(cancel_btn)
+        btns.addWidget(select_btn)
+        layout.addLayout(btns)
+
+    def load_data(self):
+        items = self.db_manager.get_items(self.table_name)
+        if not items:
+            return
+            
+        # Headers based on table
+        if self.table_name == "materials":
+            headers = ["Name", "Unit", "Currency", "Price"]
+            keys = ["name", "unit", "currency", "price"]
+        elif self.table_name == "labor":
+            headers = ["Trade", "Currency", "Rate"]
+            keys = ["trade", "currency", "rate_per_hour"]
+        else: # equipment
+            headers = ["Name", "Currency", "Rate"]
+            keys = ["name", "currency", "rate_per_hour"]
+            
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.setRowCount(len(items))
+        
+        self.full_data = []
+        for r, row in enumerate(items):
+            item_dict = dict(row)
+            self.full_data.append(item_dict)
+            for c, key in enumerate(keys):
+                val = item_dict.get(key, "")
+                if isinstance(val, float):
+                    val = f"{val:,.2f}"
+                self.table.setItem(r, c, QTableWidgetItem(str(val)))
+                
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+    def filter_table(self, text):
+        query = text.lower()
+        for row in range(self.table.rowCount()):
+            match = False
+            for col in range(self.table.columnCount()):
+                if query in self.table.item(row, col).text().lower():
+                    match = True
+                    break
+            self.table.setRowHidden(row, not match)
+
+    def accept(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            # Need to find the correct index in full_data if filtered
+            # Actually, better to just store data in the item
+            self.selected_item = self.full_data[row]
+            super().accept()
+        else:
+            QMessageBox.warning(self, "Selection Error", "Please select an item.")
