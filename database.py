@@ -586,7 +586,7 @@ class DatabaseManager:
         conn = rates_db._get_connection()
         try:
             return conn.cursor().execute("""
-                SELECT rate_id, project_name, unit, currency, grand_total, date_created, remarks 
+                SELECT id, rate_id, project_name, unit, currency, grand_total, date_created, remarks 
                 FROM estimates 
                 ORDER BY rate_id DESC
             """).fetchall()

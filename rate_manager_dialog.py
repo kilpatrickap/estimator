@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget,
                              QTableWidgetItem, QHeaderView, QLabel, QLineEdit, QPushButton, QWidget)
 from PyQt6.QtCore import Qt
 from database import DatabaseManager
+from rate_buildup_dialog import RateBuildUpDialog
 
 class RateManagerDialog(QDialog):
     """Dialog for viewing and managing saved rates in construction_rates.db."""
@@ -56,6 +57,7 @@ class RateManagerDialog(QDialog):
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 8px; }")
+        self.table.doubleClicked.connect(self.open_rate_buildup)
         
         layout.addWidget(self.table)
 
@@ -76,20 +78,27 @@ class RateManagerDialog(QDialog):
         
         for row_idx, row_data in enumerate(rates):
             self.table.insertRow(row_idx)
-            for col_idx, data in enumerate(row_data):
-                # Format Rate as currency if it's the 4th index (grand_total)
-                if col_idx == 4:
+            # data_to_display starts from index 1 (skip internal ID)
+            for col_idx, data in enumerate(row_data[1:]):
+                # Row data indices (excluding id at 0):
+                # 0: rate_id, 1: project_name, 2: unit, 3: currency, 4: grand_total, 5: date, 6: remarks
+                if col_idx == 4: # grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
                 else:
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
-                if col_idx in [0, 4]: # Rate ID and Price bold
+                # Store the internal DB ID from row_data[0] in the first visible column's UserRole
+                if col_idx == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, row_data[0])
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
                 
-                if col_idx == 4: # Align rate to right
+                if col_idx == 4: # Rate matches index 4 in loop
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
                 self.table.setItem(row_idx, col_idx, item)
@@ -97,6 +106,18 @@ class RateManagerDialog(QDialog):
         # Initial fit for non-stretched columns
         for i in [0, 2, 3, 5]:
             self.table.resizeColumnToContents(i)
+
+    def open_rate_buildup(self, index):
+        """Loads and shows the build-up for the selected rate."""
+        row = index.row()
+        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        
+        if db_id:
+            from database import DatabaseManager
+            rates_db = DatabaseManager("construction_rates.db")
+            estimate_obj = rates_db.load_estimate_details(db_id)
+            if estimate_obj:
+                RateBuildUpDialog(estimate_obj, self).exec()
 
     def filter_rates(self, text):
         query = text.lower()

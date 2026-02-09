@@ -124,7 +124,12 @@ class EditItemDialog(QDialog):
         
         # Normalize and sanitize
         term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
-        term = re.sub(r'[a-zA-Z]+', '', term) # Remove letters (units)
+        
+        # 1. Remove "per" units with slashes (e.g., /hr, /day, /m3)
+        term = re.sub(r'/[a-zA-Z]+\d*', '', term)
+        
+        # 2. Remove remaining alphanumeric units (e.g., hrs, m3, pcs)
+        term = re.sub(r'[a-zA-Z]+\d*', '', term)
         
         try:
             # Safe(ish) eval
