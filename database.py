@@ -449,7 +449,7 @@ class DatabaseManager:
         """Helper to load items for a task with a join."""
         # alias map
         alias = source_table[0] # 'm', 'l', 'e'
-        link_alias = link_table.split('_')[1][0] + link_table.split('_')[1][1] # 'em', 'el', 'ee'
+        link_alias = 'e' + alias # 'em', 'el', 'ee'
         
         sql = f"""
             SELECT {select_cols}

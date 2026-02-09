@@ -91,7 +91,7 @@ class EditItemDialog(QDialog):
         form_layout.addRow(split_layout)
         
         # Help Text
-        help_text = "Enter value or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
+        help_text = "Enter value (1.00) or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
         help_label = QLabel(help_text)
         help_label.setStyleSheet("color: gray; font-style: italic; font-size: 10pt;")
         form_layout.addRow("", help_label)
