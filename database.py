@@ -85,6 +85,10 @@ class DatabaseManager:
                     self._ensure_column(cursor, table, "name_trade", "name_trade TEXT")
                     self._ensure_column(cursor, table, "rate", "rate REAL")
                     self._ensure_column(cursor, table, "currency", "currency TEXT")
+            
+            # 5. Fix constraints on estimate items (remove NOT NULL and Library FKs)
+            for table, id_col in [("estimate_materials", "material_id"), ("estimate_labor", "labor_id"), ("estimate_equipment", "equipment_id")]:
+                self._repair_estimate_items_schema(cursor, table, id_col)
 
             # 5. Create 'estimate_exchange_rates' table
             cursor.execute('''
@@ -105,6 +109,65 @@ class DatabaseManager:
             print(f"Migration Error: {e}")
         finally:
             conn.close()
+
+    def _repair_estimate_items_schema(self, cursor, table_name, id_col):
+        """Removes NOT NULL and FOREIGN KEY constraints on the resource link column in SQLite."""
+        cursor.execute(f"PRAGMA table_info({table_name})")
+        info = cursor.fetchall()
+        if not info: return 
+
+        schema = {i['name']: i for i in info}
+        target_col = schema.get(id_col)
+        
+        cursor.execute(f"PRAGMA foreign_key_list({table_name})")
+        fks = cursor.fetchall()
+        has_library_fk = any(fk['table'] in ["materials", "labor", "equipment"] for fk in fks)
+
+        if (target_col and target_col['notnull'] == 1) or has_library_fk:
+            print(f"Repairing schema for {table_name} to allow NULL links and remove library FKs...")
+            
+            if table_name == "estimate_materials":
+                creation_sql = f'''
+                    CREATE TABLE {table_name}_new (
+                        id INTEGER PRIMARY KEY,
+                        task_id INTEGER NOT NULL,
+                        {id_col} INTEGER,
+                        quantity REAL,
+                        formula TEXT,
+                        name TEXT,
+                        unit TEXT,
+                        price REAL,
+                        currency TEXT,
+                        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                    )
+                '''
+            else:
+                creation_sql = f'''
+                    CREATE TABLE {table_name}_new (
+                        id INTEGER PRIMARY KEY,
+                        task_id INTEGER NOT NULL,
+                        {id_col} INTEGER,
+                        hours REAL,
+                        formula TEXT,
+                        name_trade TEXT,
+                        rate REAL,
+                        currency TEXT,
+                        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                    )
+                '''
+            
+            cursor.execute(creation_sql)
+            
+            # Get common columns for data transfer
+            cols = [i['name'] for i in info]
+            cursor.execute(f"PRAGMA table_info({table_name}_new)")
+            new_cols = [n['name'] for n in cursor.fetchall()]
+            common = [c for c in cols if c in new_cols]
+            col_str = ", ".join(common)
+            
+            cursor.execute(f"INSERT INTO {table_name}_new ({col_str}) SELECT {col_str} FROM {table_name}")
+            cursor.execute(f"DROP TABLE {table_name}")
+            cursor.execute(f"ALTER TABLE {table_name}_new RENAME TO {table_name}")
 
     def _init_db(self):
         """
@@ -150,43 +213,40 @@ class DatabaseManager:
             CREATE TABLE estimate_materials (
                 id INTEGER PRIMARY KEY,
                 task_id INTEGER NOT NULL,
-                material_id INTEGER NOT NULL,
+                material_id INTEGER,
                 quantity REAL,
                 formula TEXT,
                 name TEXT,
                 unit TEXT,
                 price REAL,
                 currency TEXT,
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE CASCADE
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
             )
         ''')
         cursor.execute('''
             CREATE TABLE estimate_labor (
                 id INTEGER PRIMARY KEY,
                 task_id INTEGER NOT NULL,
-                labor_id INTEGER NOT NULL,
+                labor_id INTEGER,
                 hours REAL,
                 formula TEXT,
                 name_trade TEXT,
                 rate REAL,
                 currency TEXT,
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY(labor_id) REFERENCES labor(id) ON DELETE CASCADE
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
             )
         ''')
         cursor.execute('''
             CREATE TABLE estimate_equipment (
                 id INTEGER PRIMARY KEY,
                 task_id INTEGER NOT NULL,
-                equipment_id INTEGER NOT NULL,
+                equipment_id INTEGER,
                 hours REAL,
                 formula TEXT,
                 name_trade TEXT,
                 rate REAL,
                 currency TEXT,
-                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
-                FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
             )
         ''')
         cursor.execute('''
@@ -411,13 +471,13 @@ class DatabaseManager:
                 sql = f"""INSERT INTO {dest_table} 
                          (task_id, material_id, quantity, formula, name, unit, price, currency) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
-                cursor.execute(sql, (task_id, source_id or 0, item['qty'], item.get('formula'),
+                cursor.execute(sql, (task_id, source_id, item['qty'], item.get('formula'),
                                      item['name'], item['unit'], item['unit_cost'], item.get('currency')))
             else:
                 sql = f"""INSERT INTO {dest_table} 
                          (task_id, {ref_id_col}, {qty_col}, formula, name_trade, rate, currency) 
                          VALUES (?, ?, ?, ?, ?, ?, ?)"""
-                cursor.execute(sql, (task_id, source_id or 0, item[qty_col], item.get('formula'),
+                cursor.execute(sql, (task_id, source_id, item[qty_col], item.get('formula'),
                                      item[name_key], item[rate_key], item.get('currency')))
 
     def get_saved_estimates_summary(self):
