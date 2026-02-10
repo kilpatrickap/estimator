@@ -3,8 +3,8 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
                              QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView,
-                             QComboBox, QDateEdit)
-from PyQt6.QtCore import QDate
+                             QComboBox, QDateEdit, QMenu)
+from PyQt6.QtCore import QDate, Qt
 from database import DatabaseManager
 
 
@@ -54,6 +54,8 @@ class DatabaseManagerDialog(QDialog):
         table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setWordWrap(True)
         table.setColumnHidden(0, True) # ID
+        table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        table.customContextMenuRequested.connect(lambda pos, t=table_name: self.show_context_menu(pos, t))
         layout.addWidget(table)
         self.tables[table_name] = table
 
@@ -157,6 +159,23 @@ class DatabaseManagerDialog(QDialog):
                 return
 
         self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
+
+    def show_context_menu(self, pos, table_name):
+        table = self.tables[table_name]
+        menu = QMenu(self)
+        
+        singular = table_name[:-1] if table_name.endswith('s') else table_name
+        
+        add_action = menu.addAction(f"Add new {singular.capitalize()}")
+        add_action.triggered.connect(lambda: self.add_item(table_name))
+        
+        # Only show delete if a row is selected
+        if table.itemAt(pos):
+            menu.addSeparator()
+            delete_action = menu.addAction(f"Delete selected {singular.capitalize()}")
+            delete_action.triggered.connect(lambda: self.delete_item(table_name))
+            
+        menu.exec(table.viewport().mapToGlobal(pos))
 
     def _add_currency_widget(self, table, row, col, current_val, table_name, item_id):
         combo = QComboBox()
