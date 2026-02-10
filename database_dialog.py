@@ -208,12 +208,46 @@ class DatabaseManagerDialog(QDialog):
         table.resizeRowsToContents()
 
     def add_item(self, table_name):
-        dialog = ItemDialog(table_name, self)
-        if dialog.exec():
-            data = dialog.get_data()
-            if data and not self.db_manager.add_item(table_name, data):
-                QMessageBox.warning(self, "Error", "Item already exists.")
-            self.load_data(table_name)
+        """Adds a new empty placeholder item to the database and a row to the table for inline editing."""
+        now = QDate.currentDate().toString("yyyy-MM-dd")
+        default_curr = self.db_manager.get_setting('currency', 'GHS (₵)')
+        
+        # Create a placeholder record to get an ID. 
+        # Materials: name, unit, currency, price, date, location, contact, remarks (8 items)
+        # Labor/Equip: trade/name, unit, currency, rate, date, location, contact, remarks (8 items)
+        placeholder_data = ("New Item...", "", default_curr, 0.0, now, "", "", "")
+        
+        item_id = self.db_manager.add_item(table_name, placeholder_data)
+        if item_id:
+            # We insert at the top for visibility
+            table = self.tables[table_name]
+            self.is_loading = True
+            table.insertRow(0)
+            
+            # ID (hidden)
+            table.setItem(0, 0, QTableWidgetItem(str(item_id)))
+            
+            # Fields
+            table.setItem(0, 1, QTableWidgetItem("New Item...")) # Name/Trade
+            table.setItem(0, 2, QTableWidgetItem("")) # Unit
+            self._add_currency_widget(table, 0, 3, default_curr, table_name, item_id)
+            table.setItem(0, 4, QTableWidgetItem("0.00")) # Price/Rate
+            self._add_date_widget(table, 0, 5, now, table_name, item_id)
+            table.setItem(0, 6, QTableWidgetItem("")) # Location
+            table.setItem(0, 7, QTableWidgetItem("")) # Contact
+            table.setItem(0, 8, QTableWidgetItem("")) # Remarks
+            
+            self.is_loading = False
+            self._adjust_widths(table, table_name)
+            
+            # Highlight and scroll to the new row
+            table.scrollToTop()
+            table.selectRow(0)
+            
+            # Optionally start editing the name cell immediately
+            table.editItem(table.item(0, 1))
+        else:
+            QMessageBox.warning(self, "Error", "Failed to create a new item placeholder.")
 
     def edit_item(self, table_name):
         table = self.tables[table_name]

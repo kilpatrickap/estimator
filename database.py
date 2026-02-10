@@ -334,7 +334,7 @@ class DatabaseManager:
             conn.close()
 
     def add_item(self, table_name, data):
-        """Adds a new item to the cost library."""
+        """Adds a new item to the cost library and returns its ID."""
         conn = self._get_connection()
         try:
             sql_map = {
@@ -343,12 +343,13 @@ class DatabaseManager:
                 'equipment': 'INSERT INTO equipment (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
-            if not sql: return False
-            conn.cursor().execute(sql, data)
+            if not sql: return None
+            cursor = conn.cursor()
+            cursor.execute(sql, data)
             conn.commit()
-            return True
+            return cursor.lastrowid
         except sqlite3.IntegrityError:
-            return False
+            return None
         finally:
             conn.close()
 
