@@ -63,6 +63,7 @@ class DatabaseManagerDialog(QDialog):
         self.tables[table_name] = table
 
         # Connect signals
+        search_input.textChanged.connect(lambda text, tbl=table: self.filter_table(text, tbl))
         table.itemChanged.connect(lambda item: self.on_item_changed(item, table_name))
         table.itemDoubleClicked.connect(lambda item: self.on_item_double_clicked(item, table_name))
         
