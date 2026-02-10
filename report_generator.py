@@ -163,7 +163,8 @@ class ReportGenerator:
                     ('materials', 'Material', 'name', 'qty', 'unit_cost'),
                     ('labor', 'Labor', 'trade', 'hours', 'rate'),
                     ('equipment', 'Equipment', 'name', 'hours', 'rate'),
-                    ('plant', 'Plant', 'name', 'hours', 'rate')
+                    ('plant', 'Plant', 'name', 'hours', 'rate'),
+                    ('indirect_costs', 'Indirect', 'description', 'amount', 'amount')
                 ]
 
                 has_items = False

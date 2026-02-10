@@ -88,6 +88,8 @@ class RateBuildUpDialog(QDialog):
         add_eqp_btn.clicked.connect(lambda: self.add_resource("equipment"))
         add_plt_btn = QPushButton("Add Plant")
         add_plt_btn.clicked.connect(lambda: self.add_resource("plant"))
+        add_ind_btn = QPushButton("Add Indirect")
+        add_ind_btn.clicked.connect(lambda: self.add_resource("indirect_costs"))
         
         ex_rate_btn = QPushButton("Exchange Rates")
         ex_rate_btn.clicked.connect(self.open_exchange_rates)
@@ -104,6 +106,7 @@ class RateBuildUpDialog(QDialog):
         toolbar.addWidget(add_lab_btn)
         toolbar.addWidget(add_eqp_btn)
         toolbar.addWidget(add_plt_btn)
+        toolbar.addWidget(add_ind_btn)
         
         # Base Currency Selector
         toolbar.addWidget(QLabel("Base Currency:"))
@@ -231,6 +234,11 @@ class RateBuildUpDialog(QDialog):
                         selected_data['name'], 1.0, selected_data['rate'], 
                         selected_data['currency'], unit=selected_data.get('unit')
                     )
+                elif table_name == "indirect_costs":
+                    task_obj.add_indirect_cost(
+                        selected_data['description'], selected_data['amount'], 
+                        unit=selected_data.get('unit'), currency=selected_data['currency']
+                    )
                 self.refresh_view()
 
     def remove_selected(self):
@@ -264,6 +272,8 @@ class RateBuildUpDialog(QDialog):
                     task_obj.equipment.remove(rdata)
                 elif rtype == 'plant':
                     task_obj.plant.remove(rdata)
+                elif rtype == 'indirect_costs':
+                    task_obj.indirect_costs.remove(rdata)
         
         self.refresh_view()
 
@@ -311,7 +321,8 @@ class RateBuildUpDialog(QDialog):
                 sum(self.estimate._get_item_total_in_base_currency(m) for m in task.materials),
                 sum(self.estimate._get_item_total_in_base_currency(l) for l in task.labor),
                 sum(self.estimate._get_item_total_in_base_currency(e) for e in task.equipment),
-                sum(self.estimate._get_item_total_in_base_currency(p) for p in task.plant)
+                sum(self.estimate._get_item_total_in_base_currency(p) for p in task.plant),
+                sum(self.estimate._get_item_total_in_base_currency(ind) for ind in task.indirect_costs)
             ])
             
             task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_total:,.2f}"])
@@ -323,7 +334,8 @@ class RateBuildUpDialog(QDialog):
                 ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
                 ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
                 ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment'),
-                ('plant', 'Plant', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'plant')
+                ('plant', 'Plant', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'plant'),
+                ('indirect_costs', 'Indirect', 'description', lambda x: x.get('unit') or '', 'amount', 'amount', 'indirect_costs')
             ]
             
             sub_idx = 1

@@ -8,6 +8,7 @@ class Task:
         self.labor = []
         self.equipment = []
         self.plant = []
+        self.indirect_costs = []
 
     def add_material(self, name, quantity, unit, unit_cost, currency=None, formula=None):
         self._add_item(self.materials, {
@@ -33,6 +34,12 @@ class Task:
             'total': hours * rate, 'currency': currency, 'formula': formula
         })
 
+    def add_indirect_cost(self, description, amount, unit=None, currency=None, formula=None):
+        self._add_item(self.indirect_costs, {
+            'description': description, 'amount': amount, 'unit': unit,
+            'total': amount, 'currency': currency, 'formula': formula
+        })
+
     def _add_item(self, list_ref, item_dict):
         list_ref.append(item_dict)
 
@@ -43,6 +50,7 @@ class Task:
         yield from self.labor
         yield from self.equipment
         yield from self.plant
+        yield from self.indirect_costs
 
 
 class Estimate:

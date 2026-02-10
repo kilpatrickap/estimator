@@ -26,7 +26,8 @@ class DatabaseManagerDialog(QDialog):
             ("Materials", "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]),
             ("Labor", "labor", ["ID", "Labor", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
             ("Equipment", "equipment", ["ID", "Equipment", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
-            ("Plant", "plant", ["ID", "Plant", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"])
+            ("Plant", "plant", ["ID", "Plant", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
+            ("Indirect Costs", "indirect_costs", ["ID", "Description", "Unit", "Currency", "Amount", "Date"])
         ]
 
         self.tables = {}
@@ -118,9 +119,9 @@ class DatabaseManagerDialog(QDialog):
         # Define field mapping for column indices
         # Indices: 1:Name, 2:Unit, 4:Price/Rate, 6:Location, 7:Contact, 8:Remarks
         field_map = {
-            1: 'trade' if table_name == 'labor' else 'name',
+            1: 'trade' if table_name == 'labor' else ('description' if table_name == 'indirect_costs' else 'name'),
             2: 'unit',
-            4: 'rate' if table_name in ['labor', 'equipment', 'plant'] else 'price',
+            4: 'rate' if table_name in ['labor', 'equipment', 'plant'] else ('amount' if table_name == 'indirect_costs' else 'price'),
             6: 'location',
             7: 'contact',
             8: 'remarks'
@@ -204,10 +205,11 @@ class DatabaseManagerDialog(QDialog):
         now = QDate.currentDate().toString("yyyy-MM-dd")
         default_curr = self.db_manager.get_setting('currency', 'GHS (₵)')
         
-        # Create a placeholder record to get an ID. 
-        # Materials: name, unit, currency, price, date, location, contact, remarks (8 items)
-        # Labor/Equip: trade/name, unit, currency, rate, date, location, contact, remarks (8 items)
-        placeholder_data = ("New Item...", "", default_curr, 0.0, now, "", "", "")
+        if table_name == 'indirect_costs':
+            placeholder_data = ("New Item...", "", default_curr, 0.0, now)
+        else:
+            # Materials/Labor/Equip/Plant: name/trade, unit, currency, price/rate, date, location, contact, remarks (8 items)
+            placeholder_data = ("New Item...", "", default_curr, 0.0, now, "", "", "")
         
         item_id = self.db_manager.add_item(table_name, placeholder_data)
         if item_id:
@@ -225,9 +227,10 @@ class DatabaseManagerDialog(QDialog):
             self._add_currency_widget(table, new_row_idx, 3, default_curr, table_name, item_id)
             table.setItem(new_row_idx, 4, QTableWidgetItem("0.00")) # Price/Rate
             self._add_date_widget(table, new_row_idx, 5, now, table_name, item_id)
-            table.setItem(new_row_idx, 6, QTableWidgetItem("")) # Location
-            table.setItem(new_row_idx, 7, QTableWidgetItem("")) # Contact
-            table.setItem(new_row_idx, 8, QTableWidgetItem("")) # Remarks
+            if table_name != 'indirect_costs':
+                table.setItem(new_row_idx, 6, QTableWidgetItem("")) # Location
+                table.setItem(new_row_idx, 7, QTableWidgetItem("")) # Contact
+                table.setItem(new_row_idx, 8, QTableWidgetItem("")) # Remarks
             
             self.is_loading = False
             self._adjust_widths(table, table_name)
@@ -263,9 +266,6 @@ class DatabaseManagerDialog(QDialog):
         curr = get_val(row, 3)
         rate = get_val(row, 4)
         date = get_val(row, 5)
-        loc = get_val(row, 6)
-        con = get_val(row, 7)
-        rem = get_val(row, 8)
 
         # Convert rate to float for DB insertion
         try:
@@ -273,7 +273,13 @@ class DatabaseManagerDialog(QDialog):
         except ValueError:
             rate_val = 0.0
 
-        copy_data = (name, unit, curr, rate_val, date, loc, con, rem)
+        if table_name == 'indirect_costs':
+            copy_data = (name, unit, curr, rate_val, date)
+        else:
+            loc = get_val(row, 6)
+            con = get_val(row, 7)
+            rem = get_val(row, 8)
+            copy_data = (name, unit, curr, rate_val, date, loc, con, rem)
         
         new_id = self.db_manager.add_item(table_name, copy_data)
         if new_id:
@@ -288,9 +294,10 @@ class DatabaseManagerDialog(QDialog):
             self._add_currency_widget(table, new_row_idx, 3, curr, table_name, new_id)
             table.setItem(new_row_idx, 4, QTableWidgetItem(f"{rate_val:.2f}"))
             self._add_date_widget(table, new_row_idx, 5, date, table_name, new_id)
-            table.setItem(new_row_idx, 6, QTableWidgetItem(loc))
-            table.setItem(new_row_idx, 7, QTableWidgetItem(con))
-            table.setItem(new_row_idx, 8, QTableWidgetItem(rem))
+            if table_name != 'indirect_costs':
+                table.setItem(new_row_idx, 6, QTableWidgetItem(loc))
+                table.setItem(new_row_idx, 7, QTableWidgetItem(con))
+                table.setItem(new_row_idx, 8, QTableWidgetItem(rem))
             
             self.is_loading = False
             self._adjust_widths(table, table_name)
