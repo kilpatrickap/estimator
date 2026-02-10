@@ -76,6 +76,15 @@ class DatabaseManager:
             item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment']
             for table in item_tables:
                 self._ensure_column(cursor, table, "formula", "formula TEXT")
+                if table == "estimate_materials":
+                    self._ensure_column(cursor, table, "name", "name TEXT")
+                    self._ensure_column(cursor, table, "unit", "unit TEXT")
+                    self._ensure_column(cursor, table, "price", "price REAL")
+                    self._ensure_column(cursor, table, "currency", "currency TEXT")
+                else:
+                    self._ensure_column(cursor, table, "name_trade", "name_trade TEXT")
+                    self._ensure_column(cursor, table, "rate", "rate REAL")
+                    self._ensure_column(cursor, table, "currency", "currency TEXT")
 
             # 5. Create 'estimate_exchange_rates' table
             cursor.execute('''
@@ -144,6 +153,10 @@ class DatabaseManager:
                 material_id INTEGER NOT NULL,
                 quantity REAL,
                 formula TEXT,
+                name TEXT,
+                unit TEXT,
+                price REAL,
+                currency TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(material_id) REFERENCES materials(id) ON DELETE CASCADE
             )
@@ -155,6 +168,9 @@ class DatabaseManager:
                 labor_id INTEGER NOT NULL,
                 hours REAL,
                 formula TEXT,
+                name_trade TEXT,
+                rate REAL,
+                currency TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(labor_id) REFERENCES labor(id) ON DELETE CASCADE
             )
@@ -166,6 +182,9 @@ class DatabaseManager:
                 equipment_id INTEGER NOT NULL,
                 hours REAL,
                 formula TEXT,
+                name_trade TEXT,
+                rate REAL,
+                currency TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE,
                 FOREIGN KEY(equipment_id) REFERENCES equipment(id) ON DELETE CASCADE
             )
@@ -382,14 +401,24 @@ class DatabaseManager:
         
         # Identify name key (materials/equipment use 'name', labor uses 'trade')
         name_key = 'trade' if ref_table == 'labor' else 'name'
+        rate_key = 'unit_cost' if ref_table == "materials" else 'rate'
         
         for item in items:
-            # We map back to source ID by name/trade.
-            # Optimization: could cache these lookups instead of querying every time.
+            # We map back to source ID by name/trade if possible, but store all details redundantly
             source_id = self.get_item_id_by_name(ref_table, item[name_key], cursor)
-            if source_id:
-                sql = f"INSERT INTO {dest_table} (task_id, {ref_id_col}, {qty_col}, formula) VALUES (?, ?, ?, ?)"
-                cursor.execute(sql, (task_id, source_id, item['qty'] if qty_col == 'quantity' else item['hours'], item.get('formula')))
+            
+            if ref_table == "materials":
+                sql = f"""INSERT INTO {dest_table} 
+                         (task_id, material_id, quantity, formula, name, unit, price, currency) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
+                cursor.execute(sql, (task_id, source_id or 0, item['qty'], item.get('formula'),
+                                     item['name'], item['unit'], item['unit_cost'], item.get('currency')))
+            else:
+                sql = f"""INSERT INTO {dest_table} 
+                         (task_id, {ref_id_col}, {qty_col}, formula, name_trade, rate, currency) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?)"""
+                cursor.execute(sql, (task_id, source_id or 0, item[qty_col], item.get('formula'),
+                                     item[name_key], item[rate_key], item.get('currency')))
 
     def get_saved_estimates_summary(self):
         """Returns a summary list of all saved estimates."""
@@ -429,22 +458,53 @@ class DatabaseManager:
                 task_obj = Task(task_data['description'])
                 
                 # Load Materials
-                mats = self._load_task_items(cursor, task_data['id'], "estimate_materials", "materials", "material_id", 
-                                           "m.name, m.unit, m.price, em.quantity, m.currency, em.formula")
+                mats = self._load_task_items(cursor, task_data['id'], "estimate_materials")
                 for m in mats:
-                    task_obj.add_material(m['name'], m['quantity'], m['unit'], m['price'], currency=m['currency'], formula=m['formula'])
+                    # Convert Row to dict for safe access
+                    m_dict = dict(m)
+                    # Fallback to library if new columns are missing/empty (for backward compatibility)
+                    name = m_dict.get('name') or ""
+                    unit = m_dict.get('unit') or ""
+                    price = m_dict.get('price') if m_dict.get('price') is not None else 0.0
+                    curr = m_dict.get('currency') or loaded_estimate.currency
+                    
+                    # If redundant data is missing, try join (legacy load)
+                    if not name and m_dict.get('material_id'):
+                         legacy = self._load_legacy_item(cursor, m_dict['material_id'], "materials")
+                         if legacy:
+                             name, unit, price, curr = legacy['name'], legacy['unit'], legacy['price'], legacy['currency']
+                    
+                    task_obj.add_material(name, m['quantity'], unit, price, currency=curr, formula=m['formula'])
 
                 # Load Labor
-                labs = self._load_task_items(cursor, task_data['id'], "estimate_labor", "labor", "labor_id", 
-                                           "l.trade, l.rate_per_hour, el.hours, l.currency, el.formula")
+                labs = self._load_task_items(cursor, task_data['id'], "estimate_labor")
                 for l in labs:
-                    task_obj.add_labor(l['trade'], l['hours'], l['rate_per_hour'], currency=l['currency'], formula=l['formula'])
+                    l_dict = dict(l)
+                    name = l_dict.get('name_trade') or ""
+                    rate = l_dict.get('rate') if l_dict.get('rate') is not None else 0.0
+                    curr = l_dict.get('currency') or loaded_estimate.currency
+                    
+                    if not name and l_dict.get('labor_id'):
+                        legacy = self._load_legacy_item(cursor, l_dict['labor_id'], "labor")
+                        if legacy:
+                            name, rate, curr = legacy['trade'], legacy['rate_per_hour'], legacy['currency']
+                            
+                    task_obj.add_labor(name, l['hours'], rate, currency=curr, formula=l['formula'])
 
                 # Load Equipment
-                equips = self._load_task_items(cursor, task_data['id'], "estimate_equipment", "equipment", "equipment_id", 
-                                             "e.name, e.rate_per_hour, ee.hours, e.currency, ee.formula")
+                equips = self._load_task_items(cursor, task_data['id'], "estimate_equipment")
                 for e in equips:
-                    task_obj.add_equipment(e['name'], e['hours'], e['rate_per_hour'], currency=e['currency'], formula=e['formula'])
+                    e_dict = dict(e)
+                    name = e_dict.get('name_trade') or ""
+                    rate = e_dict.get('rate') if e_dict.get('rate') is not None else 0.0
+                    curr = e_dict.get('currency') or loaded_estimate.currency
+
+                    if not name and e_dict.get('equipment_id'):
+                        legacy = self._load_legacy_item(cursor, e_dict['equipment_id'], "equipment")
+                        if legacy:
+                            name, rate, curr = legacy['name'], legacy['rate_per_hour'], legacy['currency']
+
+                    task_obj.add_equipment(name, e['hours'], rate, currency=curr, formula=e['formula'])
 
                 loaded_estimate.add_task(task_obj)
 
@@ -459,20 +519,16 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def _load_task_items(self, cursor, task_id, link_table, source_table, fk_col, select_cols):
-        """Helper to load items for a task with a join."""
-        # alias map
-        alias = source_table[0] # 'm', 'l', 'e'
-        link_alias = 'e' + alias # 'em', 'el', 'ee'
-        
-        sql = f"""
-            SELECT {select_cols}
-            FROM {link_table} {link_alias} 
-            JOIN {source_table} {alias} ON {link_alias}.{fk_col} = {alias}.id
-            WHERE {link_alias}.task_id = ?
-        """
+    def _load_task_items(self, cursor, task_id, link_table):
+        """Helper to load items for a task directly from the estimate item table."""
+        sql = f"SELECT * FROM {link_table} WHERE task_id = ?"
         cursor.execute(sql, (task_id,))
         return cursor.fetchall()
+
+    def _load_legacy_item(self, cursor, item_id, source_table):
+        """Helper for backward compatibility to load item details from library."""
+        cursor.execute(f"SELECT * FROM {source_table} WHERE id = ?", (item_id,))
+        return cursor.fetchone()
 
     def delete_estimate(self, estimate_id):
         """Deletes an estimate and all its associated data."""
