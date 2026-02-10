@@ -93,7 +93,7 @@ class DatabaseManager:
                             cursor.execute(f"UPDATE {table} SET rate = rate_per_hour")
 
             # 4. Update estimate item tables
-            item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment', 'estimate_plant']
+            item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment', 'estimate_plant', 'estimate_indirect_costs']
             for table in item_tables:
                 if table == 'estimate_plant':
                     cursor.execute('''
@@ -130,6 +130,10 @@ class DatabaseManager:
                 if table == "estimate_materials":
                     self._ensure_column(cursor, table, "name", "name TEXT")
                     self._ensure_column(cursor, table, "price", "price REAL")
+                    self._ensure_column(cursor, table, "currency", "currency TEXT")
+                elif table == "estimate_indirect_costs":
+                    self._ensure_column(cursor, table, "description", "description TEXT")
+                    self._ensure_column(cursor, table, "amount", "amount REAL")
                     self._ensure_column(cursor, table, "currency", "currency TEXT")
                 else:
                     self._ensure_column(cursor, table, "name_trade", "name_trade TEXT")
@@ -187,6 +191,20 @@ class DatabaseManager:
                         name TEXT,
                         unit TEXT,
                         price REAL,
+                        currency TEXT,
+                        FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                    )
+                '''
+            elif table_name == "estimate_indirect_costs":
+                creation_sql = f'''
+                    CREATE TABLE {table_name}_new (
+                        id INTEGER PRIMARY KEY,
+                        task_id INTEGER NOT NULL,
+                        {id_col} INTEGER,
+                        amount REAL,
+                        formula TEXT,
+                        description TEXT,
+                        unit TEXT,
                         currency TEXT,
                         FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
                     )
