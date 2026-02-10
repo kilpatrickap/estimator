@@ -219,33 +219,33 @@ class DatabaseManagerDialog(QDialog):
         
         item_id = self.db_manager.add_item(table_name, placeholder_data)
         if item_id:
-            # We insert at the top for visibility
             table = self.tables[table_name]
+            new_row_idx = table.rowCount()
             self.is_loading = True
-            table.insertRow(0)
+            table.insertRow(new_row_idx)
             
             # ID (hidden)
-            table.setItem(0, 0, QTableWidgetItem(str(item_id)))
+            table.setItem(new_row_idx, 0, QTableWidgetItem(str(item_id)))
             
             # Fields
-            table.setItem(0, 1, QTableWidgetItem("New Item...")) # Name/Trade
-            table.setItem(0, 2, QTableWidgetItem("")) # Unit
-            self._add_currency_widget(table, 0, 3, default_curr, table_name, item_id)
-            table.setItem(0, 4, QTableWidgetItem("0.00")) # Price/Rate
-            self._add_date_widget(table, 0, 5, now, table_name, item_id)
-            table.setItem(0, 6, QTableWidgetItem("")) # Location
-            table.setItem(0, 7, QTableWidgetItem("")) # Contact
-            table.setItem(0, 8, QTableWidgetItem("")) # Remarks
+            table.setItem(new_row_idx, 1, QTableWidgetItem("New Item...")) # Name/Trade
+            table.setItem(new_row_idx, 2, QTableWidgetItem("")) # Unit
+            self._add_currency_widget(table, new_row_idx, 3, default_curr, table_name, item_id)
+            table.setItem(new_row_idx, 4, QTableWidgetItem("0.00")) # Price/Rate
+            self._add_date_widget(table, new_row_idx, 5, now, table_name, item_id)
+            table.setItem(new_row_idx, 6, QTableWidgetItem("")) # Location
+            table.setItem(new_row_idx, 7, QTableWidgetItem("")) # Contact
+            table.setItem(new_row_idx, 8, QTableWidgetItem("")) # Remarks
             
             self.is_loading = False
             self._adjust_widths(table, table_name)
             
             # Highlight and scroll to the new row
-            table.scrollToTop()
-            table.selectRow(0)
+            table.scrollToBottom()
+            table.selectRow(new_row_idx)
             
-            # Optionally start editing the name cell immediately
-            table.editItem(table.item(0, 1))
+            # Start editing the name cell immediately
+            table.editItem(table.item(new_row_idx, 1))
         else:
             QMessageBox.warning(self, "Error", "Failed to create a new item placeholder.")
 
