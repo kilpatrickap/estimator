@@ -376,6 +376,10 @@ class DatabaseManager:
         """Updates only the date for a specific item."""
         self._execute_simple_update(table_name, "date_added", date_str, item_id)
 
+    def update_item_field(self, table_name, column, value, item_id):
+        """Updates a single field for a record in any cost library table."""
+        self._execute_simple_update(table_name, column, value, item_id)
+
     def _execute_simple_update(self, table_name, column, value, item_id):
         conn = self._get_connection()
         try:

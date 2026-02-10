@@ -15,6 +15,7 @@ class DatabaseManagerDialog(QDialog):
         self.db_manager = DatabaseManager()
         self.setWindowTitle("Manage Cost Database")
         self.setMinimumSize(1100, 750)
+        self.is_loading = False
 
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
@@ -46,7 +47,9 @@ class DatabaseManagerDialog(QDialog):
         # Table
         table = QTableWidget(columnCount=len(headers))
         table.setHorizontalHeaderLabels(headers)
-        table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | 
+                            QTableWidget.EditTrigger.EditKeyPressed | 
+                            QTableWidget.EditTrigger.AnyKeyPressed)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         table.setWordWrap(True)
@@ -71,8 +74,9 @@ class DatabaseManagerDialog(QDialog):
         
         layout.addLayout(btn_layout)
 
-        # Connect search
+        # Connect signals
         search_input.textChanged.connect(lambda text, tbl=table: self.filter_table(text, tbl))
+        table.itemChanged.connect(lambda item: self.on_item_changed(item, table_name))
         
         self.load_data(table_name)
 
@@ -83,6 +87,7 @@ class DatabaseManagerDialog(QDialog):
 
     def load_data(self, table_name):
         """Loads and formats library data into the tab table."""
+        self.is_loading = True
         table = self.tables[table_name]
         table.setRowCount(0)
         items = self.db_manager.get_items(table_name)
@@ -108,6 +113,50 @@ class DatabaseManagerDialog(QDialog):
                     table.setItem(row_idx, col_idx, QTableWidgetItem(display))
         
         self._adjust_widths(table, table_name)
+        self.is_loading = False
+
+    def on_item_changed(self, item, table_name):
+        if self.is_loading: return
+        
+        table = item.tableWidget()
+        row = item.row()
+        col = item.column()
+        
+        # Get ID
+        id_item = table.item(row, 0)
+        if not id_item: return
+        item_id = int(id_item.text())
+        
+        new_value = item.text().strip()
+        
+        # Define field mapping for column indices
+        # Indices: 1:Name, 2:Unit, 4:Price/Rate, 6:Location, 7:Contact, 8:Remarks
+        field_map = {
+            1: 'trade' if table_name == 'labor' else 'name',
+            2: 'unit',
+            4: 'rate' if table_name in ['labor', 'equipment'] else 'price',
+            6: 'location',
+            7: 'contact',
+            8: 'remarks'
+        }
+        
+        column_name = field_map.get(col)
+        if not column_name: return
+        
+        # Numeric validation for column 4
+        if col == 4:
+            try:
+                new_value = float(new_value or 0)
+                # Re-format the cell to show 2 decimals
+                self.is_loading = True # Prevent recursion
+                item.setText(f"{new_value:.2f}")
+                self.is_loading = False
+            except ValueError:
+                QMessageBox.warning(self, "Invalid Input", "Please enter a valid number.")
+                self.load_data(table_name) # Revert
+                return
+
+        self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
 
     def _add_currency_widget(self, table, row, col, current_val, table_name, item_id):
         combo = QComboBox()
