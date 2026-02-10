@@ -116,6 +116,7 @@ class EstimateWindow(QMainWindow):
             ("Add Material", lambda _: self._add_resource("materials")),
             ("Add Labor", lambda _: self._add_resource("labor")),
             ("Add Equipment", lambda _: self._add_resource("equipment")),
+            ("Add Plant", lambda _: self._add_resource("plant")),
             ("Remove Selected", self.remove_item)
         ]
 
@@ -373,6 +374,8 @@ class EstimateWindow(QMainWindow):
                     task_obj.add_labor(item['trade'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
                 elif resource_type == 'equipment':
                     task_obj.add_equipment(item['name'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
+                elif resource_type == 'plant':
+                    task_obj.add_plant(item['name'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
                 self.refresh_view()
 
     def remove_item(self):
@@ -401,6 +404,8 @@ class EstimateWindow(QMainWindow):
                 task_obj.labor.remove(item_data)
             elif selected.item_type == 'equipment':
                 task_obj.equipment.remove(item_data)
+            elif selected.item_type == 'plant':
+                task_obj.plant.remove(item_data)
         
         elif hasattr(selected, 'task_object'):
             # Removing a whole task
@@ -421,7 +426,8 @@ class EstimateWindow(QMainWindow):
             task_total = sum([
                 sum(self.estimate._get_item_total_in_base_currency(m) for m in task.materials),
                 sum(self.estimate._get_item_total_in_base_currency(l) for l in task.labor),
-                sum(self.estimate._get_item_total_in_base_currency(e) for e in task.equipment)
+                sum(self.estimate._get_item_total_in_base_currency(e) for e in task.equipment),
+                sum(self.estimate._get_item_total_in_base_currency(p) for p in task.plant)
             ])
             
             task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_total:,.2f}"])
@@ -434,7 +440,8 @@ class EstimateWindow(QMainWindow):
             resources = [
                 ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
                 ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
-                ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment')
+                ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment'),
+                ('plant', 'Plant', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'plant')
             ]
             
             sub_idx = 1
@@ -546,7 +553,7 @@ class SelectItemDialog(QDialog):
         if self.item_type == "materials":
             headers = ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]
         else:
-            name_label = "Labor" if self.item_type == "labor" else "Equipment"
+            name_label = "Labor" if self.item_type == "labor" else ("Plant" if self.item_type == "plant" else "Equipment")
             headers = ["ID", name_label, "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
         
         self.table.setColumnCount(len(headers))

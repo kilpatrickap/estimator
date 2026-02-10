@@ -54,29 +54,27 @@ class DatabaseManager:
                 )
             ''')
 
-            # 3. Update core resource tables (materials, labor, equipment)
-            resource_tables = ['materials', 'labor', 'equipment']
+            # 3. Update core resource tables (materials, labor, equipment, plant)
+            resource_tables = ['materials', 'labor', 'equipment', 'plant']
             common_cols = [
                 ('currency', "TEXT DEFAULT 'GHS (₵)'"),
                 ('date_added', "TEXT"),
                 ('location', "TEXT"),
                 ('remarks', "TEXT"),
-                ('contact', "TEXT")
+                ('contact', "TEXT"),
+                ('unit', "TEXT DEFAULT 'hr'")
             ]
             
             for table in resource_tables:
-                for col_name, col_def in common_cols:
-                    if col_name == 'currency':
-                        # Specific check because definition is complex
-                        self._ensure_column(cursor, table, col_name, f"currency {col_def}")
-                    else:
-                        self._ensure_column(cursor, table, col_name, f"{col_name} {col_def}")
+                # Ensure table exists first for 'plant' which might be new
+                if table == 'plant':
+                    cursor.execute('CREATE TABLE IF NOT EXISTS plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT DEFAULT "hr", currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
                 
-                # Add 'unit' column to labor/equipment if missing
-                if table in ['labor', 'equipment']:
-                    self._ensure_column(cursor, table, "unit", "unit TEXT DEFAULT 'hr'")
-                    
-                    # Rename rate_per_hour to rate if it exists
+                for col_name, col_def in common_cols:
+                    self._ensure_column(cursor, table, col_name, f"{col_name} {col_def}")
+                
+                # Rename rate_per_hour to rate if it exists
+                if table in ['labor', 'equipment', 'plant']:
                     cursor.execute(f"PRAGMA table_info({table})")
                     cols = [info['name'] for info in cursor.fetchall()]
                     if 'rate_per_hour' in cols and 'rate' not in cols:
@@ -88,22 +86,37 @@ class DatabaseManager:
                             cursor.execute(f"UPDATE {table} SET rate = rate_per_hour")
 
             # 4. Update estimate item tables
-            item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment']
+            item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment', 'estimate_plant']
             for table in item_tables:
+                if table == 'estimate_plant':
+                    cursor.execute('''
+                        CREATE TABLE IF NOT EXISTS estimate_plant (
+                            id INTEGER PRIMARY KEY,
+                            task_id INTEGER NOT NULL,
+                            plant_id INTEGER,
+                            hours REAL,
+                            formula TEXT,
+                            name_trade TEXT,
+                            unit TEXT,
+                            rate REAL,
+                            currency TEXT,
+                            FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+                        )
+                    ''')
+
                 self._ensure_column(cursor, table, "formula", "formula TEXT")
+                self._ensure_column(cursor, table, "unit", "unit TEXT")
                 if table == "estimate_materials":
                     self._ensure_column(cursor, table, "name", "name TEXT")
-                    self._ensure_column(cursor, table, "unit", "unit TEXT")
                     self._ensure_column(cursor, table, "price", "price REAL")
                     self._ensure_column(cursor, table, "currency", "currency TEXT")
                 else:
                     self._ensure_column(cursor, table, "name_trade", "name_trade TEXT")
                     self._ensure_column(cursor, table, "rate", "rate REAL")
-                    self._ensure_column(cursor, table, "unit", "unit TEXT")
                     self._ensure_column(cursor, table, "currency", "currency TEXT")
             
             # 5. Fix constraints on estimate items (remove NOT NULL and Library FKs)
-            for table, id_col in [("estimate_materials", "material_id"), ("estimate_labor", "labor_id"), ("estimate_equipment", "equipment_id")]:
+            for table, id_col in [("estimate_materials", "material_id"), ("estimate_labor", "labor_id"), ("estimate_equipment", "equipment_id"), ("estimate_plant", "plant_id")]:
                 self._repair_estimate_items_schema(cursor, table, id_col)
 
             # 5. Create 'estimate_exchange_rates' table
@@ -137,7 +150,7 @@ class DatabaseManager:
         
         cursor.execute(f"PRAGMA foreign_key_list({table_name})")
         fks = cursor.fetchall()
-        has_library_fk = any(fk['table'] in ["materials", "labor", "equipment"] for fk in fks)
+        has_library_fk = any(fk['table'] in ["materials", "labor", "equipment", "plant"] for fk in fks)
 
         if (target_col and target_col['notnull'] == 1) or has_library_fk:
             print(f"Repairing schema for {table_name} to allow NULL links and remove library FKs...")
@@ -166,6 +179,7 @@ class DatabaseManager:
                         hours REAL,
                         formula TEXT,
                         name_trade TEXT,
+                        unit TEXT,
                         rate REAL,
                         currency TEXT,
                         FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -197,6 +211,7 @@ class DatabaseManager:
         cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         
         # --- Settings Table ---
         cursor.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
@@ -268,6 +283,20 @@ class DatabaseManager:
             )
         ''')
         cursor.execute('''
+            CREATE TABLE estimate_plant (
+                id INTEGER PRIMARY KEY,
+                task_id INTEGER NOT NULL,
+                plant_id INTEGER,
+                hours REAL,
+                formula TEXT,
+                name_trade TEXT,
+                unit TEXT,
+                rate REAL,
+                currency TEXT,
+                FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            )
+        ''')
+        cursor.execute('''
             CREATE TABLE estimate_exchange_rates (
                 id INTEGER PRIMARY KEY,
                 estimate_id INTEGER NOT NULL,
@@ -307,10 +336,16 @@ class DatabaseManager:
             ('Concrete Mixer', 'hr', 'GHS (₵)', 40.00, now, 'Warehouse', '-'),
             ('Scissor Lift', 'hr', 'GHS (₵)', 60.00, now, 'Rental Depot', '19ft reach')
         ]
+        sample_plant = [
+            ('Tower Crane', 'hr', 'GHS (₵)', 250.00, now, 'Site', 'Large capacity'),
+            ('Forklift', 'hr', 'GHS (₵)', 80.00, now, 'Warehouse', '5-ton capacity'),
+            ('Generator 50kVA', 'hr', 'GHS (₵)', 60.00, now, 'Site', 'Diesel powered')
+        ]
 
         cursor.executemany('INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_materials)
         cursor.executemany('INSERT INTO labor (trade, unit, currency, rate, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_labor)
         cursor.executemany('INSERT INTO equipment (name, unit, currency, rate, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_equipment)
+        cursor.executemany('INSERT INTO plant (name, unit, currency, rate, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_plant)
         
         cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('currency', 'GHS (₵)'))
         cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('overhead', '15.0'))
@@ -325,10 +360,11 @@ class DatabaseManager:
             col_map = {
                 'materials': 'id, name, unit, currency, price, date_added, location, contact, remarks',
                 'labor': 'id, trade, unit, currency, rate, date_added, location, contact, remarks',
-                'equipment': 'id, name, unit, currency, rate, date_added, location, contact, remarks'
+                'equipment': 'id, name, unit, currency, rate, date_added, location, contact, remarks',
+                'plant': 'id, name, unit, currency, rate, date_added, location, contact, remarks'
             }
             cols = col_map.get(table_name, '*')
-            sort_col = "name" if table_name in ["materials", "equipment"] else "trade"
+            sort_col = "name" if table_name in ["materials", "equipment", "plant"] else "trade"
             return conn.cursor().execute(f"SELECT {cols} FROM {table_name} ORDER BY {sort_col}").fetchall()
         finally:
             conn.close()
@@ -340,7 +376,8 @@ class DatabaseManager:
             sql_map = {
                 'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
                 'labor': 'INSERT INTO labor (trade, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'equipment': 'INSERT INTO equipment (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)'
+                'equipment': 'INSERT INTO equipment (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
+                'plant': 'INSERT INTO plant (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return None
@@ -360,7 +397,8 @@ class DatabaseManager:
             sql_map = {
                 'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
                 'labor': 'UPDATE labor SET trade=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'equipment': 'UPDATE equipment SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?'
+                'equipment': 'UPDATE equipment SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'plant': 'UPDATE plant SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?'
             }
             sql = sql_map.get(table_name)
             if not sql: return
@@ -400,7 +438,7 @@ class DatabaseManager:
 
     def get_item_id_by_name(self, table_name, name, cursor):
         """Helper to find an ID for a given name without opening a new connection."""
-        column_map = {"materials": "name", "labor": "trade", "equipment": "name"}
+        column_map = {"materials": "name", "labor": "trade", "equipment": "name", "plant": "name"}
         column_name = column_map.get(table_name)
         if not column_name: return None
         cursor.execute(f"SELECT id FROM {table_name} WHERE {column_name} = ?", (name,))
@@ -453,9 +491,10 @@ class DatabaseManager:
                 cursor.execute("INSERT INTO tasks (estimate_id, description) VALUES (?, ?)", (estimate_id, task_obj.description))
                 task_id = cursor.lastrowid
                 
-                self._save_task_items(cursor, task_id, task_obj.materials, "materials", "material_id", "quantity")
-                self._save_task_items(cursor, task_id, task_obj.labor, "labor", "labor_id", "hours")
-                self._save_task_items(cursor, task_id, task_obj.equipment, "equipment", "equipment_id", "hours")
+                self._save_task_items(cursor, task_id, "estimate_materials", task_obj.materials)
+                self._save_task_items(cursor, task_id, "estimate_labor", task_obj.labor)
+                self._save_task_items(cursor, task_id, "estimate_equipment", task_obj.equipment)
+                self._save_task_items(cursor, task_id, "estimate_plant", task_obj.plant)
             
             # Save Exchange Rates
             cursor.execute("DELETE FROM estimate_exchange_rates WHERE estimate_id = ?", (estimate_id,))
@@ -473,30 +512,26 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def _save_task_items(self, cursor, task_id, items, ref_table, ref_id_col, qty_col):
-        """Helper to save list of items (materials/labor/equipment) for a task."""
-        table_map = {
-            "materials": "estimate_materials",
-            "labor": "estimate_labor",
-            "equipment": "estimate_equipment"
-        }
-        dest_table = table_map[ref_table]
+    def _save_task_items(self, cursor, task_id, dest_table, items):
+        """Helper to save list of items (materials/labor/equipment/plant) for a task."""
         
-        # Identify name key (materials/equipment use 'name', labor uses 'trade')
-        name_key = 'trade' if ref_table == 'labor' else 'name'
-        rate_key = 'unit_cost' if ref_table == "materials" else 'rate'
+        library_table = dest_table.replace("estimate_", "") # e.g., "materials", "labor"
         
         for item in items:
-            # We map back to source ID by name/trade if possible, but store all details redundantly
-            source_id = self.get_item_id_by_name(ref_table, item[name_key], cursor)
-            
-            if ref_table == "materials":
+            if library_table == "materials":
+                source_id = self.get_item_id_by_name(library_table, item['name'], cursor)
                 sql = f"""INSERT INTO {dest_table} 
                          (task_id, material_id, quantity, formula, name, unit, price, currency) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
                 cursor.execute(sql, (task_id, source_id, item['qty'], item.get('formula'),
                                      item['name'], item['unit'], item['unit_cost'], item.get('currency')))
-            else:
+            else: # labor, equipment, plant
+                name_key = 'trade' if library_table == 'labor' else 'name'
+                ref_id_col = f"{library_table}_id"
+                qty_col = "hours" # All non-materials use 'hours'
+                rate_key = 'rate' # All non-materials use 'rate'
+
+                source_id = self.get_item_id_by_name(library_table, item[name_key], cursor)
                 sql = f"""INSERT INTO {dest_table} 
                          (task_id, {ref_id_col}, {qty_col}, formula, name_trade, unit, rate, currency) 
                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
@@ -590,6 +625,22 @@ class DatabaseManager:
                             name, unit, rate, curr = legacy['name'], legacy['unit'], legacy['rate'], legacy['currency']
 
                     task_obj.add_equipment(name, e['hours'], rate, currency=curr, formula=e['formula'], unit=unit)
+
+                # Load Plant
+                plants = self._load_task_items(cursor, task_data['id'], "estimate_plant")
+                for p in plants:
+                    p_dict = dict(p)
+                    name = p_dict.get('name_trade') or ""
+                    unit = p_dict.get('unit') or ""
+                    rate = p_dict.get('rate') if p_dict.get('rate') is not None else 0.0
+                    curr = p_dict.get('currency') or loaded_estimate.currency
+                    
+                    if not name and p_dict.get('plant_id'):
+                        legacy = self._load_legacy_item(cursor, p_dict['plant_id'], "plant")
+                        if legacy:
+                            name, unit, rate, curr = legacy['name'], legacy['unit'], legacy['rate'], legacy['currency']
+
+                    task_obj.add_plant(name, p['hours'], rate, currency=curr, formula=p['formula'], unit=unit)
 
                 loaded_estimate.add_task(task_obj)
 

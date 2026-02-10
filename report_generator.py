@@ -162,7 +162,8 @@ class ReportGenerator:
                 resources = [
                     ('materials', 'Material', 'name', 'qty', 'unit_cost'),
                     ('labor', 'Labor', 'trade', 'hours', 'rate'),
-                    ('equipment', 'Equipment', 'name', 'hours', 'rate')
+                    ('equipment', 'Equipment', 'name', 'hours', 'rate'),
+                    ('plant', 'Plant', 'name', 'hours', 'rate')
                 ]
 
                 has_items = False

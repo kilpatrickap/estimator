@@ -25,7 +25,8 @@ class DatabaseManagerDialog(QDialog):
         self.tab_configs = [
             ("Materials", "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]),
             ("Labor", "labor", ["ID", "Labor", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
-            ("Equipment", "equipment", ["ID", "Equipment", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"])
+            ("Equipment", "equipment", ["ID", "Equipment", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
+            ("Plant", "plant", ["ID", "Plant", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"])
         ]
 
         self.tables = {}
@@ -119,7 +120,7 @@ class DatabaseManagerDialog(QDialog):
         field_map = {
             1: 'trade' if table_name == 'labor' else 'name',
             2: 'unit',
-            4: 'rate' if table_name in ['labor', 'equipment'] else 'price',
+            4: 'rate' if table_name in ['labor', 'equipment', 'plant'] else 'price',
             6: 'location',
             7: 'contact',
             8: 'remarks'
