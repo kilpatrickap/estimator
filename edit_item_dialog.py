@@ -98,6 +98,12 @@ class EditItemDialog(QDialog):
         self.qty_display.verticalScrollBar().valueChanged.connect(self.qty_input.verticalScrollBar().setValue)
         
         output_container.addWidget(self.qty_display)
+        
+        self.total_display = QLabel("TOTAL: 0.00")
+        self.total_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; font-size: 12pt; font-weight:bold; padding: 10px; border: 1px solid #ddd; border-top: none; background-color: #f9f9f9;")
+        self.total_display.setAlignment(Qt.AlignmentFlag.AlignRight)
+        output_container.addWidget(self.total_display)
+
         split_layout.addLayout(output_container, 1)
         
         layout.addLayout(split_layout)
@@ -174,13 +180,10 @@ class EditItemDialog(QDialog):
                 html_lines.append("<div>&nbsp;</div>")
         
         # Pad lines to ensure sync scroll looks okay
-        while len(html_lines) < 20:
+        while len(html_lines) < 25:
             html_lines.append("<div>&nbsp;</div>")
 
-        if total_sum > 0:
-            # Use blue for calculation results as requested
-            html_lines.append(f"<div style='margin-top: 10px; border-top: 1px solid #ddd;'>&nbsp;</div>")
-            html_lines.append(f"<div><b>TOTAL: {total_sum:,.2f}</b></div>")
+        self.total_display.setText(f"TOTAL: {total_sum:,.2f}")
             
         self.qty_display.setHtml(f"<div style='color: blue; font-family: Consolas, monospace;'>{''.join(html_lines)}</div>")
 
