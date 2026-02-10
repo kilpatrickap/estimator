@@ -166,12 +166,20 @@ class DatabaseManagerDialog(QDialog):
         
         singular = table_name[:-1] if table_name.endswith('s') else table_name
         
+        # Select row on right-click
+        item = table.itemAt(pos)
+        if item:
+            table.selectRow(item.row())
+        
         add_action = menu.addAction(f"Add new {singular.capitalize()}")
         add_action.triggered.connect(lambda: self.add_item(table_name))
         
-        # Only show delete if a row is selected
-        if table.itemAt(pos):
+        # Actions for selected row
+        if item:
             menu.addSeparator()
+            dup_action = menu.addAction(f"Duplicate {singular.capitalize()}")
+            dup_action.triggered.connect(lambda: self.duplicate_item(table_name))
+            
             delete_action = menu.addAction(f"Delete selected {singular.capitalize()}")
             delete_action.triggered.connect(lambda: self.delete_item(table_name))
             
@@ -248,6 +256,64 @@ class DatabaseManagerDialog(QDialog):
             table.editItem(table.item(new_row_idx, 1))
         else:
             QMessageBox.warning(self, "Error", "Failed to create a new item placeholder.")
+
+    def duplicate_item(self, table_name):
+        """Duplicates the currently selected item."""
+        table = self.tables[table_name]
+        row = table.currentRow()
+        if row < 0: return
+
+        # Extract data from the selected row
+        item_id = int(table.item(row, 0).text())
+        
+        # Scrape current data from the table (some might be in widgets)
+        def get_val(r, c):
+            w = table.cellWidget(r, c)
+            if hasattr(w, 'currentText'): return w.currentText()
+            if hasattr(w, 'date'): return w.date().toString("yyyy-MM-dd")
+            item = table.item(r, c)
+            return item.text().strip() if item else ""
+
+        name = get_val(row, 1) + " (Copy)"
+        unit = get_val(row, 2)
+        curr = get_val(row, 3)
+        rate = get_val(row, 4)
+        date = get_val(row, 5)
+        loc = get_val(row, 6)
+        con = get_val(row, 7)
+        rem = get_val(row, 8)
+
+        # Convert rate to float for DB insertion
+        try:
+            rate_val = float(rate or 0)
+        except ValueError:
+            rate_val = 0.0
+
+        copy_data = (name, unit, curr, rate_val, date, loc, con, rem)
+        
+        new_id = self.db_manager.add_item(table_name, copy_data)
+        if new_id:
+            # Add to the bottom
+            new_row_idx = table.rowCount()
+            self.is_loading = True
+            table.insertRow(new_row_idx)
+            
+            table.setItem(new_row_idx, 0, QTableWidgetItem(str(new_id)))
+            table.setItem(new_row_idx, 1, QTableWidgetItem(name))
+            table.setItem(new_row_idx, 2, QTableWidgetItem(unit))
+            self._add_currency_widget(table, new_row_idx, 3, curr, table_name, new_id)
+            table.setItem(new_row_idx, 4, QTableWidgetItem(f"{rate_val:.2f}"))
+            self._add_date_widget(table, new_row_idx, 5, date, table_name, new_id)
+            table.setItem(new_row_idx, 6, QTableWidgetItem(loc))
+            table.setItem(new_row_idx, 7, QTableWidgetItem(con))
+            table.setItem(new_row_idx, 8, QTableWidgetItem(rem))
+            
+            self.is_loading = False
+            self._adjust_widths(table, table_name)
+            table.scrollToBottom()
+            table.selectRow(new_row_idx)
+        else:
+            QMessageBox.warning(self, "Error", "Failed to duplicate item.")
 
     def edit_item(self, table_name):
         table = self.tables[table_name]
