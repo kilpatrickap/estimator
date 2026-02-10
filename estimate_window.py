@@ -593,12 +593,12 @@ class SelectItemDialog(QDialog):
         if self.item_type == "materials":
             self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
             self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
-            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):.2f}")) # Price
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):,.2f}")) # Price
             date_idx = 5
         else:
             self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
             self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
-            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):.2f}")) # Rate
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):,.2f}")) # Rate
             date_idx = 5
             
         # Common end columns

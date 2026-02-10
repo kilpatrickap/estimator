@@ -104,7 +104,7 @@ class DatabaseManagerDialog(QDialog):
             # 4:Price/Rate (Value + Formula in UserRole)
             val = row_data[4]
             formula = row_data[5]
-            display = f"{float(val):.2f}" if val is not None else "0.00"
+            display = f"{float(val):,.2f}" if val is not None else "0.00"
             val_item = QTableWidgetItem(display)
             val_item.setData(Qt.ItemDataRole.UserRole, formula)
             table.setItem(row_idx, price_col, val_item)
@@ -154,7 +154,7 @@ class DatabaseManagerDialog(QDialog):
             
             # Update UI
             self.is_loading = True
-            item.setText(f"{new_val:.2f}")
+            item.setText(f"{new_val:,.2f}")
             item.setData(Qt.ItemDataRole.UserRole, new_formula)
             self.is_loading = False
 
@@ -195,9 +195,9 @@ class DatabaseManagerDialog(QDialog):
         if col == 4:
             try:
                 new_value = float(new_value or 0)
-                # Re-format the cell to show 2 decimals
+                # Re-format the cell to show 2 decimals with commas
                 self.is_loading = True # Prevent recursion
-                item.setText(f"{new_value:.2f}")
+                item.setText(f"{new_value:,.2f}")
                 self.is_loading = False
             except ValueError:
                 QMessageBox.warning(self, "Error", "Invalid numeric value.")
