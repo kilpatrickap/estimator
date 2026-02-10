@@ -211,13 +211,13 @@ class RateBuildUpDialog(QDialog):
                     )
                 elif table_name == "labor":
                     task_obj.add_labor(
-                        selected_data['trade'], 1.0, selected_data['rate_per_hour'], 
-                        selected_data['currency']
+                        selected_data['trade'], 1.0, selected_data['rate'], 
+                        selected_data['currency'], unit=selected_data.get('unit')
                     )
                 elif table_name == "equipment":
                     task_obj.add_equipment(
-                        selected_data['name'], 1.0, selected_data['rate_per_hour'], 
-                        selected_data['currency']
+                        selected_data['name'], 1.0, selected_data['rate'], 
+                        selected_data['currency'], unit=selected_data.get('unit')
                     )
                 self.refresh_view()
 
@@ -306,8 +306,8 @@ class RateBuildUpDialog(QDialog):
             # Define configurations for each type of resource
             resources = [
                 ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
-                ('labor', 'Labor', 'trade', lambda x: 'hrs', 'hours', 'rate', 'labor'),
-                ('equipment', 'Equipment', 'name', lambda x: 'hrs', 'hours', 'rate', 'equipment')
+                ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
+                ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment')
             ]
             
             sub_idx = 1
@@ -410,11 +410,11 @@ class CostSelectionDialog(QDialog):
             headers = ["Name", "Unit", "Currency", "Price"]
             keys = ["name", "unit", "currency", "price"]
         elif self.table_name == "labor":
-            headers = ["Trade", "Currency", "Rate"]
-            keys = ["trade", "currency", "rate_per_hour"]
+            headers = ["Trade", "Unit", "Currency", "Rate"]
+            keys = ["trade", "unit", "currency", "rate"]
         else: # equipment
-            headers = ["Name", "Currency", "Rate"]
-            keys = ["name", "currency", "rate_per_hour"]
+            headers = ["Name", "Unit", "Currency", "Rate"]
+            keys = ["name", "unit", "currency", "rate"]
             
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)

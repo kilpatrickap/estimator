@@ -370,9 +370,9 @@ class EstimateWindow(QMainWindow):
                 if resource_type == 'materials':
                     task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
                 elif resource_type == 'labor':
-                    task_obj.add_labor(item['trade'], quantity, item['rate_per_hour'], currency=item['currency'], formula=formula)
+                    task_obj.add_labor(item['trade'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
                 elif resource_type == 'equipment':
-                    task_obj.add_equipment(item['name'], quantity, item['rate_per_hour'], currency=item['currency'], formula=formula)
+                    task_obj.add_equipment(item['name'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
                 self.refresh_view()
 
     def remove_item(self):
@@ -433,8 +433,8 @@ class EstimateWindow(QMainWindow):
             # (list_attr, display_name, name_key, unit_func, qty_key, rate_key, type_code)
             resources = [
                 ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
-                ('labor', 'Labor', 'trade', lambda x: 'hrs', 'hours', 'rate', 'labor'),
-                ('equipment', 'Equipment', 'name', lambda x: 'hrs', 'hours', 'rate', 'equipment')
+                ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
+                ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment')
             ]
             
             sub_idx = 1
@@ -547,7 +547,7 @@ class SelectItemDialog(QDialog):
             headers = ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]
         else:
             name_label = "Labor" if self.item_type == "labor" else "Equipment"
-            headers = ["ID", name_label, "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
+            headers = ["ID", name_label, "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]
         
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
@@ -579,9 +579,10 @@ class SelectItemDialog(QDialog):
             self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):.2f}")) # Price
             date_idx = 5
         else:
-            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Currency
-            self.table.setItem(row, 3, QTableWidgetItem(f"{float(item_data[3]):.2f}")) # Rate
-            date_idx = 4
+            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
+            self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):.2f}")) # Rate
+            date_idx = 5
             
         # Common end columns
         qdate = QDate.fromString(str(item_data[date_idx]), "yyyy-MM-dd")
@@ -591,7 +592,7 @@ class SelectItemDialog(QDialog):
         # Location, Contact, Remarks
         for i in range(1, 4):
              val = item_data[date_idx + i] if len(item_data) > date_idx + i else ""
-             self.table.setItem(row, col_offset + (3 if self.item_type == "materials" else 2) + i, QTableWidgetItem(str(val) if val else ""))
+             self.table.setItem(row, (6 if self.item_type == "materials" else 6) + i - 1, QTableWidgetItem(str(val) if val else ""))
 
     def get_selection(self):
         """Returns the selected item, quantity (default 1), and formula (None)."""

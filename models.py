@@ -14,15 +14,15 @@ class Task:
             'total': quantity * unit_cost, 'currency': currency, 'formula': formula
         })
 
-    def add_labor(self, trade, hours, rate, currency=None, formula=None):
+    def add_labor(self, trade, hours, rate, currency=None, formula=None, unit=None):
         self._add_item(self.labor, {
-            'trade': trade, 'hours': hours, 'rate': rate,
+            'trade': trade, 'hours': hours, 'rate': rate, 'unit': unit,
             'total': hours * rate, 'currency': currency, 'formula': formula
         })
 
-    def add_equipment(self, name, hours, rate, currency=None, formula=None):
+    def add_equipment(self, name, hours, rate, currency=None, formula=None, unit=None):
         self._add_item(self.equipment, {
-            'name': name, 'hours': hours, 'rate': rate,
+            'name': name, 'hours': hours, 'rate': rate, 'unit': unit,
             'total': hours * rate, 'currency': currency, 'formula': formula
         })
 

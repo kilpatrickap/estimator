@@ -160,13 +160,13 @@ class ReportGenerator:
 
                 # Generic resource iteration
                 resources = [
-                    ('materials', 'Material', 'name', 'unit', 'qty', 'unit_cost'),
-                    ('labor', 'Labor', 'trade', 'hours', 'hours', 'rate'),
-                    ('equipment', 'Equipment', 'name', 'hours', 'hours', 'rate')
+                    ('materials', 'Material', 'name', 'qty', 'unit_cost'),
+                    ('labor', 'Labor', 'trade', 'hours', 'rate'),
+                    ('equipment', 'Equipment', 'name', 'hours', 'rate')
                 ]
 
                 has_items = False
-                for res_attr, label, name_key, unit_attr, qty_key, rate_key in resources:
+                for res_attr, label, name_key, qty_key, rate_key in resources:
                     items = getattr(task, res_attr)
                     for item in items:
                         has_items = True
@@ -175,10 +175,8 @@ class ReportGenerator:
                         item_symbol = curr.split('(')[-1].strip(')') if '(' in curr else symbol
                         
                         # Format Unit
-                        if res_attr == 'materials':
-                            unit_str = f"{item['qty']} {item['unit']}"
-                        else:
-                            unit_str = f"{item['hours']} hrs"
+                        unit_label = item.get('unit') or ('hrs' if res_attr != 'materials' else '')
+                        unit_str = f"{item[qty_key]} {unit_label}".strip()
 
                         data.append([
                             label, 

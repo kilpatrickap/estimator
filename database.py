@@ -71,6 +71,21 @@ class DatabaseManager:
                         self._ensure_column(cursor, table, col_name, f"currency {col_def}")
                     else:
                         self._ensure_column(cursor, table, col_name, f"{col_name} {col_def}")
+                
+                # Add 'unit' column to labor/equipment if missing
+                if table in ['labor', 'equipment']:
+                    self._ensure_column(cursor, table, "unit", "unit TEXT DEFAULT 'hr'")
+                    
+                    # Rename rate_per_hour to rate if it exists
+                    cursor.execute(f"PRAGMA table_info({table})")
+                    cols = [info['name'] for info in cursor.fetchall()]
+                    if 'rate_per_hour' in cols and 'rate' not in cols:
+                        try:
+                            cursor.execute(f"ALTER TABLE {table} RENAME COLUMN rate_per_hour TO rate")
+                        except sqlite3.OperationalError:
+                            # Fallback if RENAME COLUMN is not supported
+                            cursor.execute(f"ALTER TABLE {table} ADD COLUMN rate REAL")
+                            cursor.execute(f"UPDATE {table} SET rate = rate_per_hour")
 
             # 4. Update estimate item tables
             item_tables = ['estimate_materials', 'estimate_labor', 'estimate_equipment']
@@ -84,6 +99,7 @@ class DatabaseManager:
                 else:
                     self._ensure_column(cursor, table, "name_trade", "name_trade TEXT")
                     self._ensure_column(cursor, table, "rate", "rate REAL")
+                    self._ensure_column(cursor, table, "unit", "unit TEXT")
                     self._ensure_column(cursor, table, "currency", "currency TEXT")
             
             # 5. Fix constraints on estimate items (remove NOT NULL and Library FKs)
@@ -179,8 +195,8 @@ class DatabaseManager:
 
         # --- Core Cost Tables ---
         cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, currency TEXT DEFAULT "GHS (₵)", rate_per_hour REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
         
         # --- Settings Table ---
         cursor.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
@@ -231,6 +247,7 @@ class DatabaseManager:
                 hours REAL,
                 formula TEXT,
                 name_trade TEXT,
+                unit TEXT,
                 rate REAL,
                 currency TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -244,6 +261,7 @@ class DatabaseManager:
                 hours REAL,
                 formula TEXT,
                 name_trade TEXT,
+                unit TEXT,
                 rate REAL,
                 currency TEXT,
                 FOREIGN KEY(task_id) REFERENCES tasks(id) ON DELETE CASCADE
@@ -278,21 +296,21 @@ class DatabaseManager:
             ('Latex Paint', 'gallon', 'GHS (₵)', 35.00, now, 'Tema', 'Interior silk')
         ]
         sample_labor = [
-            ('General Laborer', 'GHS (₵)', 25.00, now, 'Nationwide', '-'),
-            ('Carpenter', 'GHS (₵)', 45.00, now, 'Accra', 'Experienced'),
-            ('Electrician', 'GHS (₵)', 65.00, now, 'Kumasi', 'Certified'),
-            ('Painter', 'GHS (₵)', 35.00, now, 'Tema', '-')
+            ('General Laborer', 'hr', 'GHS (₵)', 25.00, now, 'Nationwide', '-'),
+            ('Carpenter', 'hr', 'GHS (₵)', 45.00, now, 'Accra', 'Experienced'),
+            ('Electrician', 'hr', 'GHS (₵)', 65.00, now, 'Kumasi', 'Certified'),
+            ('Painter', 'hr', 'GHS (₵)', 35.00, now, 'Tema', '-')
         ]
         sample_equipment = [
-            ('Skid Steer', 'GHS (₵)', 75.00, now, 'Rental Depot', 'Daily rate'),
-            ('Excavator', 'GHS (₵)', 120.00, now, 'Project Site', 'Hourly with fuel'),
-            ('Concrete Mixer', 'GHS (₵)', 40.00, now, 'Warehouse', '-'),
-            ('Scissor Lift', 'GHS (₵)', 60.00, now, 'Rental Depot', '19ft reach')
+            ('Skid Steer', 'hr', 'GHS (₵)', 75.00, now, 'Rental Depot', 'Daily rate'),
+            ('Excavator', 'hr', 'GHS (₵)', 120.00, now, 'Project Site', 'Hourly with fuel'),
+            ('Concrete Mixer', 'hr', 'GHS (₵)', 40.00, now, 'Warehouse', '-'),
+            ('Scissor Lift', 'hr', 'GHS (₵)', 60.00, now, 'Rental Depot', '19ft reach')
         ]
 
         cursor.executemany('INSERT INTO materials (name, unit, currency, price, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_materials)
-        cursor.executemany('INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_labor)
-        cursor.executemany('INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, remarks) VALUES (?,?,?,?,?,?)', sample_equipment)
+        cursor.executemany('INSERT INTO labor (trade, unit, currency, rate, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_labor)
+        cursor.executemany('INSERT INTO equipment (name, unit, currency, rate, date_added, location, remarks) VALUES (?,?,?,?,?,?,?)', sample_equipment)
         
         cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('currency', 'GHS (₵)'))
         cursor.execute("INSERT INTO settings (key, value) VALUES (?, ?)", ('overhead', '15.0'))
@@ -306,8 +324,8 @@ class DatabaseManager:
         try:
             col_map = {
                 'materials': 'id, name, unit, currency, price, date_added, location, contact, remarks',
-                'labor': 'id, trade, currency, rate_per_hour, date_added, location, contact, remarks',
-                'equipment': 'id, name, currency, rate_per_hour, date_added, location, contact, remarks'
+                'labor': 'id, trade, unit, currency, rate, date_added, location, contact, remarks',
+                'equipment': 'id, name, unit, currency, rate, date_added, location, contact, remarks'
             }
             cols = col_map.get(table_name, '*')
             sort_col = "name" if table_name in ["materials", "equipment"] else "trade"
@@ -321,8 +339,8 @@ class DatabaseManager:
         try:
             sql_map = {
                 'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'labor': 'INSERT INTO labor (trade, currency, rate_per_hour, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?)',
-                'equipment': 'INSERT INTO equipment (name, currency, rate_per_hour, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?)'
+                'labor': 'INSERT INTO labor (trade, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
+                'equipment': 'INSERT INTO equipment (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return False
@@ -340,8 +358,8 @@ class DatabaseManager:
         try:
             sql_map = {
                 'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'labor': 'UPDATE labor SET trade=?, currency=?, rate_per_hour=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'equipment': 'UPDATE equipment SET name=?, currency=?, rate_per_hour=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?'
+                'labor': 'UPDATE labor SET trade=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'equipment': 'UPDATE equipment SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?'
             }
             sql = sql_map.get(table_name)
             if not sql: return
@@ -475,10 +493,10 @@ class DatabaseManager:
                                      item['name'], item['unit'], item['unit_cost'], item.get('currency')))
             else:
                 sql = f"""INSERT INTO {dest_table} 
-                         (task_id, {ref_id_col}, {qty_col}, formula, name_trade, rate, currency) 
-                         VALUES (?, ?, ?, ?, ?, ?, ?)"""
+                         (task_id, {ref_id_col}, {qty_col}, formula, name_trade, unit, rate, currency) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?)"""
                 cursor.execute(sql, (task_id, source_id, item[qty_col], item.get('formula'),
-                                     item[name_key], item[rate_key], item.get('currency')))
+                                     item[name_key], item.get('unit'), item[rate_key], item.get('currency')))
 
     def get_saved_estimates_summary(self):
         """Returns a summary list of all saved estimates."""
@@ -541,30 +559,32 @@ class DatabaseManager:
                 for l in labs:
                     l_dict = dict(l)
                     name = l_dict.get('name_trade') or ""
+                    unit = l_dict.get('unit') or ""
                     rate = l_dict.get('rate') if l_dict.get('rate') is not None else 0.0
                     curr = l_dict.get('currency') or loaded_estimate.currency
                     
                     if not name and l_dict.get('labor_id'):
                         legacy = self._load_legacy_item(cursor, l_dict['labor_id'], "labor")
                         if legacy:
-                            name, rate, curr = legacy['trade'], legacy['rate_per_hour'], legacy['currency']
+                            name, unit, rate, curr = legacy['trade'], legacy['unit'], legacy['rate'], legacy['currency']
                             
-                    task_obj.add_labor(name, l['hours'], rate, currency=curr, formula=l['formula'])
+                    task_obj.add_labor(name, l['hours'], rate, currency=curr, formula=l['formula'], unit=unit)
 
                 # Load Equipment
                 equips = self._load_task_items(cursor, task_data['id'], "estimate_equipment")
                 for e in equips:
                     e_dict = dict(e)
                     name = e_dict.get('name_trade') or ""
+                    unit = e_dict.get('unit') or ""
                     rate = e_dict.get('rate') if e_dict.get('rate') is not None else 0.0
                     curr = e_dict.get('currency') or loaded_estimate.currency
 
                     if not name and e_dict.get('equipment_id'):
                         legacy = self._load_legacy_item(cursor, e_dict['equipment_id'], "equipment")
                         if legacy:
-                            name, rate, curr = legacy['name'], legacy['rate_per_hour'], legacy['currency']
+                            name, unit, rate, curr = legacy['name'], legacy['unit'], legacy['rate'], legacy['currency']
 
-                    task_obj.add_equipment(name, e['hours'], rate, currency=curr, formula=e['formula'])
+                    task_obj.add_equipment(name, e['hours'], rate, currency=curr, formula=e['formula'], unit=unit)
 
                 loaded_estimate.add_task(task_obj)
 

@@ -23,8 +23,8 @@ class DatabaseManagerDialog(QDialog):
         # Tab configuration: (Tab Name, Table Name, Column Headers)
         self.tab_configs = [
             ("Materials", "materials", ["ID", "Material", "Unit", "Currency", "Price", "Date", "Location", "Contact", "Remarks"]),
-            ("Labor", "labor", ["ID", "Labor", "Currency", "Rate per Hour", "Date", "Location", "Contact", "Remarks"]),
-            ("Equipment", "equipment", ["ID", "Equipment", "Currency", "Rate per Hour", "Date", "Location", "Contact", "Remarks"])
+            ("Labor", "labor", ["ID", "Labor", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"]),
+            ("Equipment", "equipment", ["ID", "Equipment", "Unit", "Currency", "Rate", "Date", "Location", "Contact", "Remarks"])
         ]
 
         self.tables = {}
@@ -89,9 +89,9 @@ class DatabaseManagerDialog(QDialog):
         
         # Column indices for special widgets
         is_mat = (table_name == "materials")
-        curr_col = 3 if is_mat else 2
-        date_col = 5 if is_mat else 4
-        price_col = 4 if is_mat else 3
+        curr_col = 3
+        date_col = 5
+        price_col = 4
 
         for row_idx, row_data in enumerate(items):
             table.insertRow(row_idx)
@@ -131,8 +131,7 @@ class DatabaseManagerDialog(QDialog):
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         
         # Ensure widget columns have enough space for drop-down arrows
-        is_mat = (table_name == "materials")
-        col_indices = [3, 5] if is_mat else [2, 4]
+        col_indices = [3, 5]
         for col in col_indices:
             header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
             table.setColumnWidth(col, 120)
@@ -194,9 +193,7 @@ class ItemDialog(QDialog):
         self.inputs = []
         
         # Field mapping
-        fields = [("Name", QLineEdit)]
-        if table_name == "materials": fields.append(("Unit", QLineEdit))
-        fields += [("Currency", QComboBox), ("Price/Rate", QLineEdit), ("Date", QDateEdit), ("Location", QLineEdit), ("Contact", QLineEdit), ("Remarks", QLineEdit)]
+        fields = [("Name", QLineEdit), ("Unit", QLineEdit), ("Currency", QComboBox), ("Price/Rate", QLineEdit), ("Date", QDateEdit), ("Location", QLineEdit), ("Contact", QLineEdit), ("Remarks", QLineEdit)]
 
         for i, (label, widget_class) in enumerate(fields):
             w = widget_class()
@@ -233,10 +230,8 @@ class ItemDialog(QDialog):
             return None
         
         try:
-            # Find price field index
-            # materials: Name(0), Unit(1), Currency(2), Price/Rate(3) -> len 8
-            # others: Name(0), Currency(1), Price/Rate(2) -> len 7
-            p_idx = 3 if len(self.inputs) == 8 else 2
+            # Price/Rate is always at index 3 now: Name(0), Unit(1), Currency(2), Price/Rate(3)
+            p_idx = 3
             vals[p_idx] = float(vals[p_idx] or 0)
             return tuple(vals)
         except ValueError:
