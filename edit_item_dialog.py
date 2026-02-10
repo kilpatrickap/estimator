@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QTextEdit, QHBoxLayout, QPlainTextEdit,
-                             QDialogButtonBox, QLabel, QMessageBox)
+                             QDialogButtonBox, QLabel, QMessageBox, QPushButton)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDoubleValidator, QPainter, QColor
 import re
