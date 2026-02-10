@@ -62,15 +62,16 @@ class DatabaseManager:
                 ('location', "TEXT"),
                 ('remarks', "TEXT"),
                 ('contact', "TEXT"),
-                ('unit', "TEXT DEFAULT 'hr'")
+                ('unit', "TEXT DEFAULT 'hr'"),
+                ('formula', "TEXT")
             ]
             
             for table in resource_tables:
                 # Ensure table exists first for 'plant' or 'indirect_costs' which might be new
                 if table == 'plant':
-                    cursor.execute('CREATE TABLE IF NOT EXISTS plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT DEFAULT "hr", currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+                    cursor.execute('CREATE TABLE IF NOT EXISTS plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT DEFAULT "hr", currency TEXT DEFAULT "GHS (₵)", rate REAL, formula TEXT, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
                 elif table == 'indirect_costs':
-                    cursor.execute('CREATE TABLE IF NOT EXISTS indirect_costs (id INTEGER PRIMARY KEY, description TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", amount REAL, date_added TEXT)')
+                    cursor.execute('CREATE TABLE IF NOT EXISTS indirect_costs (id INTEGER PRIMARY KEY, description TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", amount REAL, formula TEXT, date_added TEXT)')
                 
                 for col_name, col_def in common_cols:
                     # Skip common columns if they don't apply to indirect_costs specifically if we want to keep it lean, 
@@ -247,11 +248,11 @@ class DatabaseManager:
         cursor = conn.cursor()
 
         # --- Core Cost Tables ---
-        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
-        cursor.execute('CREATE TABLE indirect_costs (id INTEGER PRIMARY KEY, description TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", amount REAL, date_added TEXT)')
+        cursor.execute('CREATE TABLE materials (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", price REAL, formula TEXT, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE labor (id INTEGER PRIMARY KEY, trade TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, formula TEXT, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE equipment (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, formula TEXT, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE plant (id INTEGER PRIMARY KEY, name TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", rate REAL, formula TEXT, date_added TEXT, location TEXT, contact TEXT, remarks TEXT)')
+        cursor.execute('CREATE TABLE indirect_costs (id INTEGER PRIMARY KEY, description TEXT UNIQUE, unit TEXT, currency TEXT DEFAULT "GHS (₵)", amount REAL, formula TEXT, date_added TEXT)')
         
         # --- Settings Table ---
         cursor.execute('CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)')
@@ -417,11 +418,11 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             col_map = {
-                'materials': 'id, name, unit, currency, price, date_added, location, contact, remarks',
-                'labor': 'id, trade, unit, currency, rate, date_added, location, contact, remarks',
-                'equipment': 'id, name, unit, currency, rate, date_added, location, contact, remarks',
-                'plant': 'id, name, unit, currency, rate, date_added, location, contact, remarks',
-                'indirect_costs': 'id, description, unit, currency, amount, date_added'
+                'materials': 'id, name, unit, currency, price, formula, date_added, location, contact, remarks',
+                'labor': 'id, trade, unit, currency, rate, formula, date_added, location, contact, remarks',
+                'equipment': 'id, name, unit, currency, rate, formula, date_added, location, contact, remarks',
+                'plant': 'id, name, unit, currency, rate, formula, date_added, location, contact, remarks',
+                'indirect_costs': 'id, description, unit, currency, amount, formula, date_added'
             }
             cols = col_map.get(table_name, '*')
             sort_col = "description" if table_name == "indirect_costs" else ("name" if table_name in ["materials", "equipment", "plant"] else "trade")
@@ -434,11 +435,11 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             sql_map = {
-                'materials': 'INSERT INTO materials (name, unit, currency, price, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'labor': 'INSERT INTO labor (trade, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'equipment': 'INSERT INTO equipment (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'plant': 'INSERT INTO plant (name, unit, currency, rate, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?)',
-                'indirect_costs': 'INSERT INTO indirect_costs (description, unit, currency, amount, date_added) VALUES (?,?,?,?,?)'
+                'materials': 'INSERT INTO materials (name, unit, currency, price, formula, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?,?)',
+                'labor': 'INSERT INTO labor (trade, unit, currency, rate, formula, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?,?)',
+                'equipment': 'INSERT INTO equipment (name, unit, currency, rate, formula, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?,?)',
+                'plant': 'INSERT INTO plant (name, unit, currency, rate, formula, date_added, location, contact, remarks) VALUES (?,?,?,?,?,?,?,?,?)',
+                'indirect_costs': 'INSERT INTO indirect_costs (description, unit, currency, amount, formula, date_added) VALUES (?,?,?,?,?,?)'
             }
             sql = sql_map.get(table_name)
             if not sql: return None
@@ -456,11 +457,11 @@ class DatabaseManager:
         conn = self._get_connection()
         try:
             sql_map = {
-                'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'labor': 'UPDATE labor SET trade=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'equipment': 'UPDATE equipment SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'plant': 'UPDATE plant SET name=?, unit=?, currency=?, rate=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
-                'indirect_costs': 'UPDATE indirect_costs SET description=?, unit=?, currency=?, amount=?, date_added=? WHERE id=?'
+                'materials': 'UPDATE materials SET name=?, unit=?, currency=?, price=?, formula=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'labor': 'UPDATE labor SET trade=?, unit=?, currency=?, rate=?, formula=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'equipment': 'UPDATE equipment SET name=?, unit=?, currency=?, rate=?, formula=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'plant': 'UPDATE plant SET name=?, unit=?, currency=?, rate=?, formula=?, date_added=?, location=?, contact=?, remarks=? WHERE id=?',
+                'indirect_costs': 'UPDATE indirect_costs SET description=?, unit=?, currency=?, amount=?, formula=?, date_added=? WHERE id=?'
             }
             sql = sql_map.get(table_name)
             if not sql: return

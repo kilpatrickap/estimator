@@ -6,6 +6,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushBut
                              QComboBox, QDateEdit, QMenu)
 from PyQt6.QtCore import QDate, Qt
 from database import DatabaseManager
+from edit_item_dialog import EditItemDialog
 
 
 class DatabaseManagerDialog(QDialog):
@@ -62,8 +63,8 @@ class DatabaseManagerDialog(QDialog):
         self.tables[table_name] = table
 
         # Connect signals
-        search_input.textChanged.connect(lambda text, tbl=table: self.filter_table(text, tbl))
         table.itemChanged.connect(lambda item: self.on_item_changed(item, table_name))
+        table.itemDoubleClicked.connect(lambda item: self.on_item_double_clicked(item, table_name))
         
         self.load_data(table_name)
 
@@ -87,20 +88,75 @@ class DatabaseManagerDialog(QDialog):
 
         for row_idx, row_data in enumerate(items):
             table.insertRow(row_idx)
-            for col_idx, data in enumerate(row_data):
-                item_id = int(row_data[0])
-                
-                if col_idx == curr_col:
-                    self._add_currency_widget(table, row_idx, col_idx, data, table_name, item_id)
-                elif col_idx == date_col:
-                    self._add_date_widget(table, row_idx, col_idx, data, table_name, item_id)
-                else:
-                    # Formatting numbers
-                    display = f"{float(data):.2f}" if col_idx == price_col and data is not None else str(data or "")
-                    table.setItem(row_idx, col_idx, QTableWidgetItem(display))
+            
+            # DB indices: 0:id, 1:name, 2:unit, 3:curr, 4:val, 5:formula, 6:date, 7:loc, 8:con, 9:rem
+            item_id = int(row_data[0])
+            
+            # Map DB to UI
+            # 0:ID, 1:Name, 2:Unit
+            table.setItem(row_idx, 0, QTableWidgetItem(str(row_data[0])))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(row_data[1] or "")))
+            table.setItem(row_idx, 2, QTableWidgetItem(str(row_data[2] or "")))
+            
+            # 3:Currency (Widget)
+            self._add_currency_widget(table, row_idx, curr_col, row_data[3], table_name, item_id)
+            
+            # 4:Price/Rate (Value + Formula in UserRole)
+            val = row_data[4]
+            formula = row_data[5]
+            display = f"{float(val):.2f}" if val is not None else "0.00"
+            val_item = QTableWidgetItem(display)
+            val_item.setData(Qt.ItemDataRole.UserRole, formula)
+            table.setItem(row_idx, price_col, val_item)
+            
+            # 5:Date (Widget)
+            self._add_date_widget(table, row_idx, date_col, row_data[6], table_name, item_id)
+            
+            # 6-8: Location, Contact, Remarks (if applicable)
+            if table_name != 'indirect_costs':
+                table.setItem(row_idx, 6, QTableWidgetItem(str(row_data[7] or "")))
+                table.setItem(row_idx, 7, QTableWidgetItem(str(row_data[8] or "")))
+                table.setItem(row_idx, 8, QTableWidgetItem(str(row_data[9] or "")))
         
         self._adjust_widths(table, table_name)
         self.is_loading = False
+
+    def on_item_double_clicked(self, item, table_name):
+        """Intersects double-clicks on the price/rate column to open the formula editor."""
+        if item.column() == 4: # Price/Rate/Amount column
+            self.open_formula_editor(item, table_name)
+
+    def open_formula_editor(self, item, table_name):
+        """Opens the formula-based editor for library prices/rates."""
+        table = item.tableWidget()
+        row = item.row()
+        item_id = int(table.item(row, 0).text())
+        
+        # Prepare data for dialog
+        price_key = 'price' if table_name == 'materials' else ('amount' if table_name == 'indirect_costs' else 'rate')
+        current_val = float(item.text().replace(',', ''))
+        current_formula = item.data(Qt.ItemDataRole.UserRole)
+        
+        item_data = {
+            'name': table.item(row, 1).text(),
+            price_key: current_val,
+            'formula': current_formula
+        }
+        
+        dialog = EditItemDialog(item_data, table_name, "GHS (₵)", parent=self, is_library=True)
+        if dialog.exec():
+            new_val = item_data[price_key]
+            new_formula = item_data.get('formula')
+            
+            # Update DB
+            self.db_manager.update_item_field(table_name, price_key, new_val, item_id)
+            self.db_manager.update_item_field(table_name, 'formula', new_formula, item_id)
+            
+            # Update UI
+            self.is_loading = True
+            item.setText(f"{new_val:.2f}")
+            item.setData(Qt.ItemDataRole.UserRole, new_formula)
+            self.is_loading = False
 
     def on_item_changed(self, item, table_name):
         if self.is_loading: return
@@ -108,6 +164,11 @@ class DatabaseManagerDialog(QDialog):
         table = item.tableWidget()
         row = item.row()
         col = item.column()
+        
+        if col == 4:
+            # If user manually typed a number, we should clear the formula
+            item.setData(Qt.ItemDataRole.UserRole, None)
+            self.db_manager.update_item_field(table_name, 'formula', None, int(table.item(row, 0).text()))
         
         # Get ID
         id_item = table.item(row, 0)
@@ -139,8 +200,7 @@ class DatabaseManagerDialog(QDialog):
                 item.setText(f"{new_value:.2f}")
                 self.is_loading = False
             except ValueError:
-                QMessageBox.warning(self, "Invalid Input", "Please enter a valid number.")
-                self.load_data(table_name) # Revert
+                QMessageBox.warning(self, "Error", "Invalid numeric value.")
                 return
 
         self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
@@ -209,10 +269,11 @@ class DatabaseManagerDialog(QDialog):
         default_curr = self.db_manager.get_setting('currency', 'GHS (₵)')
         
         if table_name == 'indirect_costs':
-            placeholder_data = ("New Item...", "", default_curr, 0.0, now)
+            # name, unit, curr, amount, formula, date (6 items)
+            placeholder_data = ("New Item...", "", default_curr, 0.0, None, now)
         else:
-            # Materials/Labor/Equip/Plant: name/trade, unit, currency, price/rate, date, location, contact, remarks (8 items)
-            placeholder_data = ("New Item...", "", default_curr, 0.0, now, "", "", "")
+            # name/trade, unit, currency, price/rate, formula, date, location, contact, remarks (9 items)
+            placeholder_data = ("New Item...", "", default_curr, 0.0, None, now, "", "", "")
         
         item_id = self.db_manager.add_item(table_name, placeholder_data)
         if item_id:
@@ -228,7 +289,9 @@ class DatabaseManagerDialog(QDialog):
             table.setItem(new_row_idx, 1, QTableWidgetItem("New Item...")) # Name/Trade
             table.setItem(new_row_idx, 2, QTableWidgetItem("")) # Unit
             self._add_currency_widget(table, new_row_idx, 3, default_curr, table_name, item_id)
-            table.setItem(new_row_idx, 4, QTableWidgetItem("0.00")) # Price/Rate
+            price_item = QTableWidgetItem("0.00")
+            price_item.setData(Qt.ItemDataRole.UserRole, None)
+            table.setItem(new_row_idx, 4, price_item)
             self._add_date_widget(table, new_row_idx, 5, now, table_name, item_id)
             if table_name != 'indirect_costs':
                 table.setItem(new_row_idx, 6, QTableWidgetItem("")) # Location
@@ -276,13 +339,15 @@ class DatabaseManagerDialog(QDialog):
         except ValueError:
             rate_val = 0.0
 
+        formula = table.item(row, 4).data(Qt.ItemDataRole.UserRole)
+
         if table_name == 'indirect_costs':
-            copy_data = (name, unit, curr, rate_val, date)
+            copy_data = (name, unit, curr, rate_val, formula, date)
         else:
             loc = get_val(row, 6)
             con = get_val(row, 7)
             rem = get_val(row, 8)
-            copy_data = (name, unit, curr, rate_val, date, loc, con, rem)
+            copy_data = (name, unit, curr, rate_val, formula, date, loc, con, rem)
         
         new_id = self.db_manager.add_item(table_name, copy_data)
         if new_id:
@@ -295,7 +360,9 @@ class DatabaseManagerDialog(QDialog):
             table.setItem(new_row_idx, 1, QTableWidgetItem(name))
             table.setItem(new_row_idx, 2, QTableWidgetItem(unit))
             self._add_currency_widget(table, new_row_idx, 3, curr, table_name, new_id)
-            table.setItem(new_row_idx, 4, QTableWidgetItem(f"{rate_val:.2f}"))
+            rate_item = QTableWidgetItem(f"{rate_val:.2f}")
+            rate_item.setData(Qt.ItemDataRole.UserRole, formula)
+            table.setItem(new_row_idx, 4, rate_item)
             self._add_date_widget(table, new_row_idx, 5, date, table_name, new_id)
             if table_name != 'indirect_costs':
                 table.setItem(new_row_idx, 6, QTableWidgetItem(loc))

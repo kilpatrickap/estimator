@@ -30,88 +30,108 @@ class ZebraInput(QPlainTextEdit):
 
 class EditItemDialog(QDialog):
     """
-    Dialog for editing the quantity/hours of a cost item using a formula or direct value.
+    Dialog for editing the quantity/hours OR price/rate of a cost item using a formula.
     Supports basic arithmetic formulas starting with '='.
     """
-    def __init__(self, item_data, item_type, estimate_currency, parent=None):
+    def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False):
         super().__init__(parent)
         self.item_data = item_data
         self.item_type = item_type
-        self.original_rate = item_data.get('unit_cost') if item_type == 'material' else item_data.get('rate')
+        self.is_library = is_library
         
-        name = item_data.get('name') or item_data.get('trade') or "Unknown Item"
-        self.setWindowTitle(f"Edit {item_type.capitalize()}")
+        # Determine target key and original rate
+        if is_library:
+            self.target_key = 'price' if item_type == 'materials' else ('amount' if item_type == 'indirect_costs' else 'rate')
+            self.original_rate = None # Not needed for library Price/Rate editing
+        else:
+            self.target_key = 'qty' if item_type == 'material' else 'hours'
+            self.original_rate = item_data.get('unit_cost') if item_type == 'material' else item_data.get('rate')
+        
+        name = item_data.get('name') or item_data.get('trade') or item_data.get('description') or "Unknown Item"
+        title_prefix = "Edit" if not is_library else "Set Price/Rate for"
+        self.setWindowTitle(f"{title_prefix} {item_type.capitalize()}")
         self.setMinimumWidth(900)
-        self.setMinimumHeight(550)
+        self.setMinimumHeight(600)
         
         self._init_ui(name)
 
     def _init_ui(self, name):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
         # Header Info
-        form_layout = QFormLayout()
+        header_layout = QFormLayout()
         self.name_display = QLineEdit(name)
         self.name_display.setReadOnly(True)
-        self.name_display.setStyleSheet("background-color: #f5f5f5; color: #333;")
-        form_layout.addRow("Item Name:", self.name_display)
+        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 8px;")
+        header_layout.addRow("Item Name:", self.name_display)
+        layout.addLayout(header_layout)
         
-        # Splitter Layout
+        # Main Editing Area
         split_layout = QHBoxLayout()
+        split_layout.setSpacing(2)
         
-        # Input Section
+        # Input Section (Left)
         input_container = QVBoxLayout()
         input_container.addWidget(QLabel("Formula Input:"))
         self.qty_input = ZebraInput()
-        self.qty_input.setMinimumHeight(300)
+        self.qty_input.setMinimumHeight(350)
         self.qty_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.qty_input.setStyleSheet("padding: 5px; font-family: Consolas, monospace;")
-        self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Wall A\";")
+        self.qty_input.setStyleSheet("padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: white;")
+        self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Notes\";")
         self.qty_input.textChanged.connect(self.update_display)
-        
-        # Sync Scroll
-        self.qty_display = QTextEdit()
-        self.qty_input.verticalScrollBar().valueChanged.connect(self.qty_display.verticalScrollBar().setValue)
-        
         input_container.addWidget(self.qty_input)
         split_layout.addLayout(input_container, 4)
         
-        # Output Section
+        # Output Section (Right)
         output_container = QVBoxLayout()
         output_container.addWidget(QLabel("Calculation:"))
-        self.qty_display.setMinimumHeight(300)
+        self.qty_display = QTextEdit()
+        self.qty_display.setMinimumHeight(350)
         self.qty_display.setReadOnly(True)
         self.qty_display.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self.qty_display.setStyleSheet("color: blue; padding: 5px; font-family: Consolas, monospace; border: 1px solid #ddd; background-color: #f9f9f9;")
+        self.qty_display.setStyleSheet("color: blue; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: #f9f9f9;")
+        
+        # Sync Scroll
+        self.qty_input.verticalScrollBar().valueChanged.connect(self.qty_display.verticalScrollBar().setValue)
         self.qty_display.verticalScrollBar().valueChanged.connect(self.qty_input.verticalScrollBar().setValue)
         
         output_container.addWidget(self.qty_display)
         split_layout.addLayout(output_container, 1)
         
-        form_layout.addRow(split_layout)
+        layout.addLayout(split_layout)
         
         # Help Text
         help_text = "Enter value (1.00) or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
         help_label = QLabel(help_text)
-        help_label.setStyleSheet("color: gray; font-style: italic; font-size: 10pt;")
-        form_layout.addRow("", help_label)
-        
-        layout.addLayout(form_layout)
+        help_label.setStyleSheet("color: #666; font-style: italic; font-size: 10pt;")
+        layout.addWidget(help_label)
         
         # Buttons
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        for button in buttons.buttons():
-            button.setAutoDefault(False)
-        buttons.accepted.connect(self.save)
-        buttons.rejected.connect(self.reject)
-        layout.addWidget(buttons)
+        button_container = QHBoxLayout()
+        button_container.addStretch()
+        
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setMinimumSize(100, 35)
+        self.save_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; border-radius: 4px;")
+        self.save_btn.clicked.connect(self.save)
+        
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.setMinimumSize(100, 35)
+        self.cancel_btn.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; border-radius: 4px;")
+        self.cancel_btn.clicked.connect(self.reject)
+        
+        button_container.addWidget(self.save_btn)
+        button_container.addWidget(self.cancel_btn)
+        layout.addLayout(button_container)
 
         # Initialize Data
-        initial_qty = self.item_data.get('qty') if self.item_type == 'material' else self.item_data.get('hours')
+        initial_val = self.item_data.get(self.target_key)
         if self.item_data.get('formula'):
             self.qty_input.setPlainText(self.item_data['formula'])
         else:
-            self.qty_input.setPlainText(str(initial_qty))
+            self.qty_input.setPlainText(str(initial_val or ""))
 
     def parse_single_line(self, text):
         """Parses a single line of formula text."""
@@ -119,7 +139,7 @@ class EditItemDialog(QDialog):
             return None
             
         # Remove '=' and comments
-        term = text.replace('=', '', 1).split(';')[0]
+        term = text.split(';')[0].replace('=', '', 1)
         term = re.sub(r'"[^"]*"', '', term) # Remove quoted comments
         
         # Normalize and sanitize
@@ -153,11 +173,13 @@ class EditItemDialog(QDialog):
             else:
                 html_lines.append("<div>&nbsp;</div>")
         
-        # Pad lines to match input
-        while len(html_lines) < 18:
+        # Pad lines to ensure sync scroll looks okay
+        while len(html_lines) < 20:
             html_lines.append("<div>&nbsp;</div>")
 
         if total_sum > 0:
+            # Use blue for calculation results as requested
+            html_lines.append(f"<div style='margin-top: 10px; border-top: 1px solid #ddd;'>&nbsp;</div>")
             html_lines.append(f"<div><b>TOTAL: {total_sum:,.2f}</b></div>")
             
         self.qty_display.setHtml(f"<div style='color: blue; font-family: Consolas, monospace;'>{''.join(html_lines)}</div>")
@@ -175,17 +197,17 @@ class EditItemDialog(QDialog):
                 if val is not None:
                     total += val
                     has_formula = True
-                elif not has_formula and line.replace('.','',1).isdigit():
-                    # Fallback for simple number
-                    total = float(line)
+                elif not has_formula and line.strip().replace('.','',1).isdigit():
+                    # Fallback for simple number if no formulas present at all
+                    total = float(line.strip())
 
             # Update Item Data
-            qty_key = 'qty' if self.item_type == 'material' else 'hours'
-            self.item_data[qty_key] = total
+            self.item_data[self.target_key] = total
             self.item_data['formula'] = input_text if has_formula else None
             
-            rate = self.original_rate or 0.0
-            self.item_data['total'] = total * rate
+            if not self.is_library:
+                rate = self.original_rate or 0.0
+                self.item_data['total'] = total * rate
             
             self.accept()
         except Exception as e:
