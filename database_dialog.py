@@ -191,13 +191,16 @@ class DatabaseManagerDialog(QDialog):
         header = table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         
-        # Ensure widget columns have enough space for drop-down arrows
-        col_indices = [3, 5]
-        for col in col_indices:
-            header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
-            table.setColumnWidth(col, 120)
+        # Ensure widget columns (Currency and Date) have enough space but don't stretch
+        for col in [3, 5]:
+            if col < table.columnCount():
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.Interactive)
+                table.setColumnWidth(col, 120)
+
+        # Stretch the primary descriptive column (Material/Labor/Equipment/Plant/Description)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         
-        header.setStretchLastSection(True)
+        header.setStretchLastSection(False)
         table.resizeRowsToContents()
 
     def add_item(self, table_name):
