@@ -17,9 +17,10 @@ class RateBuildUpDialog(QDialog):
     """
     stateChanged = pyqtSignal()
     
-    def __init__(self, estimate_object, parent=None):
+    def __init__(self, estimate_object, main_window=None, parent=None):
         super().__init__(parent)
         self.estimate = estimate_object
+        self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
         self.setMinimumSize(1000, 750)
@@ -263,18 +264,12 @@ class RateBuildUpDialog(QDialog):
     def edit_item(self, item, column):
         """Opens the formula-based edit dialog for the double-clicked resource."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
-            # Find the main window to add MDI subwindow
-            main_window = self.window()
-            while main_window and not hasattr(main_window, 'open_edit_item_window'):
-                parent = main_window.parent()
-                if not parent: break
-                main_window = parent
-
-            if main_window and hasattr(main_window, 'open_edit_item_window'):
-                main_window.open_edit_item_window(item.item_data, item.item_type, self.estimate.currency, self)
+            if self.main_window and hasattr(self.main_window, 'open_edit_item_window'):
+                self.main_window.open_edit_item_window(item.item_data, item.item_type, self.estimate.currency, self)
             else:
-                 # Fallback for dialog mode (if somehow main window not found)
-                 if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
+                 # Fallback for dialog mode
+                 dialog = EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self)
+                 if dialog.exec():
                      self.refresh_view()
                      self.stateChanged.emit()
 

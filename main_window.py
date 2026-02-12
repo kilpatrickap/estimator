@@ -295,10 +295,8 @@ class MainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
-        buildup_win = RateBuildUpDialog(estimate_obj)
+        buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
         sub = self.mdi_area.addSubWindow(buildup_win)
-        buildup_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(1100, 750)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         sub.resize(1100, 750)
         sub.show()
@@ -315,7 +313,7 @@ class MainWindow(QMainWindow):
         # Store snapshot on the parent window logic? 
         # RateBuildUpDialog handles its own undo stack. We should let it handle the push.
         
-        edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window)
+        edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window, is_modal=False)
         
         # Capture snapshot of parent's estimate state *before* any potential changes
         if hasattr(parent_window, 'estimate'):
@@ -330,15 +328,18 @@ class MainWindow(QMainWindow):
                 parent_window.undo_stack.append(edit_win.snapshot)
                 parent_window.redo_stack.clear()
             
+            # Update the snapshot for the NEXT save operation (if window stays open)
+            if hasattr(parent_window, 'estimate'):
+                edit_win.snapshot = copy.deepcopy(parent_window.estimate)
+            
             if hasattr(parent_window, 'refresh_view'):
                 parent_window.refresh_view()
                 
             if hasattr(parent_window, 'stateChanged'):
                 parent_window.stateChanged.emit()
                 
-            sub.close()
-
-        edit_win.stateChanged.connect(on_save)
+        edit_win.dataCommitted.connect(on_save)
+        edit_win.stateChanged.connect(self._update_toolbar_state)
         sub.resize(900, 600)
         sub.show()
 
@@ -408,6 +409,8 @@ class MainWindow(QMainWindow):
                 win.save_estimate()
             elif hasattr(win, 'save_changes'):
                 win.save_changes()
+            elif hasattr(win, 'save'):
+                win.save()
 
     def _update_toolbar_state(self):
         """Updates enable/disable state of global actions based on active window."""
@@ -417,6 +420,10 @@ class MainWindow(QMainWindow):
             if hasattr(win, 'undo_stack'):
                 self.undo_btn.setEnabled(len(win.undo_stack) > 0)
                 self.redo_btn.setEnabled(len(win.redo_stack) > 0)
+            elif isinstance(win, EditItemDialog):
+                # For text editing, we delegate to the text widget's undo stack
+                self.undo_btn.setEnabled(win.qty_input.document().isUndoAvailable())
+                self.redo_btn.setEnabled(win.qty_input.document().isRedoAvailable())
             else:
                 # Database Manager or others without undo stack
                 self.undo_btn.setEnabled(False)

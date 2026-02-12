@@ -34,12 +34,14 @@ class EditItemDialog(QDialog):
     Supports basic arithmetic formulas starting with '='.
     """
     stateChanged = pyqtSignal()
+    dataCommitted = pyqtSignal()
     
-    def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False):
+    def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False, is_modal=True):
         super().__init__(parent)
         self.item_data = item_data
         self.item_type = item_type
         self.is_library = is_library
+        self.is_modal = is_modal
         
         # Determine target key and original rate
         if is_library:
@@ -125,6 +127,16 @@ class EditItemDialog(QDialog):
             self.qty_input.setPlainText(self.item_data['formula'])
         else:
             self.qty_input.setPlainText(str(initial_val or ""))
+            
+        # Connect internal undo/redo state changes to update global toolbar
+        self.qty_input.undoAvailable.connect(lambda: self.stateChanged.emit())
+        self.qty_input.redoAvailable.connect(lambda: self.stateChanged.emit())
+
+    def undo(self):
+        self.qty_input.undo()
+        
+    def redo(self):
+        self.qty_input.redo()
 
     def parse_single_line(self, text):
         """Parses a single line of formula text."""
@@ -199,7 +211,8 @@ class EditItemDialog(QDialog):
                 rate = self.original_rate or 0.0
                 self.item_data['total'] = total * rate
             
-            self.accept()
-            self.stateChanged.emit()
+            if self.is_modal:
+                self.accept()
+            self.dataCommitted.emit()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Invalid Input: {e}")
