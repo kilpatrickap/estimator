@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QFileDialog, QDialogButtonBox, QLineEdit,
                              QSplitter, QFrame)
 from PyQt6.QtGui import QFont, QKeySequence
-from PyQt6.QtCore import Qt, QDate, QTimer
+from PyQt6.QtCore import Qt, QDate, QTimer, pyqtSignal
 
 from database import DatabaseManager
 from models import Estimate, Task
@@ -22,6 +22,8 @@ class EstimateWindow(QMainWindow):
     """
     Main window for editing a specific Estimate.
     """
+    stateChanged = pyqtSignal()
+
     def __init__(self, estimate_data=None, estimate_object=None, parent=None):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
@@ -65,25 +67,8 @@ class EstimateWindow(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget)
 
         # --- Toolbar / Action Bar for Undo/Redo ---
-        toolbar_layout = QHBoxLayout()
-        
-        self.undo_btn = QPushButton("Undo")
-        self.undo_btn.setShortcut(QKeySequence.StandardKey.Undo)
-        self.undo_btn.clicked.connect(self.undo)
-        self.undo_btn.setEnabled(False)
-        self.undo_btn.setToolTip("Undo last action (Ctrl+Z)")
-        
-        self.redo_btn = QPushButton("Redo")
-        self.redo_btn.setShortcut(QKeySequence.StandardKey.Redo)
-        self.redo_btn.clicked.connect(self.redo)
-        self.redo_btn.setEnabled(False)
-        self.redo_btn.setToolTip("Redo last undone action (Ctrl+Y)")
-        
-        toolbar_layout.addWidget(self.undo_btn)
-        toolbar_layout.addWidget(self.redo_btn)
-        toolbar_layout.addStretch()
-        
-        self.main_layout.addLayout(toolbar_layout)
+        # REMOVED: Undo/Redo/Save buttons are now in the main window toolbar.
+
 
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         
@@ -239,7 +224,7 @@ class EstimateWindow(QMainWindow):
         snapshot = copy.deepcopy(self.estimate)
         self.undo_stack.append(snapshot)
         self.redo_stack.clear() # New action invalidates redo history
-        self._update_undo_redo_buttons()
+        self.stateChanged.emit()
 
     def undo(self):
         if not self.undo_stack: return
@@ -253,7 +238,7 @@ class EstimateWindow(QMainWindow):
         self.estimate = previous_state
         
         self.refresh_view()
-        self._update_undo_redo_buttons()
+        self.stateChanged.emit()
         
         # Ensure currency symbol updates if changed
         match = re.search(r'\((.*?)\)', self.estimate.currency)
@@ -271,15 +256,13 @@ class EstimateWindow(QMainWindow):
         self.estimate = next_state
         
         self.refresh_view()
-        self._update_undo_redo_buttons()
+        self.stateChanged.emit()
         
         # Ensure currency symbol updates if changed
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
 
-    def _update_undo_redo_buttons(self):
-        self.undo_btn.setEnabled(len(self.undo_stack) > 0)
-        self.redo_btn.setEnabled(len(self.redo_stack) > 0)
+
 
     # -------------------------
 
@@ -332,7 +315,7 @@ class EstimateWindow(QMainWindow):
             # cancelling means no change. If no change, we have a redundant state on stack.
             # We can pop it.
             self.undo_stack.pop()
-            self._update_undo_redo_buttons()
+            self.stateChanged.emit()
 
     def open_profit_overheads(self):
         self.save_state()
@@ -340,7 +323,7 @@ class EstimateWindow(QMainWindow):
             self.refresh_view()
         else:
             self.undo_stack.pop()
-            self._update_undo_redo_buttons()
+            self.stateChanged.emit()
 
     def edit_item(self, item, column):
         """Opens the edit dialog for the double-clicked item."""
@@ -350,7 +333,7 @@ class EstimateWindow(QMainWindow):
                 self.refresh_view()
             else:
                 self.undo_stack.pop()
-                self._update_undo_redo_buttons()
+                self.stateChanged.emit()
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")

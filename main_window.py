@@ -3,82 +3,30 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
-                             QSizePolicy, QFrame, QListWidget, QListWidgetItem)
-from PyQt6.QtGui import QFont, QDoubleValidator
-from PyQt6.QtCore import Qt, QDate
+                             QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow)
+from PyQt6.QtGui import QFont, QDoubleValidator, QAction
+from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
 from database import DatabaseManager
 from chart_widget import DashboardChart
 from settings_dialog import SettingsDialog
 from rate_manager_dialog import RateManagerDialog
+from rate_buildup_dialog import RateBuildUpDialog
 
 
-class MainWindow(QMainWindow):
-    """Main dashboard for the estimating software."""
-    def __init__(self):
+class DashboardWidget(QWidget):
+    """Dashboard content to be displayed in the MDI area."""
+    def __init__(self, main_window):
         super().__init__()
-        self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(1200, 800)
+        self.main_window = main_window
         self.db_manager = DatabaseManager()
-
-        self.central_widget = QWidget()
-        self.setCentralWidget(self.central_widget)
-        self.main_layout = QHBoxLayout(self.central_widget)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
-        self.main_layout.setSpacing(0)
-
-        self._setup_sidebar()
-        self._setup_content_area()
+        self._setup_ui()
         self.refresh_dashboard()
 
-    def _setup_sidebar(self):
-        """Creates the sidebar with primary navigation."""
-        self.sidebar = QWidget()
-        self.sidebar.setObjectName("Sidebar")
-        self.sidebar.setFixedWidth(280)
-        
-        layout = QVBoxLayout(self.sidebar)
-        layout.setContentsMargins(30, 40, 30, 40)
-        layout.setSpacing(20)
-
-        # Title Section
-        title = QLabel("Estimator Pro")
-        title.setObjectName("SidebarTitle")
-        layout.addWidget(title)
-
-        subtitle = QLabel("Professional Construction\nCost Estimation")
-        subtitle.setObjectName("SidebarSubtitle")
-        layout.addWidget(subtitle)
-
-        # Navigation Buttons
-        nav_actions = [
-            ("Create New Estimate", self.new_estimate),
-            ("Load Saved Estimate", self.load_estimate),
-            ("Manage Cost Database", self.manage_database),
-            ("Manage Rate Database", self.manage_rate_database),
-            ("Settings", self.open_settings)
-        ]
-
-        for text, slot in nav_actions:
-            btn = QPushButton(text)
-            btn.setObjectName("SidebarBtn")
-            btn.clicked.connect(slot)
-            layout.addWidget(btn)
-
-        layout.addStretch(1)
-        self.main_layout.addWidget(self.sidebar)
-
-    def manage_rate_database(self):
-        """Opens the Rate Manager Dialog."""
-        RateManagerDialog(self).exec()
-
-    def _setup_content_area(self):
-        """Creates the main dashboard content area."""
-        self.content_widget = QWidget()
-        self.content_widget.setStyleSheet("background-color: #f5f7f9;")
-        
-        layout = QVBoxLayout(self.content_widget)
+    def _setup_ui(self):
+        self.setStyleSheet("background-color: #f5f7f9;")
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(30)
 
@@ -115,8 +63,6 @@ class MainWindow(QMainWindow):
         self.recent_list.itemDoubleClicked.connect(self.open_recent_estimate)
         layout.addWidget(self.recent_list)
 
-        self.main_layout.addWidget(self.content_widget)
-
     def _create_metric_card(self, label_text, value_text):
         """Helper to create a stylized metric card."""
         card = QFrame()
@@ -134,7 +80,6 @@ class MainWindow(QMainWindow):
 
     def refresh_dashboard(self):
         """Updates metrics, chart, and recent estimates list."""
-        # Update Stats
         count = self.db_manager.get_total_estimates_count()
         total_val = self.db_manager.get_total_estimates_value()
         
@@ -164,36 +109,272 @@ class MainWindow(QMainWindow):
     def open_recent_estimate(self, item):
         est_id = item.data(Qt.ItemDataRole.UserRole)
         if est_id:
-            self._load_and_show_estimate(est_id)
+            self.main_window._load_and_show_estimate(est_id)
 
-    def _load_and_show_estimate(self, est_id):
-        estimate_obj = self.db_manager.load_estimate_details(est_id)
-        if estimate_obj:
-            self.estimate_win = EstimateWindow(estimate_object=estimate_obj)
-            self.estimate_win.show()
-        else:
-            QMessageBox.critical(self, "Error", "Failed to load estimate.")
 
-    def open_settings(self):
-        SettingsDialog(self).exec()
+class MainWindow(QMainWindow):
+    """Main application window using MDI architecture."""
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Construction Estimating Software")
+        self.setMinimumSize(1400, 900)
+        self.db_manager = DatabaseManager()
+
+        # Main Layout Structure
+        self.central_widget = QWidget()
+        self.setCentralWidget(self.central_widget)
+        self.main_layout = QVBoxLayout(self.central_widget)
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+
+        # 1. Top Navigation Bar
+        self._setup_navbar()
+
+        # 2. MDI Area
+        self.mdi_area = QMdiArea()
+        self.mdi_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.mdi_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
+        self.mdi_area.setTabsClosable(True)
+        self.mdi_area.setTabsMovable(True)
+        # Apply a subtle background to the workspace
+        self.mdi_area.setStyleSheet("QMdiArea { background-color: #eceff1; }")
+        
+        self.main_layout.addWidget(self.mdi_area)
+        
+        # Open Dashboard on launch
+        self.show_dashboard()
+
+        # Connect active window change to update toolbar state
+        self.mdi_area.subWindowActivated.connect(self._update_toolbar_state)
+
+    def _setup_navbar(self):
+        """Creates the premium top navigation bar."""
+        self.navbar = QFrame()
+        self.navbar.setObjectName("TopNavBar")
+        self.navbar.setFixedHeight(80) 
+        self.navbar.setStyleSheet("""
+            QFrame#TopNavBar {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1b5e20, stop:1 #2e7d32);
+                border-bottom: 2px solid #1b5e20;
+            }
+            QPushButton {
+                background-color: transparent;
+                color: white;
+                border: none;
+                font-weight: 600;
+                font-size: 14px;
+                padding: 5px 15px;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+            }
+            QPushButton:pressed {
+                background-color: rgba(255, 255, 255, 0.3);
+            }
+            QPushButton#ActionBtn {
+                background-color: rgba(255, 255, 255, 0.15);
+                border: 1px solid rgba(255, 255, 255, 0.3);
+            }
+            QPushButton#ActionBtn:hover {
+                background-color: rgba(255, 255, 255, 0.25);
+            }
+            QLabel {
+                color: white;
+                font-weight: bold;
+                font-size: 18px;
+            }
+        """)
+
+        layout = QHBoxLayout(self.navbar)
+        layout.setContentsMargins(20, 10, 20, 10)
+        layout.setSpacing(15)
+
+        # Branding
+        layout.addWidget(QLabel("Estimator Pro"))
+        
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.VLine)
+        line.setStyleSheet("background-color: rgba(255,255,255,0.3);")
+        layout.addWidget(line)
+
+        # Navigation Buttons
+        nav_items = [
+            ("Dashboard", self.show_dashboard),
+            ("Create New Estimate", self.new_estimate),
+            ("Load Estimate", self.load_estimate),
+            ("Cost Database", self.manage_database),
+            ("Rate Database", self.manage_rate_database),
+            ("Settings", self.open_settings)
+        ]
+
+        for text, slot in nav_items:
+            btn = QPushButton(text)
+            btn.clicked.connect(slot)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+
+        # Action Buttons (Undo/Redo/Save)
+        self.undo_btn = QPushButton("Undo")
+        self.undo_btn.setObjectName("ActionBtn")
+        self.undo_btn.setShortcut("Ctrl+Z")
+        self.undo_btn.clicked.connect(self.trigger_undo)
+        
+        self.redo_btn = QPushButton("Redo")
+        self.redo_btn.setObjectName("ActionBtn")
+        self.redo_btn.setShortcut("Ctrl+Y")
+        self.redo_btn.clicked.connect(self.trigger_redo)
+
+        self.save_btn = QPushButton("Save")
+        self.save_btn.setObjectName("ActionBtn")
+        self.save_btn.setShortcut("Ctrl+S")
+        self.save_btn.clicked.connect(self.trigger_save)
+
+        # Disable initially
+        self.undo_btn.setEnabled(False)
+        self.redo_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
+
+        layout.addWidget(self.undo_btn)
+        layout.addWidget(self.redo_btn)
+        layout.addWidget(self.save_btn)
+
+        self.main_layout.addWidget(self.navbar)
+
+    def show_dashboard(self):
+        """Shows or activates the dashboard."""
+        # Check if already exists
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), DashboardWidget):
+                self.mdi_area.setActiveSubWindow(sub)
+                sub.widget().refresh_dashboard()
+                return
+        
+        # Create new
+        dashboard = DashboardWidget(self)
+        sub = self.mdi_area.addSubWindow(dashboard)
+        sub.setWindowTitle("Dashboard")
+        sub.showMaximized()
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
-            self.estimate_win = EstimateWindow(estimate_data=dialog.get_data())
-            self.estimate_win.show()
-            self.refresh_dashboard()
+            est_window = EstimateWindow(estimate_data=dialog.get_data()) # Parent is None for MDI widget usually, or let MDI handle reparenting
+            self._add_estimate_window(est_window)
 
     def load_estimate(self):
         dialog = LoadEstimateDialog(self)
         if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_estimate_id:
             self._load_and_show_estimate(dialog.selected_estimate_id)
-            self.refresh_dashboard()
+
+    def _load_and_show_estimate(self, est_id):
+        # Check if already open
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if isinstance(widget, EstimateWindow) and widget.estimate.id == est_id:
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+
+        estimate_obj = self.db_manager.load_estimate_details(est_id)
+        if estimate_obj:
+            est_window = EstimateWindow(estimate_object=estimate_obj)
+            self._add_estimate_window(est_window)
         else:
-            self.refresh_dashboard()
+            QMessageBox.critical(self, "Error", "Failed to load estimate.")
+
+    def open_rate_buildup_window(self, estimate_obj):
+        """Opens a rate build-up in an MDI window."""
+        # Check if already open
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if isinstance(widget, RateBuildUpDialog) and widget.estimate.id == estimate_obj.id:
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+
+        buildup_win = RateBuildUpDialog(estimate_obj)
+        sub = self.mdi_area.addSubWindow(buildup_win)
+        sub.resize(1100, 750)
+        sub.show()
+
+    def _add_estimate_window(self, est_window):
+        sub = self.mdi_area.addSubWindow(est_window)
+        est_window.stateChanged.connect(self._update_toolbar_state)
+        sub.resize(1100, 750)
+        sub.show()
 
     def manage_database(self):
-        DatabaseManagerDialog(self).exec()
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), DatabaseManagerDialog):
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+        
+        dialog = DatabaseManagerDialog(self)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(1100, 750)
+        sub.show()
+        
+    def manage_rate_database(self):
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), RateManagerDialog):
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+        
+        # Pass self (MainWindow) to RateManagerDialog so it can open RateBuildUpDialog in MDI
+        dialog = RateManagerDialog(self) 
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(1000, 600)
+        sub.show()
+
+    def open_settings(self):
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), SettingsDialog):
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = SettingsDialog(self)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(500, 600)
+        sub.show()
+
+    # --- Global Action Handlers ---
+    
+    def _get_active_estimate_window(self):
+        sub = self.mdi_area.activeSubWindow()
+        if sub:
+            widget = sub.widget()
+            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog):
+                return widget
+        return None
+
+    def trigger_undo(self):
+        win = self._get_active_estimate_window()
+        if win: win.undo()
+
+    def trigger_redo(self):
+        win = self._get_active_estimate_window()
+        if win: win.redo()
+
+    def trigger_save(self):
+        win = self._get_active_estimate_window()
+        if win: 
+            if hasattr(win, 'save_estimate'):
+                win.save_estimate()
+            elif hasattr(win, 'save_changes'):
+                win.save_changes()
+
+    def _update_toolbar_state(self):
+        """Updates enable/disable state of global actions based on active window."""
+        win = self._get_active_estimate_window()
+        if win:
+            self.save_btn.setEnabled(True)
+            self.undo_btn.setEnabled(len(win.undo_stack) > 0)
+            self.redo_btn.setEnabled(len(win.redo_stack) > 0)
+        else:
+            self.undo_btn.setEnabled(False)
+            self.redo_btn.setEnabled(False)
+            self.save_btn.setEnabled(False)
 
 
 class NewEstimateDialog(QDialog):

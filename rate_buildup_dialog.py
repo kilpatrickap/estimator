@@ -2,7 +2,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget,
                              QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
                              QComboBox)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
@@ -15,6 +15,8 @@ class RateBuildUpDialog(QDialog):
     Shows a detailed breakdown of a specific Rate Build-up.
     (Read-only view of an archived estimate)
     """
+    stateChanged = pyqtSignal()
+    
     def __init__(self, estimate_object, parent=None):
         super().__init__(parent)
         self.estimate = estimate_object
@@ -37,18 +39,21 @@ class RateBuildUpDialog(QDialog):
         """Saves current estimate state to undo stack."""
         self.undo_stack.append(copy.deepcopy(self.estimate))
         self.redo_stack.clear() # Clear redo when a new action is performed
+        self.stateChanged.emit()
 
     def undo(self):
         if self.undo_stack:
             self.redo_stack.append(copy.deepcopy(self.estimate))
             self.estimate = self.undo_stack.pop()
             self.refresh_view()
+            self.stateChanged.emit()
 
     def redo(self):
         if self.redo_stack:
             self.undo_stack.append(copy.deepcopy(self.estimate))
             self.estimate = self.redo_stack.pop()
             self.refresh_view()
+            self.stateChanged.emit()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -73,10 +78,7 @@ class RateBuildUpDialog(QDialog):
         # Toolbar Section
         toolbar = QHBoxLayout()
         
-        self.undo_btn = QPushButton("Undo")
-        self.undo_btn.clicked.connect(self.undo)
-        self.redo_btn = QPushButton("Redo")
-        self.redo_btn.clicked.connect(self.redo)
+        # Undo/Redo buttons removed (moved to main toolbar)
         
         add_task_btn = QPushButton("Add Task")
         add_task_btn.clicked.connect(self.add_task)
@@ -98,8 +100,8 @@ class RateBuildUpDialog(QDialog):
         remove_btn.setStyleSheet("background-color: #fce4ec; color: #c62828;")
         remove_btn.clicked.connect(self.remove_selected)
         
-        toolbar.addWidget(self.undo_btn)
-        toolbar.addWidget(self.redo_btn)
+        # toolbar.addWidget(self.undo_btn)
+        # toolbar.addWidget(self.redo_btn)
         toolbar.addSpacing(20)
         toolbar.addWidget(add_task_btn)
         toolbar.addWidget(add_mat_btn)
@@ -173,7 +175,7 @@ class RateBuildUpDialog(QDialog):
             self.refresh_view()
         else:
             self.undo_stack.pop()
-            self._update_undo_redo_buttons()
+            self.stateChanged.emit()
 
     def change_base_currency(self, new_currency):
         if new_currency == self.estimate.currency:
@@ -373,12 +375,9 @@ class RateBuildUpDialog(QDialog):
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         
-        self._update_undo_redo_buttons()
+        # self._update_undo_redo_buttons()
 
-    def _update_undo_redo_buttons(self):
-        """Update Undo/Redo button states based on stacks."""
-        self.undo_btn.setEnabled(len(self.undo_stack) > 0)
-        self.redo_btn.setEnabled(len(self.redo_stack) > 0)
+
 
 
 class CostSelectionDialog(QDialog):

@@ -6,8 +6,9 @@ from rate_buildup_dialog import RateBuildUpDialog
 
 class RateManagerDialog(QDialog):
     """Dialog for viewing and managing saved rates in construction_rates.db."""
-    def __init__(self, parent=None):
+    def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
+        self.main_window = main_window
         self.setWindowTitle("Manage Rate Database")
         self.setMinimumSize(1000, 600)
         self.db_manager = DatabaseManager()
@@ -116,7 +117,9 @@ class RateManagerDialog(QDialog):
             from database import DatabaseManager
             rates_db = DatabaseManager("construction_rates.db")
             estimate_obj = rates_db.load_estimate_details(db_id)
-            if estimate_obj:
+            if estimate_obj and self.main_window:
+                self.main_window.open_rate_buildup_window(estimate_obj)
+            else:
                 RateBuildUpDialog(estimate_obj, self).exec()
 
     def filter_rates(self, text):
