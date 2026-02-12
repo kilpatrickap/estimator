@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, 
                              QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QComboBox, QMenu)
+                             QComboBox, QMenu, QFormLayout)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from database import DatabaseManager
@@ -109,14 +109,32 @@ class RateBuildUpDialog(QDialog):
         
         layout.addWidget(self.tree)
 
-        # Summary Row (Grand Total)
-        totals = self.estimate.calculate_totals()
+        # Summary Row (Build-up Totals)
         summary_layout = QHBoxLayout()
         summary_layout.addStretch()
         
-        self.total_label = QLabel(f"TOTAL RATE: {self.currency_symbol}{totals['grand_total']:,.2f}")
-        self.total_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; padding: 10px;")
-        summary_layout.addWidget(self.total_label)
+        totals_panel = QFrame()
+        totals_panel.setStyleSheet("background-color: #f1f8e9; border-radius: 8px; border: 1px solid #c8e6c9;")
+        totals_layout = QFormLayout(totals_panel)
+        totals_layout.setContentsMargins(15, 10, 15, 10)
+        
+        self.subtotal_label = QLabel("0.00")
+        self.overhead_label = QLabel("0.00")
+        self.profit_label = QLabel("0.00")
+        self.total_label = QLabel("0.00")
+        
+        for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.total_label]:
+            lbl.setStyleSheet("font-family: 'Consolas', monospace; font-size: 14px; font-weight: bold; border: none;")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
+
+        self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-size: 18px; font-weight: bold; color: #2e7d32; border: none;")
+        
+        totals_layout.addRow("Build-up Subtotal (Sum of Net Rates):", self.subtotal_label)
+        totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
+        totals_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
+        totals_layout.addRow("TOTAL RATE:", self.total_label)
+        
+        summary_layout.addWidget(totals_panel)
         layout.addLayout(summary_layout)
 
     def show_context_menu(self, pos):
@@ -295,9 +313,12 @@ class RateBuildUpDialog(QDialog):
             self.currency_combo.setCurrentText(self.estimate.currency)
             self.currency_combo.blockSignals(False)
             
-        # Update Total Label
+        # Update Summary Labels
         totals = self.estimate.calculate_totals()
-        self.total_label.setText(f"TOTAL RATE: {base_sym}{totals['grand_total']:,.2f}")
+        self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
+        self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
+        self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
+        self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
