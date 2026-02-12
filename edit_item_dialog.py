@@ -68,7 +68,7 @@ class EditItemDialog(QDialog):
         header_layout = QFormLayout()
         self.name_display = QLineEdit(name)
         self.name_display.setReadOnly(True)
-        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 2px;")
+        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold;")
         header_layout.addRow("Item Name:", self.name_display)
         layout.addLayout(header_layout)
         
@@ -82,7 +82,7 @@ class EditItemDialog(QDialog):
         self.qty_input = ZebraInput()
         self.qty_input.setMinimumHeight(150)
         self.qty_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.qty_input.setStyleSheet("padding: 4px; font-family: 'Consolas', monospace; font-size: 9pt; border: 1px solid #ddd; background-color: white;")
+        self.qty_input.setStyleSheet("font-family: 'Consolas', monospace; border: 1px solid #ddd; background-color: white;")
         self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Notes\";")
         self.qty_input.textChanged.connect(self.update_display)
         input_container.addWidget(self.qty_input)
@@ -95,7 +95,7 @@ class EditItemDialog(QDialog):
         self.qty_display.setMinimumHeight(150)
         self.qty_display.setReadOnly(True)
         self.qty_display.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self.qty_display.setStyleSheet("color: blue; padding: 4px; font-family: 'Consolas', monospace; font-size: 9pt; border: 1px solid #ddd; background-color: #f9f9f9;")
+        self.qty_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; border: 1px solid #ddd; background-color: #f9f9f9;")
         
         # Sync Scroll
         self.qty_input.verticalScrollBar().valueChanged.connect(self.qty_display.verticalScrollBar().setValue)

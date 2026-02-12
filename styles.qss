@@ -115,7 +115,7 @@ QHeaderView::section {
 }
 
 /* Input Fields */
-QLineEdit, QComboBox, QDateEdit {
+QLineEdit, QComboBox, QDateEdit, QTextEdit, QPlainTextEdit {
     padding: 4px 8px;
     border: 1px solid #dcdfe6;
     border-radius: 3px;
