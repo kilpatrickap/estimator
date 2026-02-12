@@ -843,6 +843,8 @@ class DatabaseManager:
         # Clone for the new database
         rate_estimate = copy.deepcopy(estimate_obj)
         rate_estimate.id = None # New entry in the rates DB
+        # Archive with current timestamp
+        rate_estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         # Determine the next rate_ID
         count = rates_db_manager.get_total_estimates_count()

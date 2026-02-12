@@ -9,8 +9,10 @@ from edit_item_dialog import EditItemDialog
 from currency_conversion_dialog import CurrencyConversionDialog
 import re
 import copy
+from datetime import datetime
 
 class RateBuildUpDialog(QDialog):
+    """
     Shows a detailed breakdown of a specific Rate Build-up and allows editing.
     (Archived estimate editor)
     """
@@ -295,6 +297,9 @@ class RateBuildUpDialog(QDialog):
 
     def save_changes(self):
         """Saves the modified rate build-up back to the rates database."""
+        # Update timestamp to the current time of archiving/saving
+        self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
         if self.db_manager.save_estimate(self.estimate):
             self.dataCommitted.emit()
             from PyQt6.QtWidgets import QMessageBox

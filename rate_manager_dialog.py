@@ -9,7 +9,7 @@ class RateManagerDialog(QDialog):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.setWindowTitle("Manage Rate Database")
+        self.setWindowTitle("Rate Database")
         self.setMinimumSize(850, 500)
         self.db_manager = DatabaseManager()
         
@@ -26,7 +26,7 @@ class RateManagerDialog(QDialog):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
-        main_label = QLabel("Archived Project Rates")
+        main_label = QLabel("Historical Rates")
         main_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2e7d32;")
         header_layout.addWidget(main_label)
         header_layout.addStretch()
@@ -62,15 +62,7 @@ class RateManagerDialog(QDialog):
         
         layout.addWidget(self.table)
 
-        # Bottom Actions
-        btn_layout = QHBoxLayout()
-        btn_layout.addStretch()
-        close_btn = QPushButton("Close Manager")
-        close_btn.setMinimumHeight(40)
-        close_btn.setFixedWidth(150)
-        close_btn.clicked.connect(self.close)
-        btn_layout.addWidget(close_btn)
-        layout.addLayout(btn_layout)
+
 
     def load_rates(self):
         """Loads data from construction_rates.db into the table."""
