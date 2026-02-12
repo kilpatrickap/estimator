@@ -23,7 +23,7 @@ class RateBuildUpDialog(QDialog):
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
-        self.setMinimumSize(850, 600)
+        self.setMinimumSize(650, 500)
         
         # Undo/Redo Stacks
         self.undo_stack = []

@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(900, 650)
+        sub.resize(750, 650)
         sub.show()
 
     def open_edit_item_window(self, item_data, item_type, currency, parent_window):
@@ -340,7 +340,7 @@ class MainWindow(QMainWindow):
                 
         edit_win.dataCommitted.connect(on_save)
         edit_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(750, 450)
+        sub.resize(600, 450)
         sub.show()
 
     def _add_estimate_window(self, est_window):
