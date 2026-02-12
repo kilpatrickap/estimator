@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, 
                              QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QComboBox)
+                             QComboBox, QMenu)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from database import DatabaseManager
@@ -79,38 +79,6 @@ class RateBuildUpDialog(QDialog):
         # Toolbar Section
         toolbar = QHBoxLayout()
         
-        # Undo/Redo buttons removed (moved to main toolbar)
-        
-        add_task_btn = QPushButton("Add Task")
-        add_task_btn.clicked.connect(self.add_task)
-        add_mat_btn = QPushButton("Add Material")
-        add_mat_btn.clicked.connect(lambda: self.add_resource("materials"))
-        add_lab_btn = QPushButton("Add Labor")
-        add_lab_btn.clicked.connect(lambda: self.add_resource("labor"))
-        add_eqp_btn = QPushButton("Add Equipment")
-        add_eqp_btn.clicked.connect(lambda: self.add_resource("equipment"))
-        add_plt_btn = QPushButton("Add Plant")
-        add_plt_btn.clicked.connect(lambda: self.add_resource("plant"))
-        add_ind_btn = QPushButton("Add Indirect")
-        add_ind_btn.clicked.connect(lambda: self.add_resource("indirect_costs"))
-        
-        ex_rate_btn = QPushButton("Exchange Rates")
-        ex_rate_btn.clicked.connect(self.open_exchange_rates)
-        
-        remove_btn = QPushButton("Remove Selected")
-        remove_btn.setStyleSheet("background-color: #fce4ec; color: #c62828;")
-        remove_btn.clicked.connect(self.remove_selected)
-        
-        # toolbar.addWidget(self.undo_btn)
-        # toolbar.addWidget(self.redo_btn)
-        toolbar.addSpacing(20)
-        toolbar.addWidget(add_task_btn)
-        toolbar.addWidget(add_mat_btn)
-        toolbar.addWidget(add_lab_btn)
-        toolbar.addWidget(add_eqp_btn)
-        toolbar.addWidget(add_plt_btn)
-        toolbar.addWidget(add_ind_btn)
-        
         # Base Currency Selector
         toolbar.addWidget(QLabel("Base Currency:"))
         self.currency_combo = QComboBox()
@@ -119,16 +87,12 @@ class RateBuildUpDialog(QDialog):
         self.currency_combo.setCurrentText(self.estimate.currency)
         self.currency_combo.currentTextChanged.connect(self.change_base_currency)
         toolbar.addWidget(self.currency_combo)
+
+        ex_rate_btn = QPushButton("Exchange Rates")
+        ex_rate_btn.clicked.connect(self.open_exchange_rates)
         toolbar.addWidget(ex_rate_btn)
         
-        toolbar.addSpacing(20)
-        toolbar.addWidget(add_task_btn)
-        toolbar.addWidget(add_mat_btn)
-        toolbar.addWidget(add_lab_btn)
-        toolbar.addWidget(add_eqp_btn)
         toolbar.addStretch()
-        toolbar.addWidget(remove_btn)
-        
         layout.addLayout(toolbar)
 
         # Build-up Tree
@@ -138,6 +102,10 @@ class RateBuildUpDialog(QDialog):
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setStretchLastSection(True)
         self.tree.itemDoubleClicked.connect(self.edit_item)
+        
+        # Context Menu
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_context_menu)
         
         layout.addWidget(self.tree)
 
@@ -150,6 +118,36 @@ class RateBuildUpDialog(QDialog):
         self.total_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; padding: 10px;")
         summary_layout.addWidget(self.total_label)
         layout.addLayout(summary_layout)
+
+    def show_context_menu(self, pos):
+        menu = QMenu(self)
+        
+        add_task_action = menu.addAction("Add Task")
+        add_task_action.triggered.connect(self.add_task)
+        
+        menu.addSeparator()
+        
+        add_mat_action = menu.addAction("Add Material")
+        add_mat_action.triggered.connect(lambda: self.add_resource("materials"))
+        
+        add_lab_action = menu.addAction("Add Labor")
+        add_lab_action.triggered.connect(lambda: self.add_resource("labor"))
+        
+        add_eqp_action = menu.addAction("Add Equipment")
+        add_eqp_action.triggered.connect(lambda: self.add_resource("equipment"))
+        
+        add_plt_action = menu.addAction("Add Plant")
+        add_plt_action.triggered.connect(lambda: self.add_resource("plant"))
+        
+        add_ind_action = menu.addAction("Add Indirect Cost")
+        add_ind_action.triggered.connect(lambda: self.add_resource("indirect_costs"))
+        
+        menu.addSeparator()
+        
+        remove_action = menu.addAction("Remove Selected")
+        remove_action.triggered.connect(self.remove_selected)
+        
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def open_exchange_rates(self):
         self._save_state()
