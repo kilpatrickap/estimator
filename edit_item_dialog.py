@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QTextEdit, QHBoxLayout, QPlainTextEdit,
                              QDialogButtonBox, QLabel, QMessageBox, QPushButton)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator, QPainter, QColor
 import re
 
@@ -33,6 +33,8 @@ class EditItemDialog(QDialog):
     Dialog for editing the quantity/hours OR price/rate of a cost item using a formula.
     Supports basic arithmetic formulas starting with '='.
     """
+    stateChanged = pyqtSignal()
+    
     def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False):
         super().__init__(parent)
         self.item_data = item_data
@@ -198,9 +200,6 @@ class EditItemDialog(QDialog):
                 self.item_data['total'] = total * rate
             
             self.accept()
+            self.stateChanged.emit()
         except Exception as e:
-            pass # Silently fail on close if invalid
-
-    def closeEvent(self, event):
-        self.save()
-        super().closeEvent(event)
+            QMessageBox.warning(self, "Error", f"Invalid Input: {e}")

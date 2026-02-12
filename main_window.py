@@ -13,6 +13,8 @@ from chart_widget import DashboardChart
 from settings_dialog import SettingsDialog
 from rate_manager_dialog import RateManagerDialog
 from rate_buildup_dialog import RateBuildUpDialog
+from edit_item_dialog import EditItemDialog
+import copy
 
 
 class DashboardWidget(QWidget):
@@ -297,6 +299,47 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         sub.resize(1100, 750)
+        buildup_win.stateChanged.connect(self._update_toolbar_state)
+        sub.resize(1100, 750)
+        sub.show()
+
+    def open_edit_item_window(self, item_data, item_type, currency, parent_window):
+        """Opens the resource editor as an MDI sub-window."""
+        # Check if already open (simple check, maybe improve later to allow multiple diff items)
+        # For now, just open a new one
+        
+        # Take snapshot of parent BEFORE opening (or at least store it in the window)
+        # Actually, we need to push to undo stack ONLY if saved.
+        # But we need the snapshot of BEFORE the edits.
+        
+        # Store snapshot on the parent window logic? 
+        # RateBuildUpDialog handles its own undo stack. We should let it handle the push.
+        
+        edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window)
+        
+        # Capture snapshot of parent's estimate state *before* any potential changes
+        if hasattr(parent_window, 'estimate'):
+             edit_win.snapshot = copy.deepcopy(parent_window.estimate)
+        
+        sub = self.mdi_area.addSubWindow(edit_win)
+        
+        def on_save():
+            # When EditItemDialog saves, it updates the item_data dict in place.
+            # We need to notify the parent window to push the snapshot and refresh.
+            if hasattr(parent_window, 'undo_stack'):
+                parent_window.undo_stack.append(edit_win.snapshot)
+                parent_window.redo_stack.clear()
+            
+            if hasattr(parent_window, 'refresh_view'):
+                parent_window.refresh_view()
+                
+            if hasattr(parent_window, 'stateChanged'):
+                parent_window.stateChanged.emit()
+                
+            sub.close()
+
+        edit_win.stateChanged.connect(on_save)
+        sub.resize(900, 600)
         sub.show()
 
     def _add_estimate_window(self, est_window):
@@ -346,7 +389,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.activeSubWindow()
         if sub:
             widget = sub.widget()
-            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, DatabaseManagerDialog):
+            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, EditItemDialog):
                 return widget
         return None
 

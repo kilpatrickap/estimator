@@ -263,8 +263,20 @@ class RateBuildUpDialog(QDialog):
     def edit_item(self, item, column):
         """Opens the formula-based edit dialog for the double-clicked resource."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
-            if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
-                self.refresh_view()
+            # Find the main window to add MDI subwindow
+            main_window = self.window()
+            while main_window and not hasattr(main_window, 'open_edit_item_window'):
+                parent = main_window.parent()
+                if not parent: break
+                main_window = parent
+
+            if main_window and hasattr(main_window, 'open_edit_item_window'):
+                main_window.open_edit_item_window(item.item_data, item.item_type, self.estimate.currency, self)
+            else:
+                 # Fallback for dialog mode (if somehow main window not found)
+                 if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
+                     self.refresh_view()
+                     self.stateChanged.emit()
 
     def save_changes(self):
         """Saves the modified rate build-up back to the rates database."""
