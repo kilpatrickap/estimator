@@ -104,7 +104,7 @@ class EditItemDialog(QDialog):
         output_container.addWidget(self.qty_display)
         
         self.total_display = QLabel("TOTAL: 0.00")
-        self.total_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; font-size: 10pt; font-weight:bold; padding: 2px; border: 1px solid #ddd; border-top: none; background-color: #f9f9f9;")
+        self.total_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; font-weight:bold; border: 1px solid #ddd; border-top: none; background-color: #f9f9f9;")
         self.total_display.setAlignment(Qt.AlignmentFlag.AlignRight)
         output_container.addWidget(self.total_display)
 
@@ -115,7 +115,7 @@ class EditItemDialog(QDialog):
         # Help Text
         help_text = "Enter value (1.00) or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
         help_label = QLabel(help_text)
-        help_label.setStyleSheet("color: #666; font-style: italic; font-size: 9pt;")
+        help_label.setStyleSheet("color: #666; font-style: italic;")
         layout.addWidget(help_label)
         
         # Buttons removed as per user request. Changes are auto-saved on close.

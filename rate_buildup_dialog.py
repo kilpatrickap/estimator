@@ -130,10 +130,10 @@ class RateBuildUpDialog(QDialog):
         self.total_label = QLabel("0.00")
         
         for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.total_label]:
-            lbl.setStyleSheet("font-family: 'Consolas', monospace; font-size: 12px; font-weight: bold; border: none;")
+            lbl.setStyleSheet("font-family: 'Consolas', monospace; font-weight: bold; border: none;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-size: 14px; font-weight: bold; color: #2e7d32; border: none;")
+        self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-weight: bold; color: #2e7d32; border: none;")
         
         totals_layout.addRow("Build-up Subtotal (Sum of Net Rates):", self.subtotal_label)
         totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)

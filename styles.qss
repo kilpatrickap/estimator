@@ -170,8 +170,11 @@ QLabel#StatusDisplayInfo {
     margin-right: 15px;
 }
 
-QLabel#StatusZoomLabel {
+#StatusZoomLabel {
     font-size: 9pt;
     color: #333;
     font-weight: bold;
+    background-color: transparent;
+    border: none;
+    padding: 2px 5px;
 }

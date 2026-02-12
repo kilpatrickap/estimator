@@ -172,7 +172,6 @@ class MainWindow(QMainWindow):
                 color: white;
                 border: none;
                 font-weight: 600;
-                font-size: 14px;
                 padding: 5px 15px;
                 border-radius: 6px;
             }
@@ -192,7 +191,6 @@ class MainWindow(QMainWindow):
             QLabel {
                 color: white;
                 font-weight: bold;
-                font-size: 18px;
             }
         """)
 
@@ -480,13 +478,17 @@ class MainWindow(QMainWindow):
         minus_btn.setFixedSize(18, 18)
         minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         minus_btn.setStyleSheet("background: transparent; color: #333; font-weight: bold; border: none;")
-        minus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() - 10))
+        minus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() - 1))
         zoom_layout.addWidget(minus_btn)
         
-        # Slider
+        # Slider (Discrete steps: 0=50%, 1=75%, 2=100%)
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setRange(50, 100)
-        self.zoom_slider.setValue(100)
+        self.zoom_slider.setRange(0, 2)
+        self.zoom_slider.setValue(2) # Default 100%
+        self.zoom_slider.setSingleStep(1)
+        self.zoom_slider.setPageStep(1)
+        self.zoom_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.zoom_slider.setTickInterval(1)
         self.zoom_slider.setFixedWidth(100)
         self.zoom_slider.setContentsMargins(0, 0, 0, 0)
         self.zoom_slider.valueChanged.connect(self._handle_zoom)
@@ -497,7 +499,7 @@ class MainWindow(QMainWindow):
         plus_btn.setFixedSize(18, 18)
         plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         plus_btn.setStyleSheet("background: transparent; color: #333; font-weight: bold; border: none;")
-        plus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() + 10))
+        plus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() + 1))
         zoom_layout.addWidget(plus_btn)
         
         # Zoom Percent label (Clickable)
@@ -513,13 +515,24 @@ class MainWindow(QMainWindow):
 
     def _open_zoom_dialog(self):
         """Opens the Excel-style zoom dialog."""
-        dialog = ZoomDialog(self.zoom_slider.value(), self)
+        zoom_values = [50, 75, 100]
+        current_zoom = zoom_values[self.zoom_slider.value()]
+        dialog = ZoomDialog(current_zoom, self)
         if dialog.exec():
             new_zoom = dialog.get_zoom_value()
-            self.zoom_slider.setValue(new_zoom)
+            # Map back to slider index
+            if new_zoom in zoom_values:
+                self.zoom_slider.setValue(zoom_values.index(new_zoom))
+            else:
+                # Fallback to closest preset for the bar
+                closest = min(zoom_values, key=lambda x: abs(x - new_zoom))
+                self.zoom_slider.setValue(zoom_values.index(closest))
 
-    def _handle_zoom(self, value):
+    def _handle_zoom(self, index):
         """Scales the UI by dynamically updating the application's global stylesheet."""
+        zoom_values = [50, 75, 100]
+        value = zoom_values[index]
+        
         self.zoom_btn.setText(f"{value}%")
         scale = value / 100.0
         
