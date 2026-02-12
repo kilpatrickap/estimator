@@ -4,13 +4,15 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushBut
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
                              QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView,
                              QComboBox, QDateEdit, QMenu)
-from PyQt6.QtCore import QDate, Qt
+from PyQt6.QtCore import QDate, Qt, pyqtSignal
 from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
 
 
 class DatabaseManagerDialog(QDialog):
     """Dialog for managing the global cost library (Materials, Labor, Equipment)."""
+    stateChanged = pyqtSignal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
@@ -157,7 +159,10 @@ class DatabaseManagerDialog(QDialog):
             self.is_loading = True
             item.setText(f"{new_val:,.2f}")
             item.setData(Qt.ItemDataRole.UserRole, new_formula)
+            item.setText(f"{new_val:,.2f}")
+            item.setData(Qt.ItemDataRole.UserRole, new_formula)
             self.is_loading = False
+            self.stateChanged.emit()
 
     def on_item_changed(self, item, table_name):
         if self.is_loading: return
@@ -169,7 +174,9 @@ class DatabaseManagerDialog(QDialog):
         if col == 4:
             # If user manually typed a number, we should clear the formula
             item.setData(Qt.ItemDataRole.UserRole, None)
+            item.setData(Qt.ItemDataRole.UserRole, None)
             self.db_manager.update_item_field(table_name, 'formula', None, int(table.item(row, 0).text()))
+            self.stateChanged.emit()
         
         # Get ID
         id_item = table.item(row, 0)
@@ -205,6 +212,7 @@ class DatabaseManagerDialog(QDialog):
                 return
 
         self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
+        self.stateChanged.emit()
 
     def show_context_menu(self, pos, table_name):
         table = self.tables[table_name]
@@ -236,7 +244,7 @@ class DatabaseManagerDialog(QDialog):
         currencies = ["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"]
         combo.addItems(currencies)
         combo.setCurrentText(str(current_val or "GHS (₵)"))
-        combo.currentTextChanged.connect(lambda text: self.db_manager.update_item_currency(table_name, item_id, text))
+        combo.currentTextChanged.connect(lambda text: (self.db_manager.update_item_currency(table_name, item_id, text), self.stateChanged.emit()))
         table.setCellWidget(row, col, combo)
         table.setItem(row, col, QTableWidgetItem(combo.currentText())) # For search/sort
 
@@ -244,7 +252,9 @@ class DatabaseManagerDialog(QDialog):
         date_edit = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
         qdate = QDate.fromString(str(current_val), "yyyy-MM-dd")
         date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
-        date_edit.dateChanged.connect(lambda d: self.db_manager.update_item_date(table_name, item_id, d.toString("yyyy-MM-dd")))
+        date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
+        date_edit.dateChanged.connect(lambda d: (self.db_manager.update_item_date(table_name, item_id, d.toString("yyyy-MM-dd")), self.stateChanged.emit()))
+        table.setCellWidget(row, col, date_edit)
         table.setCellWidget(row, col, date_edit)
         table.setItem(row, col, QTableWidgetItem(date_edit.date().toString("yyyy-MM-dd")))
 
@@ -307,7 +317,9 @@ class DatabaseManagerDialog(QDialog):
             table.selectRow(new_row_idx)
             
             # Start editing the name cell immediately
+            # Start editing the name cell immediately
             table.editItem(table.item(new_row_idx, 1))
+            self.stateChanged.emit()
         else:
             QMessageBox.warning(self, "Error", "Failed to create a new item placeholder.")
 
@@ -373,7 +385,9 @@ class DatabaseManagerDialog(QDialog):
             self.is_loading = False
             self._adjust_widths(table, table_name)
             table.scrollToBottom()
+            table.scrollToBottom()
             table.selectRow(new_row_idx)
+            self.stateChanged.emit()
         else:
             QMessageBox.warning(self, "Error", "Failed to duplicate item.")
 
@@ -387,4 +401,6 @@ class DatabaseManagerDialog(QDialog):
         
         if QMessageBox.question(self, "Delete", f"Delete '{name}'?") == QMessageBox.StandardButton.Yes:
             self.db_manager.delete_item(table_name, item_id)
+            self.db_manager.delete_item(table_name, item_id)
             self.load_data(table_name)
+            self.stateChanged.emit()

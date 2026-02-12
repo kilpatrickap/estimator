@@ -295,6 +295,7 @@ class MainWindow(QMainWindow):
 
         buildup_win = RateBuildUpDialog(estimate_obj)
         sub = self.mdi_area.addSubWindow(buildup_win)
+        buildup_win.stateChanged.connect(self._update_toolbar_state)
         sub.resize(1100, 750)
         sub.show()
 
@@ -312,6 +313,7 @@ class MainWindow(QMainWindow):
         
         dialog = DatabaseManagerDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
+        dialog.stateChanged.connect(self._update_toolbar_state)
         sub.resize(1100, 750)
         sub.show()
         
@@ -344,7 +346,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.activeSubWindow()
         if sub:
             widget = sub.widget()
-            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog):
+            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, DatabaseManagerDialog):
                 return widget
         return None
 
@@ -369,8 +371,13 @@ class MainWindow(QMainWindow):
         win = self._get_active_estimate_window()
         if win:
             self.save_btn.setEnabled(True)
-            self.undo_btn.setEnabled(len(win.undo_stack) > 0)
-            self.redo_btn.setEnabled(len(win.redo_stack) > 0)
+            if hasattr(win, 'undo_stack'):
+                self.undo_btn.setEnabled(len(win.undo_stack) > 0)
+                self.redo_btn.setEnabled(len(win.redo_stack) > 0)
+            else:
+                # Database Manager or others without undo stack
+                self.undo_btn.setEnabled(False)
+                self.redo_btn.setEnabled(False)
         else:
             self.undo_btn.setEnabled(False)
             self.redo_btn.setEnabled(False)
