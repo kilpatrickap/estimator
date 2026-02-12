@@ -187,7 +187,6 @@ class EstimateWindow(QMainWindow):
         action_layout.setContentsMargins(0, 20, 0, 0)
         
         actions = [
-            ("Save Estimate", self.save_estimate),
             ("Exchange Rates", self.open_exchange_rates),
             ("Profit & Overheads", self.open_profit_overheads),
             ("Generate Report", self.generate_report),

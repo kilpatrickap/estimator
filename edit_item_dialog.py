@@ -114,23 +114,8 @@ class EditItemDialog(QDialog):
         help_label.setStyleSheet("color: #666; font-style: italic; font-size: 10pt;")
         layout.addWidget(help_label)
         
-        # Buttons
-        button_container = QHBoxLayout()
-        button_container.addStretch()
-        
-        self.save_btn = QPushButton("Save")
-        self.save_btn.setMinimumSize(100, 35)
-        self.save_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; border-radius: 4px;")
-        self.save_btn.clicked.connect(self.save)
-        
-        self.cancel_btn = QPushButton("Cancel")
-        self.cancel_btn.setMinimumSize(100, 35)
-        self.cancel_btn.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; border-radius: 4px;")
-        self.cancel_btn.clicked.connect(self.reject)
-        
-        button_container.addWidget(self.save_btn)
-        button_container.addWidget(self.cancel_btn)
-        layout.addLayout(button_container)
+        # Buttons removed as per user request. Changes are auto-saved on close.
+        pass
 
         # Initialize Data
         initial_val = self.item_data.get(self.target_key)
@@ -214,4 +199,8 @@ class EditItemDialog(QDialog):
             
             self.accept()
         except Exception as e:
-            QMessageBox.warning(self, "Error", f"Invalid Input: {e}")
+            pass # Silently fail on close if invalid
+
+    def closeEvent(self, event):
+        self.save()
+        super().closeEvent(event)

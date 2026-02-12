@@ -150,25 +150,6 @@ class RateBuildUpDialog(QDialog):
         summary_layout.addWidget(self.total_label)
         layout.addLayout(summary_layout)
 
-        # Footer
-        footer_layout = QHBoxLayout()
-        footer_layout.addStretch()
-        
-        save_btn = QPushButton("Save Changes")
-        save_btn.setMinimumHeight(45)
-        save_btn.setFixedWidth(200)
-        save_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        save_btn.clicked.connect(self.save_changes)
-        
-        close_btn = QPushButton("Cancel")
-        close_btn.setMinimumHeight(45)
-        close_btn.setFixedWidth(120)
-        close_btn.clicked.connect(self.close)
-        
-        footer_layout.addWidget(close_btn)
-        footer_layout.addWidget(save_btn)
-        layout.addLayout(footer_layout)
-
     def open_exchange_rates(self):
         self._save_state()
         if CurrencyConversionDialog(self.estimate, self).exec():
@@ -290,7 +271,6 @@ class RateBuildUpDialog(QDialog):
         if self.db_manager.save_estimate(self.estimate):
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Success", "Rate build-up updated successfully.")
-            self.accept()
         else:
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.critical(self, "Error", "Failed to save changes.")
