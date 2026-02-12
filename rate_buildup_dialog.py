@@ -11,11 +11,11 @@ import re
 import copy
 
 class RateBuildUpDialog(QDialog):
-    """
-    Shows a detailed breakdown of a specific Rate Build-up.
-    (Read-only view of an archived estimate)
+    Shows a detailed breakdown of a specific Rate Build-up and allows editing.
+    (Archived estimate editor)
     """
     stateChanged = pyqtSignal()
+    dataCommitted = pyqtSignal()
     
     def __init__(self, estimate_object, main_window=None, parent=None):
         super().__init__(parent)
@@ -296,6 +296,7 @@ class RateBuildUpDialog(QDialog):
     def save_changes(self):
         """Saves the modified rate build-up back to the rates database."""
         if self.db_manager.save_estimate(self.estimate):
+            self.dataCommitted.emit()
             from PyQt6.QtWidgets import QMessageBox
             QMessageBox.information(self, "Success", "Rate build-up updated successfully.")
         else:

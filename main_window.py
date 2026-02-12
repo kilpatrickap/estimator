@@ -295,9 +295,15 @@ class MainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
+        def refresh_manager():
+            for s in self.mdi_area.subWindowList():
+                if isinstance(s.widget(), RateManagerDialog):
+                    s.widget().load_rates()
+
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
+        buildup_win.dataCommitted.connect(refresh_manager)
         sub.resize(750, 650)
         sub.show()
 
