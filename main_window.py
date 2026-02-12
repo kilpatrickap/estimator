@@ -3,7 +3,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
-                             QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow)
+                             QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow,
+                             QStatusBar, QSlider)
 from PyQt6.QtGui import QFont, QDoubleValidator, QAction
 from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
@@ -144,11 +145,17 @@ class MainWindow(QMainWindow):
         
         self.main_layout.addWidget(self.mdi_area)
         
+        # 3. Status Bar (Zoom Controls)
+        self._setup_statusbar()
+        
         # Open Dashboard on launch
         self.show_dashboard()
 
         # Connect active window change to update toolbar state
         self.mdi_area.subWindowActivated.connect(self._update_toolbar_state)
+        
+        # Track zoom scale for relative window resizing
+        self.last_zoom_scale = 1.0
 
     def _setup_navbar(self):
         """Creates the premium top navigation bar."""
@@ -304,7 +311,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         buildup_win.dataCommitted.connect(refresh_manager)
-        sub.resize(750, 650)
+        sub.resize(578, 550)
         sub.show()
 
     def open_edit_item_window(self, item_data, item_type, currency, parent_window):
@@ -346,7 +353,7 @@ class MainWindow(QMainWindow):
                 
         edit_win.dataCommitted.connect(on_save)
         edit_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(600, 450)
+        sub.resize(420, 450)
         sub.show()
 
     def _add_estimate_window(self, est_window):
@@ -417,6 +424,123 @@ class MainWindow(QMainWindow):
                 win.save_changes()
             elif hasattr(win, 'save'):
                 win.save()
+
+    def _setup_statusbar(self):
+        """Creates the Excel-style bottom bar with zoom controls."""
+        sb = self.statusBar()
+        sb.setStyleSheet("QStatusBar { background-color: #f3f3f3; border-top: 1px solid #dcdfe6; color: #555; }")
+        
+        # Ready Message
+        sb.showMessage("Ready")
+        
+        # Accessibility Info
+        acc_label = QLabel("Accessibility: Good to go")
+        acc_label.setContentsMargins(20, 0, 0, 0)
+        acc_label.setObjectName("StatusAccInfo")
+        sb.addWidget(acc_label)
+        
+        # Permanent Zoom Controls Widget
+        zoom_container = QWidget()
+        zoom_layout = QHBoxLayout(zoom_container)
+        zoom_layout.setContentsMargins(0, 0, 10, 0)
+        zoom_layout.setSpacing(8)
+        
+        # Display settings icon (placeholder)
+        display_label = QLabel("Display Settings")
+        display_label.setObjectName("StatusDisplayInfo")
+        zoom_layout.addWidget(display_label)
+        
+        # Minus button
+        minus_btn = QPushButton("-")
+        minus_btn.setFixedSize(18, 18)
+        minus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        minus_btn.setStyleSheet("background: transparent; color: #333; font-weight: bold; border: none;")
+        minus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() - 10))
+        zoom_layout.addWidget(minus_btn)
+        
+        # Slider
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setRange(50, 200)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.setFixedWidth(100)
+        self.zoom_slider.setContentsMargins(0, 0, 0, 0)
+        self.zoom_slider.valueChanged.connect(self._handle_zoom)
+        zoom_layout.addWidget(self.zoom_slider)
+        
+        # Plus button
+        plus_btn = QPushButton("+")
+        plus_btn.setFixedSize(18, 18)
+        plus_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        plus_btn.setStyleSheet("background: transparent; color: #333; font-weight: bold; border: none;")
+        plus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() + 10))
+        zoom_layout.addWidget(plus_btn)
+        
+        # Zoom Percent label
+        self.zoom_label = QLabel("100%")
+        self.zoom_label.setFixedWidth(50)
+        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.zoom_label.setObjectName("StatusZoomLabel")
+        zoom_layout.addWidget(self.zoom_label)
+        
+        sb.addPermanentWidget(zoom_container)
+
+    def _handle_zoom(self, value):
+        """Scales the UI by dynamically updating the application's global stylesheet."""
+        self.zoom_label.setText(f"{value}%")
+        scale = value / 100.0
+        
+        # Ensure we have the original style loaded
+        if not hasattr(self, '_original_style'):
+            import os
+            style_path = os.path.join(os.path.dirname(__file__), "styles.qss")
+            try:
+                with open(style_path, "r") as f:
+                    self._original_style = f.read()
+            except:
+                self._original_style = ""
+
+        if self._original_style:
+            import re
+            from PyQt6.QtWidgets import QApplication
+            
+            def scale_value(match):
+                attr = match.group(1)
+                num = float(match.group(2))
+                unit = match.group(3)
+                scaled = round(num * scale, 1)
+                
+                # Intelligent limits for specific attributes
+                if 'font-size' in attr:
+                    if unit == 'pt': scaled = max(6.0, min(scaled, 24.0))
+                    elif unit == 'px': scaled = max(8.0, min(scaled, 36.0))
+                return f"{attr}: {scaled}{unit};"
+
+            # Scale typography and geometry (padding, margin, width, border-radius)
+            props = "font-size|padding|margin|border-radius|border-width|width|height"
+            new_style = re.sub(rf"({props}):\s*([\d\.]+)(pt|px);", scale_value, self._original_style)
+            
+            # Apply to app
+            app = QApplication.instance()
+            if app:
+                app.setStyleSheet(new_style)
+
+            # Scale open MDI windows with grace
+            ratio = scale / self.last_zoom_scale
+            for sub in self.mdi_area.subWindowList():
+                # Scale current size
+                new_w = int(sub.width() * ratio)
+                new_h = int(sub.height() * ratio)
+                
+                # Scale minimum size to prevent layout break at high zoom
+                widget = sub.widget()
+                if widget:
+                    min_w = int(widget.minimumWidth() * ratio)
+                    min_h = int(widget.minimumHeight() * ratio)
+                    widget.setMinimumSize(min_w, min_h)
+                
+                sub.resize(new_w, new_h)
+            
+            self.last_zoom_scale = scale
 
     def _update_toolbar_state(self):
         """Updates enable/disable state of global actions based on active window."""

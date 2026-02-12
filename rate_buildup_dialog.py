@@ -25,7 +25,7 @@ class RateBuildUpDialog(QDialog):
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
-        self.setMinimumSize(650, 500)
+        self.setMinimumSize(500, 500)
         
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -405,7 +405,7 @@ class CostSelectionDialog(QDialog):
         
         singular = table_name[:-1] if table_name.endswith('s') else table_name
         self.setWindowTitle(f"Select {singular.capitalize()} from Database")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(420, 400)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
@@ -476,7 +476,9 @@ class CostSelectionDialog(QDialog):
                     val = f"{val:,.2f}"
                 self.table.setItem(r, c, QTableWidgetItem(str(val)))
                 
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setStretchLastSection(True)
 
     def filter_table(self, text):
         query = text.lower()

@@ -146,3 +146,32 @@ QTabBar::tab:selected {
     background-color: white;
     border-bottom: 2px solid #2e7d32;
 }
+
+QStatusBar {
+    background-color: #f3f3f3;
+    border-top: 1px solid #dcdfe6;
+    color: #555;
+    font-size: 9pt;
+}
+
+QStatusBar QLabel {
+    font-size: 9pt;
+    color: #555;
+}
+
+QLabel#StatusAccInfo {
+    color: #777;
+    font-size: 8pt;
+}
+
+QLabel#StatusDisplayInfo {
+    color: #666;
+    font-size: 8pt;
+    margin-right: 15px;
+}
+
+QLabel#StatusZoomLabel {
+    font-size: 9pt;
+    color: #333;
+    font-weight: bold;
+}

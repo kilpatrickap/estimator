@@ -503,7 +503,7 @@ class SelectItemDialog(QDialog):
         self.item_type = item_type
         singular_name = item_type[:-1] if item_type.endswith('s') else item_type
         self.setWindowTitle(f"Select {singular_name.capitalize()}")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(420, 400)
         
         self.db_manager = DatabaseManager()
         self.all_items = self.db_manager.get_items(item_type)
@@ -558,7 +558,8 @@ class SelectItemDialog(QDialog):
         
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.resizeColumnsToContents()
         self.table.horizontalHeader().setStretchLastSection(True)
 
     def filter_items(self, text):

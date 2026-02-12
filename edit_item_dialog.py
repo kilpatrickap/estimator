@@ -54,7 +54,7 @@ class EditItemDialog(QDialog):
         name = item_data.get('name') or item_data.get('trade') or item_data.get('description') or "Unknown Item"
         title_prefix = "Edit" if not is_library else "Set Price/Rate for"
         self.setWindowTitle(f"{title_prefix} {item_type.capitalize()}")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(400)
         self.setMinimumHeight(350)
         
         self._init_ui(name)
