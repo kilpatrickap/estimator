@@ -312,6 +312,7 @@ class MainWindow(QMainWindow):
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         buildup_win.dataCommitted.connect(refresh_manager)
         sub.resize(578, 550)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
 
     def open_edit_item_window(self, item_data, item_type, currency, parent_window):
@@ -354,12 +355,14 @@ class MainWindow(QMainWindow):
         edit_win.dataCommitted.connect(on_save)
         edit_win.stateChanged.connect(self._update_toolbar_state)
         sub.resize(420, 450)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
 
     def _add_estimate_window(self, est_window):
         sub = self.mdi_area.addSubWindow(est_window)
         est_window.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(950, 650)
+        sub.resize(1100, 700)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
 
     def manage_database(self):
@@ -371,7 +374,8 @@ class MainWindow(QMainWindow):
         dialog = DatabaseManagerDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
         dialog.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(950, 650)
+        sub.resize(800, 600)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
         
     def manage_rate_database(self):
@@ -384,6 +388,7 @@ class MainWindow(QMainWindow):
         dialog = RateManagerDialog(self) 
         sub = self.mdi_area.addSubWindow(dialog)
         sub.resize(900, 550)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
 
     def open_settings(self):
@@ -395,6 +400,7 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
         sub.resize(500, 600)
+        self._apply_zoom_to_subwindow(sub)
         sub.show()
 
     # --- Global Action Handlers ---
@@ -406,6 +412,25 @@ class MainWindow(QMainWindow):
             if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, EditItemDialog):
                 return widget
         return None
+
+    def _apply_zoom_to_subwindow(self, sub):
+        """Applies the current global zoom scale to a newly added subwindow."""
+        if not hasattr(self, 'last_zoom_scale') or self.last_zoom_scale == 1.0:
+            return
+            
+        ratio = self.last_zoom_scale
+        # Scale current size by the total accumulated zoom
+        new_w = int(sub.width() * ratio)
+        new_h = int(sub.height() * ratio)
+        
+        # Scale minimum size
+        widget = sub.widget()
+        if widget:
+            min_w = int(widget.minimumWidth() * ratio)
+            min_h = int(widget.minimumHeight() * ratio)
+            widget.setMinimumSize(min_w, min_h)
+        
+        sub.resize(new_w, new_h)
 
     def trigger_undo(self):
         win = self._get_active_estimate_window()
@@ -460,7 +485,7 @@ class MainWindow(QMainWindow):
         
         # Slider
         self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
-        self.zoom_slider.setRange(50, 200)
+        self.zoom_slider.setRange(50, 100)
         self.zoom_slider.setValue(100)
         self.zoom_slider.setFixedWidth(100)
         self.zoom_slider.setContentsMargins(0, 0, 0, 0)
@@ -756,7 +781,7 @@ class ZoomDialog(QDialog):
     def __init__(self, current_zoom, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Zoom")
-        self.setFixedSize(220, 320)
+        self.setFixedSize(220, 240)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(15, 15, 15, 15)
@@ -768,7 +793,7 @@ class ZoomDialog(QDialog):
         
         self.radio_group = QButtonGroup(self)
         
-        presets = [200, 100, 75, 50, 25]
+        presets = [100, 75, 50]
         self.radios = {}
         
         for p in presets:
@@ -786,7 +811,7 @@ class ZoomDialog(QDialog):
         custom_layout.addWidget(self.custom_rb)
         
         self.spin = QSpinBox()
-        self.spin.setRange(10, 400)
+        self.spin.setRange(50, 100)
         self.spin.setSuffix("%")
         self.spin.setValue(current_zoom)
         # Style the spinbox to be smaller
