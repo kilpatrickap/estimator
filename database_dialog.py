@@ -60,8 +60,8 @@ class DatabaseManagerDialog(QDialog):
                             QTableWidget.EditTrigger.EditKeyPressed | 
                             QTableWidget.EditTrigger.AnyKeyPressed)
         table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        table.setWordWrap(True)
+        table.verticalHeader().setDefaultSectionSize(25)
+        table.setWordWrap(False)
         table.setColumnHidden(0, True) # ID
         table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         table.customContextMenuRequested.connect(lambda pos, t=table_name: self.show_context_menu(pos, t))

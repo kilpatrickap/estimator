@@ -103,6 +103,7 @@ class RateBuildUpDialog(QDialog):
         header_view = self.tree.header()
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setStretchLastSection(True)
+        self.tree.setIndentation(15)
         self.tree.itemDoubleClicked.connect(self.edit_item)
         
         # Context Menu
@@ -398,9 +399,11 @@ class CostSelectionDialog(QDialog):
         
         singular = table_name[:-1] if table_name.endswith('s') else table_name
         self.setWindowTitle(f"Select {singular.capitalize()} from Database")
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(600, 400)
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
         
         # Search
         search_layout = QHBoxLayout()
@@ -419,6 +422,7 @@ class CostSelectionDialog(QDialog):
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setDefaultSectionSize(22)
         self.table.doubleClicked.connect(self.accept)
         
         layout.addWidget(self.table)

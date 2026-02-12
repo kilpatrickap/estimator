@@ -53,11 +53,11 @@ class RateManagerDialog(QDialog):
         
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setWordWrap(True)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.setWordWrap(False)
+        self.table.verticalHeader().setDefaultSectionSize(25)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 8px; }")
+        self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
         self.table.doubleClicked.connect(self.open_rate_buildup)
         
         layout.addWidget(self.table)

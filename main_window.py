@@ -440,10 +440,11 @@ class NewEstimateDialog(QDialog):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
         self.setWindowTitle("New Project Details")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(400)
         
         layout = QFormLayout(self)
-        layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
 
         self.project_name = QLineEdit("New Project")
         self.location = QLineEdit("Location")
@@ -488,8 +489,10 @@ class EditEstimateDialog(QDialog):
     def __init__(self, project_name, location, project_date, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Edit Estimate Details")
-        self.setMinimumWidth(480)
+        self.setMinimumWidth(400)
         layout = QFormLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
 
         self.project_name_input = QLineEdit(project_name)
         self.location_input = QLineEdit(location)
@@ -522,7 +525,7 @@ class LoadEstimateDialog(QDialog):
         self.db_manager = DatabaseManager()
         self.selected_estimate_id = None
         self.setWindowTitle("Load Estimate")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(800, 500)
 
         layout = QVBoxLayout(self)
         self.table = QTableWidget(columnCount=4)
@@ -531,8 +534,8 @@ class LoadEstimateDialog(QDialog):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
         self.table.horizontalHeader().setStretchLastSection(True)
-        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setWordWrap(True)
+        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.setWordWrap(False)
         self.table.setColumnHidden(0, True)
         self.table.doubleClicked.connect(self.accept_selection)
         layout.addWidget(self.table)

@@ -54,21 +54,21 @@ class EditItemDialog(QDialog):
         name = item_data.get('name') or item_data.get('trade') or item_data.get('description') or "Unknown Item"
         title_prefix = "Edit" if not is_library else "Set Price/Rate for"
         self.setWindowTitle(f"{title_prefix} {item_type.capitalize()}")
-        self.setMinimumWidth(750)
-        self.setMinimumHeight(450)
+        self.setMinimumWidth(650)
+        self.setMinimumHeight(300)
         
         self._init_ui(name)
 
     def _init_ui(self, name):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(2)
         
         # Header Info
         header_layout = QFormLayout()
         self.name_display = QLineEdit(name)
         self.name_display.setReadOnly(True)
-        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 4px;")
+        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 2px;")
         header_layout.addRow("Item Name:", self.name_display)
         layout.addLayout(header_layout)
         
@@ -80,9 +80,9 @@ class EditItemDialog(QDialog):
         input_container = QVBoxLayout()
         input_container.addWidget(QLabel("Formula Input:"))
         self.qty_input = ZebraInput()
-        self.qty_input.setMinimumHeight(250)
+        self.qty_input.setMinimumHeight(150)
         self.qty_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.qty_input.setStyleSheet("padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: white;")
+        self.qty_input.setStyleSheet("padding: 4px; font-family: 'Consolas', monospace; font-size: 9pt; border: 1px solid #ddd; background-color: white;")
         self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Notes\";")
         self.qty_input.textChanged.connect(self.update_display)
         input_container.addWidget(self.qty_input)
@@ -92,10 +92,10 @@ class EditItemDialog(QDialog):
         output_container = QVBoxLayout()
         output_container.addWidget(QLabel("Calculation:"))
         self.qty_display = QTextEdit()
-        self.qty_display.setMinimumHeight(250)
+        self.qty_display.setMinimumHeight(150)
         self.qty_display.setReadOnly(True)
         self.qty_display.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
-        self.qty_display.setStyleSheet("color: blue; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: #f9f9f9;")
+        self.qty_display.setStyleSheet("color: blue; padding: 4px; font-family: 'Consolas', monospace; font-size: 9pt; border: 1px solid #ddd; background-color: #f9f9f9;")
         
         # Sync Scroll
         self.qty_input.verticalScrollBar().valueChanged.connect(self.qty_display.verticalScrollBar().setValue)
@@ -104,7 +104,7 @@ class EditItemDialog(QDialog):
         output_container.addWidget(self.qty_display)
         
         self.total_display = QLabel("TOTAL: 0.00")
-        self.total_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; font-size: 12pt; font-weight:bold; padding: 10px; border: 1px solid #ddd; border-top: none; background-color: #f9f9f9;")
+        self.total_display.setStyleSheet("color: blue; font-family: 'Consolas', monospace; font-size: 10pt; font-weight:bold; padding: 2px; border: 1px solid #ddd; border-top: none; background-color: #f9f9f9;")
         self.total_display.setAlignment(Qt.AlignmentFlag.AlignRight)
         output_container.addWidget(self.total_display)
 
@@ -115,7 +115,7 @@ class EditItemDialog(QDialog):
         # Help Text
         help_text = "Enter value (1.00) or formula starting with '='.\nUse \"double quotes\" for inline comments.\nUse semicolon ';' to end formula and add notes."
         help_label = QLabel(help_text)
-        help_label.setStyleSheet("color: #666; font-style: italic; font-size: 10pt;")
+        help_label.setStyleSheet("color: #666; font-style: italic; font-size: 9pt;")
         layout.addWidget(help_label)
         
         # Buttons removed as per user request. Changes are auto-saved on close.
