@@ -54,21 +54,21 @@ class EditItemDialog(QDialog):
         name = item_data.get('name') or item_data.get('trade') or item_data.get('description') or "Unknown Item"
         title_prefix = "Edit" if not is_library else "Set Price/Rate for"
         self.setWindowTitle(f"{title_prefix} {item_type.capitalize()}")
-        self.setMinimumWidth(900)
-        self.setMinimumHeight(600)
+        self.setMinimumWidth(750)
+        self.setMinimumHeight(450)
         
         self._init_ui(name)
 
     def _init_ui(self, name):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
         
         # Header Info
         header_layout = QFormLayout()
         self.name_display = QLineEdit(name)
         self.name_display.setReadOnly(True)
-        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 8px;")
+        self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold; padding: 4px;")
         header_layout.addRow("Item Name:", self.name_display)
         layout.addLayout(header_layout)
         
@@ -80,7 +80,7 @@ class EditItemDialog(QDialog):
         input_container = QVBoxLayout()
         input_container.addWidget(QLabel("Formula Input:"))
         self.qty_input = ZebraInput()
-        self.qty_input.setMinimumHeight(350)
+        self.qty_input.setMinimumHeight(250)
         self.qty_input.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.qty_input.setStyleSheet("padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: white;")
         self.qty_input.setPlaceholderText("e.g. = (10 * 5) \"Notes\";")
@@ -92,7 +92,7 @@ class EditItemDialog(QDialog):
         output_container = QVBoxLayout()
         output_container.addWidget(QLabel("Calculation:"))
         self.qty_display = QTextEdit()
-        self.qty_display.setMinimumHeight(350)
+        self.qty_display.setMinimumHeight(250)
         self.qty_display.setReadOnly(True)
         self.qty_display.setLineWrapMode(QTextEdit.LineWrapMode.NoWrap)
         self.qty_display.setStyleSheet("color: blue; padding: 10px; font-family: 'Consolas', 'Courier New', monospace; font-size: 11pt; border: 1px solid #ddd; background-color: #f9f9f9;")

@@ -11,9 +11,11 @@ class CurrencyConversionDialog(QDialog):
         self.estimate = estimate
         self.db_manager = DatabaseManager()
         self.setWindowTitle(f"Exchange Rates: {estimate.project_name}")
-        self.setMinimumSize(600, 400)
+        self.setMinimumSize(500, 300)
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
         
         info_label = QLabel(f"Base Currency: <b>{self.estimate.currency}</b>")
         layout.addWidget(info_label)
@@ -36,7 +38,7 @@ class CurrencyConversionDialog(QDialog):
         self.table.setColumnWidth(1, 150) # Conversion Rate
         self.table.setColumnWidth(2, 180) # Operator
         
-        self.table.verticalHeader().setDefaultSectionSize(50)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         layout.addWidget(self.table)
 
         self.populate_table()

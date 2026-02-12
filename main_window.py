@@ -298,7 +298,7 @@ class MainWindow(QMainWindow):
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(1100, 750)
+        sub.resize(900, 650)
         sub.show()
 
     def open_edit_item_window(self, item_data, item_type, currency, parent_window):
@@ -340,13 +340,13 @@ class MainWindow(QMainWindow):
                 
         edit_win.dataCommitted.connect(on_save)
         edit_win.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(900, 600)
+        sub.resize(750, 450)
         sub.show()
 
     def _add_estimate_window(self, est_window):
         sub = self.mdi_area.addSubWindow(est_window)
         est_window.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(1100, 750)
+        sub.resize(950, 650)
         sub.show()
 
     def manage_database(self):
@@ -358,7 +358,7 @@ class MainWindow(QMainWindow):
         dialog = DatabaseManagerDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
         dialog.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(1100, 750)
+        sub.resize(950, 650)
         sub.show()
         
     def manage_rate_database(self):
@@ -370,7 +370,7 @@ class MainWindow(QMainWindow):
         # Pass self (MainWindow) to RateManagerDialog so it can open RateBuildUpDialog in MDI
         dialog = RateManagerDialog(self) 
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(1000, 600)
+        sub.resize(900, 550)
         sub.show()
 
     def open_settings(self):

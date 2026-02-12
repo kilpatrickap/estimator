@@ -23,7 +23,7 @@ class RateBuildUpDialog(QDialog):
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
-        self.setMinimumSize(1000, 750)
+        self.setMinimumSize(850, 600)
         
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -58,19 +58,21 @@ class RateBuildUpDialog(QDialog):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
 
         # Header Section
         header = QFrame()
-        header.setStyleSheet("background-color: #f8f9fa; border-radius: 8px; border: 1px solid #e0e0e0;")
+        header.setStyleSheet("background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;")
         h_layout = QVBoxLayout(header)
+        h_layout.setContentsMargins(10, 5, 10, 5)
+        h_layout.setSpacing(0)
         
         title_label = QLabel(f"Build-up Details for {self.estimate.rate_id}")
-        title_label.setStyleSheet("font-size: 20px; font-weight: bold; color: #2e7d32; border: none;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32; border: none;")
         
         desc_label = QLabel(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
-        desc_label.setStyleSheet("font-size: 14px; color: #606266; border: none;")
+        desc_label.setStyleSheet("font-size: 12px; color: #606266; border: none;")
         
         h_layout.addWidget(title_label)
         h_layout.addWidget(desc_label)
@@ -114,9 +116,10 @@ class RateBuildUpDialog(QDialog):
         summary_layout.addStretch()
         
         totals_panel = QFrame()
-        totals_panel.setStyleSheet("background-color: #f1f8e9; border-radius: 8px; border: 1px solid #c8e6c9;")
+        totals_panel.setStyleSheet("background-color: #f1f8e9; border-radius: 4px; border: 1px solid #c8e6c9;")
         totals_layout = QFormLayout(totals_panel)
-        totals_layout.setContentsMargins(15, 10, 15, 10)
+        totals_layout.setContentsMargins(10, 5, 10, 5)
+        totals_layout.setSpacing(5)
         
         self.subtotal_label = QLabel("0.00")
         self.overhead_label = QLabel("0.00")
@@ -124,10 +127,10 @@ class RateBuildUpDialog(QDialog):
         self.total_label = QLabel("0.00")
         
         for lbl in [self.subtotal_label, self.overhead_label, self.profit_label, self.total_label]:
-            lbl.setStyleSheet("font-family: 'Consolas', monospace; font-size: 14px; font-weight: bold; border: none;")
+            lbl.setStyleSheet("font-family: 'Consolas', monospace; font-size: 12px; font-weight: bold; border: none;")
             lbl.setAlignment(Qt.AlignmentFlag.AlignRight)
 
-        self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-size: 18px; font-weight: bold; color: #2e7d32; border: none;")
+        self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-size: 14px; font-weight: bold; color: #2e7d32; border: none;")
         
         totals_layout.addRow("Build-up Subtotal (Sum of Net Rates):", self.subtotal_label)
         totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)

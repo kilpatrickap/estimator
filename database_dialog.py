@@ -17,10 +17,12 @@ class DatabaseManagerDialog(QDialog):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
         self.setWindowTitle("Manage Cost Database")
-        self.setMinimumSize(1100, 750)
+        self.setMinimumSize(900, 600)
         self.is_loading = False
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
 
@@ -41,6 +43,8 @@ class DatabaseManagerDialog(QDialog):
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
 
         # Search
         search_layout = QHBoxLayout()

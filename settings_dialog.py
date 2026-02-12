@@ -11,8 +11,11 @@ class SettingsDialog(QDialog):
         self.db_manager = DatabaseManager()
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(10)
 
         form_layout = QFormLayout()
+        form_layout.setSpacing(5)
 
         # Default Currency
         self.currency_combo = QComboBox()

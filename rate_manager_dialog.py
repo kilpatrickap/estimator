@@ -10,7 +10,7 @@ class RateManagerDialog(QDialog):
         super().__init__(parent)
         self.main_window = main_window
         self.setWindowTitle("Manage Rate Database")
-        self.setMinimumSize(1000, 600)
+        self.setMinimumSize(850, 500)
         self.db_manager = DatabaseManager()
         
         self._init_ui()
@@ -18,8 +18,8 @@ class RateManagerDialog(QDialog):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(30, 30, 30, 30)
-        layout.setSpacing(20)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
 
         # Header Section
         header_widget = QWidget()

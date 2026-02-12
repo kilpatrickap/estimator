@@ -53,7 +53,7 @@ class EstimateWindow(QMainWindow):
         self.autosave_timer.start(60000)  # Auto-save every 60 seconds
 
         self.setWindowTitle(f"Estimate: {self.estimate.project_name}")
-        self.setMinimumSize(1000, 700)
+        self.setMinimumSize(900, 600)
 
         # Extract currency symbol
         match = re.search(r'\((.*?)\)', self.estimate.currency)
@@ -135,19 +135,19 @@ class EstimateWindow(QMainWindow):
         summary_group.setStyleSheet("QFrame { background-color: #ffffff; border: 1px solid #dcdfe6; border-radius: 8px; } QLabel { border: none; }")
         
         form_layout = QFormLayout(summary_group)
-        form_layout.setContentsMargins(20, 20, 20, 20)
-        form_layout.setSpacing(15)
+        form_layout.setContentsMargins(10, 10, 10, 10)
+        form_layout.setSpacing(5)
 
         title_font = QFont()
         title_font.setBold(True)
-        title_font.setPointSize(16)
+        title_font.setPointSize(13)
         summary_title = QLabel("Project Summary")
         summary_title.setFont(title_font)
         summary_title.setStyleSheet("color: #2e7d32; margin-bottom: 10px;")
         form_layout.addRow(summary_title)
 
         value_font = QFont()
-        value_font.setPointSize(12)
+        value_font.setPointSize(10)
 
         self.subtotal_label = QLabel(f"{self.currency_symbol}0.00")
         self.overhead_label = QLabel(f"{self.currency_symbol}0.00")
