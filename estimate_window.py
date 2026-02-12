@@ -24,8 +24,9 @@ class EstimateWindow(QMainWindow):
     """
     stateChanged = pyqtSignal()
 
-    def __init__(self, estimate_data=None, estimate_object=None, parent=None):
+    def __init__(self, estimate_data=None, estimate_object=None, main_window=None, parent=None):
         super().__init__(parent)
+        self.main_window = main_window
         self.db_manager = DatabaseManager()
 
         if estimate_object:
@@ -327,12 +328,16 @@ class EstimateWindow(QMainWindow):
     def edit_item(self, item, column):
         """Opens the edit dialog for the double-clicked item."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
-            self.save_state()
-            if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
-                self.refresh_view()
+            if self.main_window and hasattr(self.main_window, 'open_edit_item_window'):
+                self.main_window.open_edit_item_window(item.item_data, item.item_type, self.estimate.currency, self)
             else:
-                self.undo_stack.pop()
-                self.stateChanged.emit()
+                # Fallback
+                self.save_state()
+                if EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self).exec():
+                    self.refresh_view()
+                else:
+                    self.undo_stack.pop()
+                    self.stateChanged.emit()
 
     def add_task(self):
         text, ok = QInputDialog.getText(self, "Add Task", "Enter task description:")

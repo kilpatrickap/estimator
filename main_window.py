@@ -263,7 +263,7 @@ class MainWindow(QMainWindow):
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
-            est_window = EstimateWindow(estimate_data=dialog.get_data()) # Parent is None for MDI widget usually, or let MDI handle reparenting
+            est_window = EstimateWindow(estimate_data=dialog.get_data(), main_window=self) 
             self._add_estimate_window(est_window)
 
     def load_estimate(self):
@@ -281,7 +281,7 @@ class MainWindow(QMainWindow):
 
         estimate_obj = self.db_manager.load_estimate_details(est_id)
         if estimate_obj:
-            est_window = EstimateWindow(estimate_object=estimate_obj)
+            est_window = EstimateWindow(estimate_object=estimate_obj, main_window=self)
             self._add_estimate_window(est_window)
         else:
             QMessageBox.critical(self, "Error", "Failed to load estimate.")

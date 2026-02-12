@@ -120,7 +120,7 @@ class RateManagerDialog(QDialog):
             if estimate_obj and self.main_window:
                 self.main_window.open_rate_buildup_window(estimate_obj)
             else:
-                RateBuildUpDialog(estimate_obj, self).exec()
+                RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self).exec()
 
     def filter_rates(self, text):
         query = text.lower()
