@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
                              QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow,
-                             QStatusBar, QSlider)
+                             QStatusBar, QSlider, QRadioButton, QButtonGroup, QSpinBox, QGroupBox)
 from PyQt6.QtGui import QFont, QDoubleValidator, QAction
 from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
@@ -475,18 +475,27 @@ class MainWindow(QMainWindow):
         plus_btn.clicked.connect(lambda: self.zoom_slider.setValue(self.zoom_slider.value() + 10))
         zoom_layout.addWidget(plus_btn)
         
-        # Zoom Percent label
-        self.zoom_label = QLabel("100%")
-        self.zoom_label.setFixedWidth(50)
-        self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.zoom_label.setObjectName("StatusZoomLabel")
-        zoom_layout.addWidget(self.zoom_label)
+        # Zoom Percent label (Clickable)
+        self.zoom_btn = QPushButton("100%")
+        self.zoom_btn.setFixedWidth(55)
+        self.zoom_btn.setFlat(True)
+        self.zoom_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.zoom_btn.setObjectName("StatusZoomLabel")
+        self.zoom_btn.clicked.connect(self._open_zoom_dialog)
+        zoom_layout.addWidget(self.zoom_btn)
         
         sb.addPermanentWidget(zoom_container)
 
+    def _open_zoom_dialog(self):
+        """Opens the Excel-style zoom dialog."""
+        dialog = ZoomDialog(self.zoom_slider.value(), self)
+        if dialog.exec():
+            new_zoom = dialog.get_zoom_value()
+            self.zoom_slider.setValue(new_zoom)
+
     def _handle_zoom(self, value):
         """Scales the UI by dynamically updating the application's global stylesheet."""
-        self.zoom_label.setText(f"{value}%")
+        self.zoom_btn.setText(f"{value}%")
         scale = value / 100.0
         
         # Ensure we have the original style loaded
@@ -740,3 +749,66 @@ class LoadEstimateDialog(QDialog):
         if not sel: return
         if self.db_manager.duplicate_estimate(sel['id']):
             self.load_estimates()
+
+
+class ZoomDialog(QDialog):
+    """Excel-style zoom magnification dialog."""
+    def __init__(self, current_zoom, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Zoom")
+        self.setFixedSize(220, 320)
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        group = QGroupBox("Magnification")
+        group_layout = QVBoxLayout(group)
+        group_layout.setSpacing(5)
+        
+        self.radio_group = QButtonGroup(self)
+        
+        presets = [200, 100, 75, 50, 25]
+        self.radios = {}
+        
+        for p in presets:
+            rb = QRadioButton(f"{p}%")
+            self.radio_group.addButton(rb, p)
+            group_layout.addWidget(rb)
+            self.radios[p] = rb
+            if p == current_zoom:
+                rb.setChecked(True)
+        
+        # Custom option
+        custom_layout = QHBoxLayout()
+        self.custom_rb = QRadioButton("Custom:")
+        self.radio_group.addButton(self.custom_rb, 0)
+        custom_layout.addWidget(self.custom_rb)
+        
+        self.spin = QSpinBox()
+        self.spin.setRange(10, 400)
+        self.spin.setSuffix("%")
+        self.spin.setValue(current_zoom)
+        # Style the spinbox to be smaller
+        self.spin.setFixedWidth(70)
+        custom_layout.addWidget(self.spin)
+        group_layout.addLayout(custom_layout)
+        
+        # Logic to check custom if spin is changed
+        self.spin.valueChanged.connect(lambda: self.custom_rb.setChecked(True))
+        
+        if current_zoom not in presets:
+            self.custom_rb.setChecked(True)
+            
+        layout.addWidget(group)
+        
+        # Buttons
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        btns.accepted.connect(self.accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def get_zoom_value(self):
+        if self.custom_rb.isChecked():
+            return self.spin.value()
+        return self.radio_group.checkedId()
