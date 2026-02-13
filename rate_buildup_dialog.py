@@ -31,6 +31,10 @@ class RateBuildUpDialog(QDialog):
         self.undo_stack = []
         self.redo_stack = []
         
+        # Adjustment Factor
+        self.adjustment_factor = 1.0
+        self.adjustment_formula = "1.0"
+        
         # Extract currency symbol
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
@@ -96,12 +100,23 @@ class RateBuildUpDialog(QDialog):
         ex_rate_btn.clicked.connect(self.open_exchange_rates)
         toolbar.addWidget(ex_rate_btn)
         
+        # Adjustment Factor
+        toolbar.addWidget(QLabel("Adjustment factor:"))
+        self.adjustment_input = QLineEdit()
+        self.adjustment_input.setText("1.0")
+        self.adjustment_input.setMaximumWidth(80)
+        self.adjustment_input.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.adjustment_input.setStyleSheet("font-family: 'Consolas', monospace; font-weight: bold;")
+        self.adjustment_input.mouseDoubleClickEvent = self.open_adjustment_formula
+        self.adjustment_input.editingFinished.connect(self.update_adjustment_from_input)
+        toolbar.addWidget(self.adjustment_input)
+        
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
         # Build-up Tree
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate"])
+        self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Adjusted Cost", "Net Rate"])
         header_view = self.tree.header()
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setStretchLastSection(True)
@@ -180,6 +195,55 @@ class RateBuildUpDialog(QDialog):
         else:
             self.undo_stack.pop()
             self.stateChanged.emit()
+    
+    def open_adjustment_formula(self, event):
+        """Opens a formula input dialog for the adjustment factor."""
+        # Create a temporary item dict for the formula dialog
+        temp_item = {
+            'name': 'Adjustment Factor',
+            'qty': self.adjustment_factor,
+            'formula': self.adjustment_formula if self.adjustment_formula != str(self.adjustment_factor) else None
+        }
+        
+        dialog = EditItemDialog(temp_item, 'material', self.estimate.currency, self, is_library=False, is_modal=False)
+        dialog.setWindowTitle("Adjustment Factor Formula")
+        
+        # Customize the dialog target key for our use case
+        dialog.target_key = 'qty'
+        dialog.original_rate = 1.0  # We just want the calculated value directly
+        
+        # Connect save to update our adjustment factor
+        def on_save():
+            self.adjustment_factor = temp_item['qty']
+            self.adjustment_formula = temp_item.get('formula') or str(self.adjustment_factor)
+            self.adjustment_input.setText(f"{self.adjustment_factor:.4f}")
+            self.refresh_view()
+            dialog.close()
+        
+        # Add save button to the dialog
+        from PyQt6.QtWidgets import QDialogButtonBox, QPushButton
+        button_box = QDialogButtonBox()
+        save_btn = QPushButton("Apply")
+        save_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        save_btn.clicked.connect(on_save)
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(dialog.close)
+        button_box.addButton(save_btn, QDialogButtonBox.ButtonRole.AcceptRole)
+        button_box.addButton(cancel_btn, QDialogButtonBox.ButtonRole.RejectRole)
+        dialog.layout().addWidget(button_box)
+        
+        dialog.exec()
+    
+    def update_adjustment_from_input(self):
+        """Updates adjustment factor from the text input."""
+        try:
+            value = float(self.adjustment_input.text().strip())
+            self.adjustment_factor = value
+            self.adjustment_formula = str(value)
+            self.refresh_view()
+        except ValueError:
+            # Reset to previous valid value
+            self.adjustment_input.setText(f"{self.adjustment_factor:.4f}")
 
     def change_base_currency(self, new_currency):
         if new_currency == self.estimate.currency:
@@ -312,7 +376,7 @@ class RateBuildUpDialog(QDialog):
         self.tree.clear()
         
         # Update currency symbol
-        match = re.search(r'\((.*?)\)', self.estimate.currency)
+        match = re.search(r'\\((.*?)\\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
         
         base_sym = self.currency_symbol
@@ -322,13 +386,25 @@ class RateBuildUpDialog(QDialog):
             self.currency_combo.blockSignals(True)
             self.currency_combo.setCurrentText(self.estimate.currency)
             self.currency_combo.blockSignals(False)
+        
+        # Update adjustment input display
+        if hasattr(self, 'adjustment_input'):
+            self.adjustment_input.blockSignals(True)
+            self.adjustment_input.setText(f"{self.adjustment_factor:.4f}")
+            self.adjustment_input.blockSignals(False)
             
-        # Update Summary Labels
+        # Update Summary Labels - now using adjusted costs
         totals = self.estimate.calculate_totals()
-        self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
-        self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
-        self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
-        self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
+        # Calculate adjusted totals
+        adjusted_subtotal = totals['subtotal'] * self.adjustment_factor
+        adjusted_overhead = adjusted_subtotal * (self.estimate.overhead_percent / 100.0)
+        adjusted_profit = (adjusted_subtotal + adjusted_overhead) * (self.estimate.profit_margin_percent / 100.0)
+        adjusted_total = adjusted_subtotal + adjusted_overhead + adjusted_profit
+        
+        self.subtotal_label.setText(f"{base_sym}{adjusted_subtotal:,.2f}")
+        self.overhead_label.setText(f"{base_sym}{adjusted_overhead:,.2f}")
+        self.profit_label.setText(f"{base_sym}{adjusted_profit:,.2f}")
+        self.total_label.setText(f"{base_sym}{adjusted_total:,.2f}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
@@ -343,7 +419,17 @@ class RateBuildUpDialog(QDialog):
                 sum(self.estimate._get_item_total_in_base_currency(ind) for ind in task.indirect_costs)
             ])
             
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_total:,.2f}"])
+            # Adjusted task total
+            adjusted_task_total = task_total * self.adjustment_factor
+            
+            task_item = QTreeWidgetItem(self.tree, [
+                str(i), 
+                task.description, 
+                "", 
+                "", 
+                "", 
+                f"{base_sym}{adjusted_task_total:,.2f}"
+            ])
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)
 
@@ -363,6 +449,9 @@ class RateBuildUpDialog(QDialog):
                     uc_conv = self.estimate.convert_to_base_currency(item[rate_key], item.get('currency'))
                     total_conv = self.estimate.convert_to_base_currency(item['total'], item.get('currency'))
                     
+                    # Calculate adjusted cost
+                    adjusted_cost = total_conv * self.adjustment_factor
+                    
                     unit_str = unit_func(item)
                     qty_val = item[qty_key]
                     
@@ -371,6 +460,7 @@ class RateBuildUpDialog(QDialog):
                         f"{label_prefix}: {item[name_key]}",
                         f"{qty_val:.2f} {unit_str} @ {base_sym}{uc_conv:,.2f}",
                         f"{base_sym}{total_conv:,.2f}",
+                        f"{base_sym}{adjusted_cost:,.2f}",
                         ""
                     ])
                     # Attach data for editing
