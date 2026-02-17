@@ -64,6 +64,7 @@ class DatabaseManager:
         try:
             # 1. Update 'estimates' table
             self._ensure_column(cursor, "estimates", "grand_total", "grand_total REAL DEFAULT 0.0")
+            self._ensure_column(cursor, "estimates", "net_total", "net_total REAL DEFAULT 0.0")
             
             # Legacy Rename: rate_id to rate_code
             cursor.execute("PRAGMA table_info(estimates)")
@@ -310,6 +311,7 @@ class DatabaseManager:
                 currency TEXT,
                 date_created TEXT,
                 grand_total REAL DEFAULT 0.0,
+                net_total REAL DEFAULT 0.0,
                 rate_code TEXT,
                 unit TEXT,
                 notes TEXT,
@@ -561,6 +563,7 @@ class DatabaseManager:
         
         totals = estimate_obj.calculate_totals()
         grand_total = totals['grand_total']
+        net_total = totals['subtotal']
         
         try:
             if estimate_obj.id:
@@ -568,12 +571,12 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_code = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, net_total = ?, rate_code = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                    estimate_obj.currency, estimate_obj.date, grand_total, 
+                    estimate_obj.currency, estimate_obj.date, grand_total, net_total, 
                     estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, 
                     estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), estimate_obj.id
                 ))
@@ -583,13 +586,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_code, unit, notes, adjustment_factor, category) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    estimate_obj.project_name, estimate_obj.client_name,
-                    estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
-                    estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, net_total, rate_code, unit, notes, adjustment_factor, category) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                estimate_obj.project_name, estimate_obj.client_name,
+                estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
+                estimate_obj.currency, estimate_obj.date, grand_total, net_total, 
+                estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -975,7 +978,7 @@ class DatabaseManager:
         conn = rates_db._get_connection()
         try:
             return conn.cursor().execute("""
-                SELECT id, rate_code, project_name, unit, currency, grand_total, adjustment_factor, date_created, notes 
+                SELECT id, rate_code, project_name, unit, currency, net_total, grand_total, adjustment_factor, date_created, notes 
                 FROM estimates 
                 ORDER BY rate_code DESC
             """).fetchall()

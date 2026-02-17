@@ -42,7 +42,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -80,13 +80,12 @@ class RateManagerDialog(QDialog):
         
         for row_idx, row_data in enumerate(rates):
             self.table.insertRow(row_idx)
-            # data_to_display starts from index 1 (skip internal ID)
             for col_idx, data in enumerate(row_data[1:]):
                 # Row data indices (excluding lib-id at 0):
-                # 0: rate_code, 1: project_name, 2: unit, 3: currency, 4: grand_total, 5: adj_factor, 6: date, 7: notes
-                if col_idx == 4: # grand_total
+                # 0: rate_code, 1: project_name, 2: unit, 3: currency, 4: net_total, 5: grand_total, 6: adj_factor, 7: date, 8: notes
+                if col_idx in [4, 5]: # net_total or grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
-                elif col_idx == 5: # adjustment_factor
+                elif col_idx == 6: # adjustment_factor
                     try:
                         val = float(data)
                         display_text = f"{val:.2f}" if val != 1.0 else "N/A"
@@ -103,9 +102,9 @@ class RateManagerDialog(QDialog):
                     font.setBold(True)
                     item.setFont(font)
                 
-                if col_idx in [4, 5]: # Rate and Adj Factor
+                if col_idx in [4, 5, 6]: # Net Rate, Gross Rate, and Adj Factor
                     font = item.font()
-                    font.setBold(True) if col_idx == 4 else None
+                    font.setBold(True) if col_idx in [4, 5] else None
                     item.setFont(font)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
