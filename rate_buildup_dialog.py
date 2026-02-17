@@ -212,7 +212,7 @@ class RateBuildUpDialog(QDialog):
 
         self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-weight: bold; color: #2e7d32; border: none;")
         
-        self.subtotal_header_label = QLabel("Build-up Subtotal (Sum of Net Rates):")
+        self.subtotal_header_label = QLabel("Build-up Sub-Total (Sum of Net Rates):")
         totals_layout.addRow(self.subtotal_header_label, self.subtotal_label)
         totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
         totals_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
@@ -439,6 +439,9 @@ class RateBuildUpDialog(QDialog):
 
     def save_changes(self):
         """Saves the modified rate build-up back to the rates database."""
+        # Ensure we sync the latest adjustment factor from the UI before saving
+        self._handle_factor_formatting()
+        
         # Update timestamp to the current time of archiving/saving
         self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         self.estimate.notes = self.notes_input.toPlainText().strip()
@@ -481,11 +484,13 @@ class RateBuildUpDialog(QDialog):
         if not self.notes_input.hasFocus():
             self.notes_input.setPlainText(self.estimate.notes or "")
 
-        # Update labels based on adjustment
-        if is_adjusted:
+        # Update labels based on adjustment - logic matches user request
+        # We base this on both the value and the UI string to be 100% robust
+        factor_text = self.adjstmt_factor_input.text().strip().upper()
+        if factor_text != "N/A" and factor_text != "":
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
         else:
-            self.subtotal_header_label.setText("Build-up Subtotal (Sum of Net Rates):")
+            self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Net Rates):")
 
         self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
         self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
