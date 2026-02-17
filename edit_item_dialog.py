@@ -140,25 +140,30 @@ class EditItemDialog(QDialog):
 
     def parse_single_line(self, text):
         """Parses a single line of formula text."""
-        if not text.strip().startswith('='):
+        trimmed = text.strip()
+        if not trimmed:
             return None
             
         # Remove '=' and comments
-        term = text.split(';')[0].replace('=', '', 1)
+        term = text.split(';')[0]
+        if trimmed.startswith('='):
+            term = term.replace('=', '', 1)
         term = re.sub(r'"[^"]*"', '', term) # Remove quoted comments
         
         # Normalize and sanitize
         term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
         
-        # 1. Remove "per" units with slashes (e.g., /hr, /day, /m3)
-        term = re.sub(r'/[a-zA-Z]+\d*', '', term)
-        
-        # 2. Remove remaining alphanumeric units (e.g., hrs, m3, pcs)
-        term = re.sub(r'[a-zA-Z]+\d*', '', term)
+        # Remove units while preserving numbers and operators
+        # 1. Remove "per" units with slashes (e.g., / hr, /day, / m3)
+        term = re.sub(r'/\s*[a-zA-Z²³]+[a-zA-Z²³\d]*', '', term)
+        # 2. Remove remaining units (e.g., hrs, m3, m2, pcs)
+        term = re.sub(r'[a-zA-Z²³]+[a-zA-Z²³\d]*', '', term)
         
         try:
             # Safe(ish) eval
-            return float(eval(term, {"__builtins__": None}, {}))
+            # Strip any remaining non-math characters except spaces/dots
+            cleaned_term = re.sub(r'[^0-9+\-*/(). ]', '', term)
+            return float(eval(cleaned_term, {"__builtins__": None}, {}))
         except:
             return None
 
@@ -216,3 +221,8 @@ class EditItemDialog(QDialog):
             self.dataCommitted.emit()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Invalid Input: {e}")
+
+    def closeEvent(self, event):
+        """Auto-save changes on close."""
+        self.save()
+        super().closeEvent(event)
