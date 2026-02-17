@@ -208,10 +208,10 @@ class EstimateWindow(QMainWindow):
     def convert_to_rate(self):
         """Copies the existing estimate into construction_rates.db with a rate_ID."""
         unit, ok1 = QInputDialog.getText(self, "Rate Unit", "Enter unit for this rate (e.g., m2, kg) [Optional]:")
-        remarks, ok2 = QInputDialog.getText(self, "Rate Remarks", "Enter remarks for this rate [Optional]:")
+        notes, ok2 = QInputDialog.getText(self, "Rate Notes", "Enter notes for this rate [Optional]:")
 
         self.estimate.unit = unit if ok1 else ""
-        self.estimate.remarks = remarks if ok2 else ""
+        self.estimate.notes = notes if ok2 else ""
         
         rate_id = self.db_manager.convert_to_rate_db(self.estimate)
         if rate_id:

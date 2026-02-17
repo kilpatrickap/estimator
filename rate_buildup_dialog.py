@@ -441,7 +441,7 @@ class RateBuildUpDialog(QDialog):
         """Saves the modified rate build-up back to the rates database."""
         # Update timestamp to the current time of archiving/saving
         self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.estimate.remarks = self.notes_input.toPlainText().strip()
+        self.estimate.notes = self.notes_input.toPlainText().strip()
         
         if self.db_manager.save_estimate(self.estimate):
             self.dataCommitted.emit()
@@ -479,7 +479,7 @@ class RateBuildUpDialog(QDialog):
 
         # Load Notes if not focused
         if not self.notes_input.hasFocus():
-            self.notes_input.setPlainText(self.estimate.remarks or "")
+            self.notes_input.setPlainText(self.estimate.notes or "")
 
         # Update labels based on adjustment
         if is_adjusted:

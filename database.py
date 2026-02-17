@@ -532,13 +532,13 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, remarks = ?, adjustment_factor = ?
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, notes = ?, adjustment_factor = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.remarks, 
+                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, 
                     estimate_obj.adjustment_factor, estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
@@ -547,13 +547,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, remarks, adjustment_factor) 
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, notes, adjustment_factor) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.remarks, estimate_obj.adjustment_factor
+                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -633,7 +633,7 @@ class DatabaseManager:
                 est_data['project_name'], est_data['client_name'], 
                 est_data['overhead_percent'], est_data['profit_margin_percent'], 
                 currency=est_data['currency'] or "GHS (₵)", date=est_data['date_created'],
-                unit=est_data['unit'] or "", remarks=est_data['remarks'] or ""
+                unit=est_data['unit'] or "", notes=est_data['notes'] or ""
             )
             loaded_estimate.id = est_data['id']
             # Defensive check for rate_id column
@@ -871,7 +871,7 @@ class DatabaseManager:
         conn = rates_db._get_connection()
         try:
             return conn.cursor().execute("""
-                SELECT id, rate_id, project_name, unit, currency, grand_total, adjustment_factor, date_created, remarks 
+                SELECT id, rate_id, project_name, unit, currency, grand_total, adjustment_factor, date_created, notes 
                 FROM estimates 
                 ORDER BY rate_id DESC
             """).fetchall()
