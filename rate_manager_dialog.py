@@ -49,9 +49,7 @@ class RateManagerDialog(QDialog):
         # Responsive Header Sizing
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        # Set specific columns to stretch/resize
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) # Description
-        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch) # Notes
+        header.setStretchLastSection(True)
         
         self.table.setEditTriggers(QTableWidget.EditTrigger.AnyKeyPressed | 
                                    QTableWidget.EditTrigger.EditKeyPressed | 
@@ -117,9 +115,14 @@ class RateManagerDialog(QDialog):
                 
                 self.table.setItem(row_idx, col_idx, item)
         
-        # Initial fit for non-stretched columns
-        for i in [0, 2, 3, 4, 5, 6]:
+        # Initial fit for all columns
+        for i in range(self.table.columnCount()):
             self.table.resizeColumnToContents(i)
+            
+        # Ensure description and notes had a bit of extra space to start
+        current_desc_w = self.table.columnWidth(1)
+        self.table.setColumnWidth(1, max(current_desc_w, 250))
+        
         self.is_loading = False
 
     def open_rate_buildup(self, index):

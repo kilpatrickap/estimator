@@ -35,6 +35,7 @@ class RateBuildUpDialog(QDialog):
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"
         
+        self.is_loading = False
         self._init_ui()
         self.refresh_view()
         
@@ -190,6 +191,7 @@ class RateBuildUpDialog(QDialog):
         # Context Menu
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
+        self.tree.itemChanged.connect(self.on_item_changed)
         
         self.main_v_splitter.addWidget(self.tree)
 
@@ -304,6 +306,10 @@ class RateBuildUpDialog(QDialog):
         add_task_action = menu.addAction("Add Task")
         add_task_action.triggered.connect(self.add_task)
         
+        if item and not item.parent(): # If a Task is selected, show Edit Task
+            edit_task_action = menu.addAction("Edit Task")
+            edit_task_action.triggered.connect(lambda: self.edit_task(item))
+            
         menu.addSeparator()
         
         add_mat_action = menu.addAction("Add Material")
@@ -467,6 +473,35 @@ class RateBuildUpDialog(QDialog):
         
         self.refresh_view()
 
+    def edit_task(self, item):
+        """Triggers in-line editing for the task description."""
+        self.tree.editItem(item, 1)
+
+    def on_item_changed(self, item, column):
+        """Handles the completion of in-line editing for tasks."""
+        if self.is_loading or column != 1:
+            return
+            
+        # Only top-level items (tasks) are editable in column 1
+        if item.parent():
+            return
+            
+        task_idx = self.tree.indexOfTopLevelItem(item)
+        if 0 <= task_idx < len(self.estimate.tasks):
+            old_desc = self.estimate.tasks[task_idx].description
+            new_desc = item.text(column).strip()
+            
+            if new_desc and new_desc != old_desc:
+                self._save_state()
+                self.estimate.tasks[task_idx].description = new_desc
+                # Refresh to ensure styling and other labels are correct
+                self.refresh_view()
+            elif not new_desc:
+                # Revert if empty
+                self.is_loading = True
+                item.setText(column, old_desc)
+                self.is_loading = False
+
     def go_to_resource(self, item):
         """Navigates to the master resource in the main database."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
@@ -529,6 +564,7 @@ class RateBuildUpDialog(QDialog):
             QMessageBox.critical(self, "Error", "Failed to save changes.")
 
     def refresh_view(self):
+        self.is_loading = True
         self.tree.clear()
         
         # Update currency symbol
@@ -624,6 +660,9 @@ class RateBuildUpDialog(QDialog):
                 f"{base_sym}{task_total:,.2f}",
                 f"{base_sym}{adj_task_total:,.2f}" if is_adjusted else ""
             ])
+            # Enable in-line editing for the Tasks column
+            task_item.setFlags(task_item.flags() | Qt.ItemFlag.ItemIsEditable)
+            
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)
 
@@ -674,6 +713,7 @@ class RateBuildUpDialog(QDialog):
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         
+        self.is_loading = False
         # self._update_undo_redo_buttons()
 
 
