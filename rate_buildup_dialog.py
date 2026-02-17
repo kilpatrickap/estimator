@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
                              QComboBox, QMenu, QFormLayout)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QDoubleValidator
 from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
 from currency_conversion_dialog import CurrencyConversionDialog
@@ -95,13 +95,31 @@ class RateBuildUpDialog(QDialog):
         ex_rate_btn = QPushButton("Exchange Rates")
         ex_rate_btn.clicked.connect(self.open_exchange_rates)
         toolbar.addWidget(ex_rate_btn)
+
+        # Adjustment Factor to Cost
+        toolbar.addWidget(QLabel("Adjustment Factor:"))
+        self.adjstmt_factor_label = QLabel()
+        toolbar.addWidget(self.adjstmt_factor_label)
+
+        self.adjstmt_factor_input = QLineEdit()
+        self.adjstmt_factor_input.setFixedWidth(60)
+
+        # Validator for 2 decimal places
+        factor_validator = QDoubleValidator(0.00, 99.99, 2)
+        factor_validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        self.adjstmt_factor_input.setValidator(factor_validator)
+        
+        # Initial Value
+        self.adjstmt_factor_input.setText("N/A")
+        self.adjstmt_factor_input.editingFinished.connect(self._handle_factor_formatting)
+        toolbar.addWidget(self.adjstmt_factor_input)
         
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
         # Build-up Tree
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate"])
+        self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate", "Adjusted Net Rate"])
         header_view = self.tree.header()
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setStretchLastSection(True)
@@ -135,13 +153,32 @@ class RateBuildUpDialog(QDialog):
 
         self.total_label.setStyleSheet("font-family: 'Consolas', monospace; font-weight: bold; color: #2e7d32; border: none;")
         
-        totals_layout.addRow("Build-up Subtotal (Sum of Net Rates):", self.subtotal_label)
+        self.subtotal_header_label = QLabel("Build-up Subtotal (Sum of Net Rates):")
+        totals_layout.addRow(self.subtotal_header_label, self.subtotal_label)
         totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
         totals_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
         totals_layout.addRow("TOTAL RATE:", self.total_label)
         
         summary_layout.addWidget(totals_panel)
         layout.addLayout(summary_layout)
+
+    def _handle_factor_formatting(self):
+        """Formats input to 2 decimal places and handles N/A placeholder logic."""
+        text = self.adjstmt_factor_input.text().strip()
+        try:
+            if not text or text.upper() == "N/A":
+                self.adjstmt_factor_input.setText("N/A")
+            else:
+                val = float(text)
+                if val == 0.0:
+                    self.adjstmt_factor_input.setText("N/A")
+                else:
+                    self.adjstmt_factor_input.setText(f"{val:.2f}")
+        except ValueError:
+            self.adjstmt_factor_input.setText("N/A")
+        
+        self.refresh_view()
+        self.stateChanged.emit()
 
     def show_context_menu(self, pos):
         menu = QMenu(self)
@@ -325,10 +362,37 @@ class RateBuildUpDialog(QDialog):
             
         # Update Summary Labels
         totals = self.estimate.calculate_totals()
-        self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
-        self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
-        self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
-        self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
+        
+        # Get adjustment factor
+        adj_factor = 1.0
+        adj_text = self.adjstmt_factor_input.text()
+        is_adjusted = False
+        try:
+            if adj_text and adj_text != "N/A":
+                adj_factor = float(adj_text)
+                is_adjusted = True
+        except ValueError:
+            adj_factor = 1.0
+
+        # Update labels based on adjustment
+        if is_adjusted:
+            self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
+            # Recalculate everything based on adjusted subtotal for consistency
+            adj_subtotal = totals['subtotal'] * adj_factor
+            adj_overhead = adj_subtotal * (self.estimate.overhead_percent / 100.0)
+            adj_profit = (adj_subtotal + adj_overhead) * (self.estimate.profit_margin_percent / 100.0)
+            adj_grand_total = adj_subtotal + adj_overhead + adj_profit
+            
+            self.subtotal_label.setText(f"{base_sym}{adj_subtotal:,.2f}")
+            self.overhead_label.setText(f"{base_sym}{adj_overhead:,.2f}")
+            self.profit_label.setText(f"{base_sym}{adj_profit:,.2f}")
+            self.total_label.setText(f"{base_sym}{adj_grand_total:,.2f}")
+        else:
+            self.subtotal_header_label.setText("Build-up Subtotal (Sum of Net Rates):")
+            self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
+            self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
+            self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
+            self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
@@ -343,7 +407,15 @@ class RateBuildUpDialog(QDialog):
                 sum(self.estimate._get_item_total_in_base_currency(ind) for ind in task.indirect_costs)
             ])
             
-            task_item = QTreeWidgetItem(self.tree, [str(i), task.description, "", "", f"{base_sym}{task_total:,.2f}"])
+            adj_task_total = task_total * adj_factor
+            task_item = QTreeWidgetItem(self.tree, [
+                str(i), 
+                task.description, 
+                "", 
+                "", 
+                f"{base_sym}{task_total:,.2f}",
+                f"{base_sym}{adj_task_total:,.2f}" if is_adjusted else ""
+            ])
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)
 
@@ -371,6 +443,7 @@ class RateBuildUpDialog(QDialog):
                         f"{label_prefix}: {item[name_key]}",
                         f"{qty_val:.2f} {unit_str} @ {base_sym}{uc_conv:,.2f}",
                         f"{base_sym}{total_conv:,.2f}",
+                        "",
                         ""
                     ])
                     # Attach data for editing
@@ -382,6 +455,8 @@ class RateBuildUpDialog(QDialog):
                     if label_prefix == 'Material': child.setForeground(1, Qt.GlobalColor.darkBlue)
                     if label_prefix == 'Labor': child.setForeground(1, Qt.GlobalColor.darkGreen)
                     if label_prefix == 'Equipment': child.setForeground(1, Qt.GlobalColor.darkRed)
+                    if label_prefix == 'Plant': child.setForeground(1, Qt.GlobalColor.darkYellow)
+                    if label_prefix == 'Indirect': child.setForeground(1, Qt.GlobalColor.darkCyan)
                     sub_idx += 1
 
         self.tree.expandAll()
