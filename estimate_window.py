@@ -306,17 +306,21 @@ class EstimateWindow(QMainWindow):
         return reply == QMessageBox.StandardButton.Yes
 
     def open_exchange_rates(self):
-        self.save_state()
-        if CurrencyConversionDialog(self.estimate, self).exec():
-            self.refresh_view()
-        else:
-            # If cancelled, rudimentary revert if no deep modification happened.
-            # However, if dialog modified list in place even before OK, we rely on undo stack pop?
-            # Ideally dialogs should work on copies. Assuming they modify live obj on OK only,
-            # cancelling means no change. If no change, we have a redundant state on stack.
-            # We can pop it.
-            self.undo_stack.pop()
-            self.stateChanged.emit()
+        """Opens exchange rate settings in MDI."""
+        if not self.main_window:
+            return
+            
+        for sub in self.main_window.mdi_area.subWindowList():
+            if isinstance(sub.widget(), CurrencyConversionDialog):
+                self.main_window.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = CurrencyConversionDialog(self.estimate, self)
+        sub = self.main_window.mdi_area.addSubWindow(dialog)
+        sub.resize(500, 350)
+        if hasattr(self.main_window, '_apply_zoom_to_subwindow'):
+            self.main_window._apply_zoom_to_subwindow(sub)
+        sub.show()
 
     def open_profit_overheads(self):
         self.save_state()

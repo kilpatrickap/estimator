@@ -15,6 +15,7 @@ from settings_dialog import SettingsDialog
 from rate_manager_dialog import RateManagerDialog
 from rate_buildup_dialog import RateBuildUpDialog
 from edit_item_dialog import EditItemDialog
+from currency_conversion_dialog import CurrencyConversionDialog
 import copy
 
 
@@ -427,7 +428,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.activeSubWindow()
         if sub:
             widget = sub.widget()
-            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, EditItemDialog):
+            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, EditItemDialog) or isinstance(widget, CurrencyConversionDialog):
                 return widget
         return None
 
@@ -621,6 +622,10 @@ class MainWindow(QMainWindow):
                 # For text editing, we delegate to the text widget's undo stack
                 self.undo_btn.setEnabled(win.qty_input.document().isUndoAvailable())
                 self.redo_btn.setEnabled(win.qty_input.document().isRedoAvailable())
+            elif isinstance(win, CurrencyConversionDialog):
+                # Exchange rates don't have undo stack yet, but we enable save
+                self.undo_btn.setEnabled(False)
+                self.redo_btn.setEnabled(False)
             else:
                 # Database Manager or others without undo stack
                 self.undo_btn.setEnabled(False)

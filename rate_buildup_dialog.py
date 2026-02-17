@@ -223,12 +223,18 @@ class RateBuildUpDialog(QDialog):
         menu.exec(self.tree.viewport().mapToGlobal(pos))
 
     def open_exchange_rates(self):
-        self._save_state()
-        if CurrencyConversionDialog(self.estimate, self).exec():
-            self.refresh_view()
-        else:
-            self.undo_stack.pop()
-            self.stateChanged.emit()
+        """Opens exchange rate settings in MDI."""
+        for sub in self.main_window.mdi_area.subWindowList():
+            if isinstance(sub.widget(), CurrencyConversionDialog):
+                self.main_window.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = CurrencyConversionDialog(self.estimate, self)
+        sub = self.main_window.mdi_area.addSubWindow(dialog)
+        sub.resize(500, 350)
+        if hasattr(self.main_window, '_apply_zoom_to_subwindow'):
+            self.main_window._apply_zoom_to_subwindow(sub)
+        sub.show()
 
     def change_base_currency(self, new_currency):
         if new_currency == self.estimate.currency:

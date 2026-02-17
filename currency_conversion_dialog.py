@@ -43,11 +43,26 @@ class CurrencyConversionDialog(QDialog):
 
         self.populate_table()
 
-        # Buttons
-        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
-        self.button_box.accepted.connect(self.save_rates)
-        self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
+        self.populate_table()
+        
+        # Connect table changes to state change signal if we had one
+        # For now, we'll just rely on the global save triggering save()
+        
+    def save(self):
+        self.save_rates()
+        # Find the parent windows to trigger a refresh and database save
+        p = self.parent()
+        while p:
+            if hasattr(p, 'refresh_view'):
+                p.refresh_view()
+                # Persist to database via parent's save method
+                if hasattr(p, 'save_estimate'):
+                    p.save_estimate()
+                elif hasattr(p, 'save_changes'):
+                    p.save_changes()
+                break
+            p = p.parent()
+        return True
 
     def get_used_currencies(self):
         """Finds all unique currencies used in the estimate tasks, excluding the base currency."""
@@ -122,5 +137,5 @@ class CurrencyConversionDialog(QDialog):
             new_rates[curr] = {'rate': rate, 'date': date_str, 'operator': operator}
         
         self.estimate.exchange_rates = new_rates
-        self.accept()
+        self.populate_table() # Refresh table to ensure values match internal state
 
