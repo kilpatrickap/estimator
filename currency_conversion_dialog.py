@@ -9,6 +9,7 @@ class CurrencyConversionDialog(QDialog):
     def __init__(self, estimate, parent=None):
         super().__init__(parent)
         self.estimate = estimate
+        self.creator = parent
         self.db_manager = DatabaseManager()
         self.setWindowTitle(f"Exchange Rates: {estimate.project_name}")
         self.setMinimumSize(500, 300)
@@ -50,12 +51,30 @@ class CurrencyConversionDialog(QDialog):
         
     def save(self):
         self.save_rates()
-        # Find the parent windows to trigger a refresh and database save
+        
+        from PyQt6.QtWidgets import QApplication
+        
+        # 1. Try creator reference first (robust for MDI)
+        if self.creator:
+            if hasattr(self.creator, 'refresh_view'):
+                self.creator.refresh_view()
+                QApplication.processEvents() # Force UI update before blocking Save dialog
+            
+            if hasattr(self.creator, 'save_estimate'):
+                self.creator.save_estimate()
+            elif hasattr(self.creator, 'save_changes'):
+                self.creator.save_changes()
+                
+            # Final refresh to be sure
+            if hasattr(self.creator, 'refresh_view'):
+                self.creator.refresh_view()
+            return True
+            
+        # 2. Fallback to parent traversal
         p = self.parent()
         while p:
             if hasattr(p, 'refresh_view'):
                 p.refresh_view()
-                # Persist to database via parent's save method
                 if hasattr(p, 'save_estimate'):
                     p.save_estimate()
                 elif hasattr(p, 'save_changes'):
