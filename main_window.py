@@ -373,6 +373,7 @@ class MainWindow(QMainWindow):
         dialog = DatabaseManagerDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
         dialog.stateChanged.connect(self._update_toolbar_state)
+        dialog.resourceUpdated.connect(self._broadcast_library_update)
         sub.resize(950, 650)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
@@ -397,6 +398,13 @@ class MainWindow(QMainWindow):
             self.mdi_area.setActiveSubWindow(db_sub)
             db_sub.widget().highlight_resource(table_name, resource_name)
         
+    def _broadcast_library_update(self, table, name, val, curr):
+        """Notifies all open rate windows about a resource update in the library."""
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if isinstance(widget, RateBuildUpDialog):
+                widget.handle_library_update(table, name, val, curr)
+
     def manage_rate_database(self):
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), RateManagerDialog):

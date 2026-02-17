@@ -36,6 +36,10 @@ class RateBuildUpDialog(QDialog):
         self.currency_symbol = match.group(1) if match else "$"
         
         self.is_loading = False
+        
+        # Track items updated by library changes for highlighting
+        self.impacted_resources = set() # Stores (type, name) tuples
+        
         self._init_ui()
         self.refresh_view()
         
@@ -502,6 +506,62 @@ class RateBuildUpDialog(QDialog):
                 item.setText(column, old_desc)
                 self.is_loading = False
 
+    def handle_library_update(self, table_name, resource_name, new_val, new_curr):
+        """Checks if this rate uses the updated resource and prompts to update."""
+        # Map table_name back to item_type
+        type_map = {
+            'materials': 'material',
+            'labor': 'labor',
+            'equipment': 'equipment',
+            'plant': 'plant',
+            'indirect_costs': 'indirect_costs'
+        }
+        item_type = type_map.get(table_name)
+        if not item_type: return
+
+        # Map item_type back to internal name keys (for matching)
+        name_key_map = {
+            'material': 'name',
+            'labor': 'trade',
+            'equipment': 'name',
+            'plant': 'name',
+            'indirect_costs': 'description'
+        }
+        name_key = name_key_map.get(item_type)
+        rate_key = 'price' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'rate')
+
+        affected_items = []
+        for task in self.estimate.tasks:
+            # Check corresponding list based on type
+            list_attr = table_name # materials, labor, etc happens to match
+            items = getattr(task, list_attr, [])
+            for item in items:
+                if item.get(name_key) == resource_name:
+                    # Check if actually different
+                    if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                        affected_items.append(item)
+
+        if affected_items:
+            reply = QMessageBox.question(self, "Library Resource Updated",
+                                       f"The resource '{resource_name}' was updated in the library.\n\n"
+                                       f"Rate {self.estimate.rate_code} uses this resource. Do you want to update it to the new rate and currency: {new_curr} {new_val:,.2f}?",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                       QMessageBox.StandardButton.Yes)
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self._save_state()
+                for item in affected_items:
+                    item[rate_key] = new_val
+                    if new_curr: item['currency'] = new_curr
+                    # Recalculate item total (depends on qty)
+                    qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
+                    item['total'] = item[qty_key] * new_val
+                
+                # Mark as impacted for highlighting
+                self.impacted_resources.add((item_type, resource_name))
+                self.refresh_view()
+                self.stateChanged.emit()
+
     def go_to_resource(self, item):
         """Navigates to the master resource in the main database."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
@@ -704,6 +764,19 @@ class RateBuildUpDialog(QDialog):
                     if label_prefix == 'Equipment': child.setForeground(1, Qt.GlobalColor.darkRed)
                     if label_prefix == 'Plant': child.setForeground(1, Qt.GlobalColor.darkYellow)
                     if label_prefix == 'Indirect': child.setForeground(1, Qt.GlobalColor.darkCyan)
+                    
+                    # Highlight if impacted by library change (Color Pink)
+                    if (type_code, item[name_key]) in self.impacted_resources:
+                        for c in range(self.tree.columnCount()):
+                            child.setBackground(c, Qt.GlobalColor.magenta) # Magenta/Pink
+                            child.setForeground(c, Qt.GlobalColor.white)
+                            # Slightly softer pink using HEX if possible? 
+                            # Let's use QColor for better aesthetic
+                            from PyQt6.QtGui import QColor
+                            soft_pink = QColor("#fce4ec") # Very light pink
+                            child.setBackground(c, soft_pink)
+                            child.setForeground(c, Qt.GlobalColor.black)
+
                     sub_idx += 1
 
         self.tree.expandAll()

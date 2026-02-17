@@ -12,6 +12,7 @@ from edit_item_dialog import EditItemDialog
 class DatabaseManagerDialog(QDialog):
     """Dialog for managing the global cost library (Materials, Labor, Equipment)."""
     stateChanged = pyqtSignal()
+    resourceUpdated = pyqtSignal(str, str, float, str) # table, name, new_val, currency
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -139,6 +140,11 @@ class DatabaseManagerDialog(QDialog):
         row = item.row()
         item_id = int(table.item(row, 0).text())
         
+        # Get currency from combo widget
+        currency = ""
+        combo = table.cellWidget(row, 3)
+        if combo: currency = combo.currentText()
+        
         # Prepare data for dialog
         price_key = 'price' if table_name == 'materials' else ('amount' if table_name == 'indirect_costs' else 'rate')
         current_val = float(item.text().replace(',', ''))
@@ -150,7 +156,7 @@ class DatabaseManagerDialog(QDialog):
             'formula': current_formula
         }
         
-        dialog = EditItemDialog(item_data, table_name, "GHS (₵)", parent=self, is_library=True)
+        dialog = EditItemDialog(item_data, table_name, currency, parent=self, is_library=True)
         if dialog.exec():
             new_val = item_data[price_key]
             new_formula = item_data.get('formula')
@@ -163,10 +169,11 @@ class DatabaseManagerDialog(QDialog):
             self.is_loading = True
             item.setText(f"{new_val:,.2f}")
             item.setData(Qt.ItemDataRole.UserRole, new_formula)
-            item.setText(f"{new_val:,.2f}")
-            item.setData(Qt.ItemDataRole.UserRole, new_formula)
             self.is_loading = False
             self.stateChanged.emit()
+            
+            # Emit broad update for Rate windows
+            self.resourceUpdated.emit(table_name, item_data['name'], new_val, currency)
 
     def on_item_changed(self, item, table_name):
         if self.is_loading: return
@@ -217,6 +224,18 @@ class DatabaseManagerDialog(QDialog):
 
         self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
         self.stateChanged.emit()
+        
+        # If name or price/rate changed, notify system
+        if col in [1, 4]:
+            name = table.item(row, 1).text()
+            # For rate, it might be in col 4
+            val = float(table.item(row, 4).text().replace(',', ''))
+            # Get currency from combo widget
+            curr = ""
+            combo = table.cellWidget(row, 3)
+            if combo: curr = combo.currentText()
+            
+            self.resourceUpdated.emit(table_name, name, val, curr)
 
     def show_context_menu(self, pos, table_name):
         table = self.tables[table_name]
