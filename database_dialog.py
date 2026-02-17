@@ -405,6 +405,30 @@ class DatabaseManagerDialog(QDialog):
         
         if QMessageBox.question(self, "Delete", f"Delete '{name}'?") == QMessageBox.StandardButton.Yes:
             self.db_manager.delete_item(table_name, item_id)
-            self.db_manager.delete_item(table_name, item_id)
             self.load_data(table_name)
             self.stateChanged.emit()
+
+    def highlight_resource(self, table_name, resource_name):
+        """Switches to the appropriate tab and highlights the specified resource."""
+        tab_idx = -1
+        for i, config in enumerate(self.tab_configs):
+            if config[1] == table_name:
+                tab_idx = i
+                break
+        
+        if tab_idx != -1:
+            self.tabs.setCurrentIndex(tab_idx)
+            table = self.tables[table_name]
+            
+            found = False
+            for row in range(table.rowCount()):
+                # Column 1 is always Name/Trade/Description
+                if table.item(row, 1).text() == resource_name:
+                    table.setRowHidden(row, False)
+                    table.selectRow(row)
+                    table.scrollToItem(table.item(row, 1))
+                    found = True
+                    break
+            
+            if not found:
+                QMessageBox.information(self, "Resource Not Found", f"Could not find '{resource_name}' in the {table_name} database.")

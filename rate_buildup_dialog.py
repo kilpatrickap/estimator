@@ -185,7 +185,13 @@ class RateBuildUpDialog(QDialog):
         self.stateChanged.emit()
 
     def show_context_menu(self, pos):
+        item = self.tree.itemAt(pos)
         menu = QMenu(self)
+        
+        if item and hasattr(item, 'item_type'):
+            go_to_action = menu.addAction("Go to Resource")
+            go_to_action.triggered.connect(lambda: self.go_to_resource(item))
+            menu.addSeparator()
         
         add_task_action = menu.addAction("Add Task")
         add_task_action.triggered.connect(self.add_task)
@@ -323,6 +329,36 @@ class RateBuildUpDialog(QDialog):
                     task_obj.indirect_costs.remove(rdata)
         
         self.refresh_view()
+
+    def go_to_resource(self, item):
+        """Navigates to the master resource in the main database."""
+        if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+            rtype = item.item_type
+            rdata = item.item_data
+            
+            # Map type to database table name
+            table_map = {
+                'material': 'materials',
+                'labor': 'labor',
+                'equipment': 'equipment',
+                'plant': 'plant',
+                'indirect_costs': 'indirect_costs'
+            }
+            table_name = table_map.get(rtype)
+            
+            # Get resource name using appropriate key for each type
+            name_key_map = {
+                'materials': 'name',
+                'labor': 'trade',
+                'equipment': 'name',
+                'plant': 'name',
+                'indirect_costs': 'description'
+            }
+            name_key = name_key_map.get(table_name)
+            resource_name = rdata.get(name_key)
+            
+            if self.main_window and table_name and resource_name:
+                self.main_window.show_resource_in_database(table_name, resource_name)
 
     def edit_item(self, item, column):
         """Opens the formula-based edit dialog for the double-clicked resource."""

@@ -375,6 +375,26 @@ class MainWindow(QMainWindow):
         sub.resize(800, 600)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
+
+    def show_resource_in_database(self, table_name, resource_name):
+        """Opens the cost database and highlights a specific resource."""
+        db_sub = None
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), DatabaseManagerDialog):
+                db_sub = sub
+                break
+        
+        if not db_sub:
+            self.manage_database()
+            # Find the newly created subwindow
+            for sub in self.mdi_area.subWindowList():
+                if isinstance(sub.widget(), DatabaseManagerDialog):
+                    db_sub = sub
+                    break
+        
+        if db_sub:
+            self.mdi_area.setActiveSubWindow(db_sub)
+            db_sub.widget().highlight_resource(table_name, resource_name)
         
     def manage_rate_database(self):
         for sub in self.mdi_area.subWindowList():
