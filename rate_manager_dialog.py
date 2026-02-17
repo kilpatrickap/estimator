@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, 
-                             QTableWidgetItem, QHeaderView, QLabel, QLineEdit, QPushButton, QWidget)
+                             QTableWidgetItem, QHeaderView, QLabel, QLineEdit, QPushButton, QWidget, QMenu, QMessageBox)
+from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 from database import DatabaseManager
 from rate_buildup_dialog import RateBuildUpDialog
@@ -11,7 +12,8 @@ class RateManagerDialog(QDialog):
         self.main_window = main_window
         self.setWindowTitle("Rate Database")
         self.setMinimumSize(850, 500)
-        self.db_manager = DatabaseManager()
+        self.db_manager = DatabaseManager("construction_rates.db")
+        self.is_loading = False
         
         self._init_ui()
         self.load_rates()
@@ -51,14 +53,22 @@ class RateManagerDialog(QDialog):
         header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch) # Description
         header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch) # Notes
         
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.AnyKeyPressed | 
+                                   QTableWidget.EditTrigger.EditKeyPressed | 
+                                   QTableWidget.EditTrigger.SelectedClicked)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setWordWrap(False)
         self.table.verticalHeader().setDefaultSectionSize(25)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
+        
         self.table.doubleClicked.connect(self.open_rate_buildup)
+        self.table.itemChanged.connect(self.on_item_changed)
+        
+        # Context Menu
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
         
         layout.addWidget(self.table)
 
@@ -66,6 +76,7 @@ class RateManagerDialog(QDialog):
 
     def load_rates(self):
         """Loads data from construction_rates.db into the table."""
+        self.is_loading = True
         rates = self.db_manager.get_rates_data()
         self.table.setRowCount(0)
         
@@ -100,11 +111,16 @@ class RateManagerDialog(QDialog):
                     item.setFont(font)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
+                # Freeze all columns except Rate Code and Description
+                if col_idx >= 2:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                
                 self.table.setItem(row_idx, col_idx, item)
         
         # Initial fit for non-stretched columns
         for i in [0, 2, 3, 4, 5, 6]:
             self.table.resizeColumnToContents(i)
+        self.is_loading = False
 
     def open_rate_buildup(self, index):
         """Loads and shows the build-up for the selected rate."""
@@ -125,6 +141,124 @@ class RateManagerDialog(QDialog):
     def filter_rates(self, text):
         query = text.lower()
         for row in range(self.table.rowCount()):
-            id_match = query in self.table.item(row, 0).text().lower()
-            desc_match = query in self.table.item(row, 1).text().lower()
-            self.table.setRowHidden(row, not (id_match or desc_match))
+            item0 = self.table.item(row, 0)
+            item1 = self.table.item(row, 1)
+            if item0 and item1:
+                id_match = query in item0.text().lower()
+                desc_match = query in item1.text().lower()
+                self.table.setRowHidden(row, not (id_match or desc_match))
+
+    def on_item_changed(self, item):
+        """Handles inline editing of Rate Code and Description."""
+        if self.is_loading:
+            return
+            
+        row = item.row()
+        col = item.column()
+        
+        # Only handle Rate Code (0) and Description (1)
+        if col not in [0, 1]:
+            return
+            
+        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if not db_id:
+            return
+            
+        new_val = item.text().strip()
+        field = "rate_code" if col == 0 else "project_name"
+        
+        if self.db_manager.update_estimate_field(db_id, field, new_val):
+            # If Rate Code was changed, we might need to update the UserRole storage if it was the first column, 
+            # but UserRole is on the item itself, so it's fine.
+            pass
+        else:
+            QMessageBox.warning(self, "Error", f"Failed to update {field} in database.")
+            # Revert UI? Better to just load_rates to be sure
+            self.load_rates()
+
+    def show_context_menu(self, pos):
+        """Shows the context menu for the rate table."""
+        menu = QMenu(self)
+        
+        new_action = QAction("New Rate", self)
+        new_action.triggered.connect(self.new_rate)
+        menu.addAction(new_action)
+        
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if selected_indexes:
+            edit_action = QAction("Edit Rate", self)
+            edit_action.triggered.connect(self.edit_rate)
+            menu.addAction(edit_action)
+            
+            menu.addSeparator()
+            
+            duplicate_action = QAction("Duplicate Rate", self)
+            duplicate_action.triggered.connect(self.duplicate_rate)
+            menu.addAction(duplicate_action)
+            
+            delete_action = QAction("Delete Rate", self)
+            delete_action.triggered.connect(self.delete_rate)
+            menu.addAction(delete_action)
+            
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
+    def edit_rate(self):
+        """Opens the build-up dialog for the selected rate."""
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if selected_indexes:
+            self.open_rate_buildup(selected_indexes[0])
+
+    def new_rate(self):
+        """Creates a new rate and opens the build-up dialog."""
+        from models import Estimate
+        from rate_buildup_dialog import RateBuildUpDialog
+        
+        new_est = Estimate("New Rate", "N/A", 15.0, 10.0)
+        new_est.category = "Miscellaneous"
+        new_est.rate_code = self.db_manager.generate_next_rate_code(new_est.category)
+        
+        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self)
+        dialog.dataCommitted.connect(self.load_rates)
+        dialog.exec()
+
+    def duplicate_rate(self):
+        """Duplicates the selected rate."""
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        row = selected_indexes[0].row()
+        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        
+        if db_id:
+            # Load full details to ensure we duplicate everything (tasks, items, etc.)
+            original_estimate = self.db_manager.load_estimate_details(db_id)
+            if original_estimate:
+                original_estimate.id = None
+                original_estimate.project_name = f"Copy of {original_estimate.project_name}"
+                # Generate a new unique rate code
+                category = getattr(original_estimate, 'category', "Miscellaneous")
+                original_estimate.rate_code = self.db_manager.generate_next_rate_code(category)
+                
+                if self.db_manager.save_estimate(original_estimate):
+                    self.load_rates()
+
+    def delete_rate(self):
+        """Deletes the selected rate after confirmation."""
+        selected_indexes = self.table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        row = selected_indexes[0].row()
+        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        rate_code = self.table.item(row, 0).text()
+        
+        if db_id:
+            reply = QMessageBox.question(self, 'Delete Rate',
+                                       f"Are you sure you want to delete Rate {rate_code}?",
+                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                       QMessageBox.StandardButton.No)
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                if self.db_manager.delete_estimate(db_id):
+                    self.load_rates()

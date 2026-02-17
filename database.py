@@ -837,6 +837,19 @@ class DatabaseManager:
         finally:
             conn.close()
 
+    def update_estimate_field(self, estimate_id, field, value):
+        """Updates a single field for a record in the estimates table."""
+        conn = self._get_connection()
+        try:
+            conn.cursor().execute(f"UPDATE estimates SET {field} = ? WHERE id = ?", (value, estimate_id))
+            conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Update Estimate Field Error: {e}")
+            return False
+        finally:
+            conn.close()
+
     def get_recent_estimates(self, limit=5):
         """Retrieves the N most recent estimates."""
         conn = self._get_connection()
