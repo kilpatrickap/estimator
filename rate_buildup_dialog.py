@@ -78,15 +78,15 @@ class RateBuildUpDialog(QDialog):
         h_layout.setContentsMargins(10, 5, 10, 5)
         h_layout.setSpacing(0)
         
-        title_label = QLabel(f"Build-up Details for {self.estimate.rate_code}")
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32; border: none;")
+        self.title_label = QLabel(f"{self.estimate.rate_code}")
+        self.title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32; border: none;")
         
-        h_layout.addWidget(title_label)
+        h_layout.addWidget(self.title_label)
 
         desc_status_layout = QHBoxLayout()
-        desc_label = QLabel(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
-        desc_label.setStyleSheet("font-size: 12px; color: #606266; border: none;")
-        desc_status_layout.addWidget(desc_label)
+        self.desc_label = QLabel(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
+        self.desc_label.setStyleSheet("font-size: 12px; color: blue; border: none;")
+        desc_status_layout.addWidget(self.desc_label)
         desc_status_layout.addStretch()
         
         self.status_badge = QLabel("BASE RATE")
@@ -213,7 +213,7 @@ class RateBuildUpDialog(QDialog):
                 border: 1px solid #c8e6c9; 
                 border-radius: 6px; 
                 background-color: #fffde7; 
-                color: blue;
+                color: #6a1b9a; 
                 padding: 10px;
             }
         """)
@@ -355,9 +355,7 @@ class RateBuildUpDialog(QDialog):
             return
         self._save_state()
         self.estimate.unit = new_unit
-        # Update the header label description dynamically
-        if hasattr(self, 'desc_label'):
-            self.desc_label.setText(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
+        self.refresh_view()
         self.stateChanged.emit()
 
     def change_category(self, new_category):
@@ -370,10 +368,6 @@ class RateBuildUpDialog(QDialog):
         # Generate new Rate Code based on the new category
         new_code = self.db_manager.generate_next_rate_code(new_category)
         self.estimate.rate_code = new_code
-        
-        # Update UI labels
-        if hasattr(self, 'title_label'):
-            self.title_label.setText(f"Build-up Details for {self.estimate.rate_code}")
         
         self.refresh_view()
         self.stateChanged.emit()
@@ -517,12 +511,14 @@ class RateBuildUpDialog(QDialog):
 
     def save_changes(self):
         """Saves the modified rate build-up back to the rates database."""
-        # Ensure we sync the latest adjustment factor from the UI before saving
+        # Sync latest notes from UI FIRST (before any potential refresh_view() calls)
+        self.estimate.notes = self.notes_input.toPlainText().strip()
+        
+        # Ensure we sync the latest adjustment factor and refresh other totals
         self._handle_factor_formatting()
         
         # Update timestamp to the current time of archiving/saving
         self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        self.estimate.notes = self.notes_input.toPlainText().strip()
         
         if self.db_manager.save_estimate(self.estimate):
             self.dataCommitted.emit()
@@ -599,6 +595,12 @@ class RateBuildUpDialog(QDialog):
         self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
         self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
         self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
+
+        # Update dynamic labels
+        if hasattr(self, 'desc_label'):
+            self.desc_label.setText(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
+        if hasattr(self, 'title_label'):
+            self.title_label.setText(f"{self.estimate.rate_code}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
