@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, 
                              QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QComboBox, QMenu, QFormLayout)
+                             QComboBox, QMenu, QFormLayout, QTextEdit, QSplitter, QWidget)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QDoubleValidator
 from database import DatabaseManager
@@ -25,7 +25,7 @@ class RateBuildUpDialog(QDialog):
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
-        self.setMinimumSize(500, 500)
+        self.setMinimumSize(550, 550)
         
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -37,6 +37,14 @@ class RateBuildUpDialog(QDialog):
         
         self._init_ui()
         self.refresh_view()
+        
+    def resizeEvent(self, event):
+        """Dynamic resizing logic for the notes section."""
+        super().resizeEvent(event)
+        # We allow full dynamic adjustment now via splitters, 
+        # but keep a reasonable base width to prevent accidental collapse
+        if hasattr(self, 'notes_widget'):
+            self.notes_widget.setMinimumWidth(int(self.rect().width() * 0.4))
 
     def _save_state(self):
         """Saves current estimate state to undo stack."""
@@ -117,6 +125,10 @@ class RateBuildUpDialog(QDialog):
         toolbar.addStretch()
         layout.addLayout(toolbar)
 
+        # Main Vertical Splitter for dynamic height management
+        self.main_v_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.main_v_splitter.setHandleWidth(8)
+        
         # Build-up Tree
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Ref", "Tasks", "Calculations", "Cost", "Net Rate", "Adjusted Net Rate"])
@@ -130,17 +142,64 @@ class RateBuildUpDialog(QDialog):
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
         
-        layout.addWidget(self.tree)
+        self.main_v_splitter.addWidget(self.tree)
 
-        # Summary Row (Build-up Totals)
-        summary_layout = QHBoxLayout()
-        summary_layout.addStretch()
+        # Summary Row (Build-up Totals & Notes)
+        self.summary_splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.summary_splitter.setHandleWidth(10) # Subtle handle
+        
+        # Notes Section (Bottom Left)
+        self.notes_widget = QWidget()
+        notes_container = QVBoxLayout(self.notes_widget)
+        notes_container.setContentsMargins(0, 0, 0, 0)
+        
+        self.notes_input = QTextEdit()
+        self.notes_input.setPlaceholderText("Enter Rates notes here...")
+        self.notes_input.setAcceptRichText(False)
+        self.notes_input.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        # Premium Light Yellow background for paper-like note taking
+        # Font size and family now inherit from window for consistency
+        self.notes_input.setStyleSheet("""
+            QTextEdit { 
+                border: 1px solid #c8e6c9; 
+                border-radius: 6px; 
+                background-color: #fffde7; 
+                color: blue;
+                padding: 10px;
+            }
+        """)
+        notes_container.addWidget(self.notes_input)
+        
+        # Collaborative constraints: Initial min width allows flexibility
+        self.notes_widget.setMinimumWidth(200) 
         
         totals_panel = QFrame()
-        totals_panel.setStyleSheet("background-color: #f1f8e9; border-radius: 4px; border: 1px solid #c8e6c9;")
+        totals_panel.setStyleSheet("background-color: #f1f8e9; border-radius: 6px; border: 1px solid #c8e6c9;")
         totals_layout = QFormLayout(totals_panel)
-        totals_layout.setContentsMargins(10, 5, 10, 5)
-        totals_layout.setSpacing(5)
+        totals_layout.setContentsMargins(15, 10, 15, 10)
+        totals_layout.setSpacing(8)
+        
+        self.summary_splitter.addWidget(self.notes_widget)
+        self.summary_splitter.addWidget(totals_panel)
+        self.summary_splitter.setStretchFactor(0, 1)
+        self.summary_splitter.setStretchFactor(1, 1)
+
+        # Container for the bottom part to ensure proper layout in the horizontal splitter
+        bottom_container = QWidget()
+        bottom_layout = QVBoxLayout(bottom_container)
+        bottom_layout.setContentsMargins(0, 5, 0, 0)
+        
+        notes_lbl = QLabel("Notes :")
+        notes_lbl.setStyleSheet("font-weight: bold; color: #444;")
+        bottom_layout.addWidget(notes_lbl)
+        
+        bottom_layout.addWidget(self.summary_splitter)
+        
+        self.main_v_splitter.addWidget(bottom_container)
+        self.main_v_splitter.setStretchFactor(0, 4) # Tree takes more height by default
+        self.main_v_splitter.setStretchFactor(1, 1) # Summary takes less but is adjustable
+        
+        layout.addWidget(self.main_v_splitter)
         
         self.subtotal_label = QLabel("0.00")
         self.overhead_label = QLabel("0.00")
@@ -161,8 +220,6 @@ class RateBuildUpDialog(QDialog):
         gross_rate_header.setStyleSheet("font-weight: bold;")
         totals_layout.addRow(gross_rate_header, self.total_label)
         
-        summary_layout.addWidget(totals_panel)
-        layout.addLayout(summary_layout)
 
     def _handle_factor_formatting(self):
         """Formats input to 2 decimal places and handles N/A placeholder logic."""
@@ -384,6 +441,7 @@ class RateBuildUpDialog(QDialog):
         """Saves the modified rate build-up back to the rates database."""
         # Update timestamp to the current time of archiving/saving
         self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        self.estimate.remarks = self.notes_input.toPlainText().strip()
         
         if self.db_manager.save_estimate(self.estimate):
             self.dataCommitted.emit()
@@ -418,6 +476,10 @@ class RateBuildUpDialog(QDialog):
         # Update Input if not focused
         if not self.adjstmt_factor_input.hasFocus():
              self.adjstmt_factor_input.setText(f"{adj_factor:.2f}" if is_adjusted else "N/A")
+
+        # Load Notes if not focused
+        if not self.notes_input.hasFocus():
+            self.notes_input.setPlainText(self.estimate.remarks or "")
 
         # Update labels based on adjustment
         if is_adjusted:

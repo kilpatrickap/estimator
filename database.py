@@ -44,8 +44,14 @@ class DatabaseManager:
             self._ensure_column(cursor, "estimates", "grand_total", "grand_total REAL DEFAULT 0.0")
             self._ensure_column(cursor, "estimates", "rate_id", "rate_id TEXT")
             self._ensure_column(cursor, "estimates", "unit", "unit TEXT")
-            self._ensure_column(cursor, "estimates", "remarks", "remarks TEXT")
+            self._ensure_column(cursor, "estimates", "notes", "notes TEXT")
             self._ensure_column(cursor, "estimates", "adjustment_factor", "adjustment_factor REAL DEFAULT 1.0")
+
+            # Data migration: Copy remarks to notes if remarks exists and notes is empty
+            cursor.execute("PRAGMA table_info(estimates)")
+            est_cols = [info['name'] for info in cursor.fetchall()]
+            if 'remarks' in est_cols:
+                cursor.execute("UPDATE estimates SET notes = remarks WHERE notes IS NULL OR notes = ''")
 
             # 2. Create 'settings' table
             cursor.execute('''
@@ -271,7 +277,7 @@ class DatabaseManager:
                 grand_total REAL DEFAULT 0.0,
                 rate_id TEXT,
                 unit TEXT,
-                remarks TEXT,
+                notes TEXT,
                 adjustment_factor REAL DEFAULT 1.0
             )
         ''')
