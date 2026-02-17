@@ -6,6 +6,28 @@ from datetime import datetime
 from models import Task, Estimate
 
 
+CATEGORY_PREFIXES = {
+    "Preliminaries": "PRLM",
+    "Earthworks": "ETWK",
+    "Concrete": "CONC",
+    "Formwork": "FMWK",
+    "Reinforcement": "RFMT",
+    "Structural Steelwork": "STLS",
+    "Blockwork": "WALL",
+    "Flooring": "FLRG",
+    "Doors & Windows": "DRWD",
+    "Plastering": "PLST",
+    "Painting": "PNTG",
+    "Roadwork & Fencing": "RDWK",
+    "Miscellaneous": "MISC",
+    "External Works": "EXWK",
+    "Mechanical Works": "MECH",
+    "Electrical Works": "ELEC",
+    "Plumbing Works": "PLBG",
+    "Heating/Ventilation & AirConditioning": "HVAC"
+}
+
+
 DB_FILE = "construction_costs.db"
 
 
@@ -42,7 +64,19 @@ class DatabaseManager:
         try:
             # 1. Update 'estimates' table
             self._ensure_column(cursor, "estimates", "grand_total", "grand_total REAL DEFAULT 0.0")
-            self._ensure_column(cursor, "estimates", "rate_id", "rate_id TEXT")
+            
+            # Legacy Rename: rate_id to rate_code
+            cursor.execute("PRAGMA table_info(estimates)")
+            cols = [info['name'] for info in cursor.fetchall()]
+            if 'rate_id' in cols and 'rate_code' not in cols:
+                try:
+                    cursor.execute("ALTER TABLE estimates RENAME COLUMN rate_id TO rate_code")
+                except:
+                    self._ensure_column(cursor, "estimates", "rate_code", "rate_code TEXT")
+                    cursor.execute("UPDATE estimates SET rate_code = rate_id")
+            else:
+                self._ensure_column(cursor, "estimates", "rate_code", "rate_code TEXT")
+                
             self._ensure_column(cursor, "estimates", "unit", "unit TEXT")
             self._ensure_column(cursor, "estimates", "notes", "notes TEXT")
             self._ensure_column(cursor, "estimates", "adjustment_factor", "adjustment_factor REAL DEFAULT 1.0")
@@ -276,7 +310,7 @@ class DatabaseManager:
                 currency TEXT,
                 date_created TEXT,
                 grand_total REAL DEFAULT 0.0,
-                rate_id TEXT,
+                rate_code TEXT,
                 unit TEXT,
                 notes TEXT,
                 adjustment_factor REAL DEFAULT 1.0,
@@ -534,13 +568,13 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_code = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, 
+                    estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, 
                     estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
@@ -549,13 +583,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, notes, adjustment_factor, category) 
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_code, unit, notes, adjustment_factor, category) 
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
+                    estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -638,13 +672,13 @@ class DatabaseManager:
                 unit=est_data['unit'] or "", notes=est_data['notes'] or ""
             )
             loaded_estimate.id = est_data['id']
-            # Defensive check for rate_id column
+            # Defensive check for rate_code column
             try:
-                loaded_estimate.rate_id = est_data['rate_id']
+                loaded_estimate.rate_code = est_data['rate_code']
                 loaded_estimate.adjustment_factor = est_data['adjustment_factor'] if est_data['adjustment_factor'] is not None else 1.0
                 loaded_estimate.category = est_data['category'] if 'category' in est_data.keys() and est_data['category'] is not None else ""
             except (IndexError, KeyError):
-                loaded_estimate.rate_id = None
+                loaded_estimate.rate_code = None
                 loaded_estimate.adjustment_factor = 1.0
                 loaded_estimate.category = ""
 
@@ -851,7 +885,7 @@ class DatabaseManager:
             conn.close()
 
     def convert_to_rate_db(self, estimate_obj):
-        """Copies an estimate to construction_rates.db and assigns a rate_ID."""
+        """Copies an estimate to construction_rates.db and assigns a Rate Code."""
         import copy
         rates_db_manager = DatabaseManager("construction_rates.db")
         
@@ -861,13 +895,66 @@ class DatabaseManager:
         # Archive with current timestamp
         rate_estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
-        # Determine the next rate_ID
-        count = rates_db_manager.get_total_estimates_count()
-        rate_estimate.rate_id = f"RATE-{count + 1:04d}"
+        # Use existing category if set, otherwise default to Miscellaneous
+        if not getattr(rate_estimate, 'category', ""):
+            rate_estimate.category = "Miscellaneous"
+            
+        rate_estimate.rate_code = rates_db_manager.generate_next_rate_code(rate_estimate.category)
         
         if rates_db_manager.save_estimate(rate_estimate):
-            return rate_estimate.rate_id
+            return rate_estimate.rate_code
         return None
+
+    def generate_next_rate_code(self, category):
+        """Generates the next available Rate Code for a given category (e.g., ETWK1A)."""
+        prefix = CATEGORY_PREFIXES.get(category, "MISC")
+        
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            # Find all rate_codes starting with the prefix
+            cursor.execute("SELECT rate_code FROM estimates WHERE rate_code LIKE ?", (f"{prefix}%",))
+            codes = [row['rate_code'] for row in cursor.fetchall()]
+        finally:
+            conn.close()
+            
+        if not codes:
+            return f"{prefix}1A"
+            
+        import re
+        # Pattern: Prefix + Numbers + Single Letter
+        pattern = re.compile(rf"^{re.escape(prefix)}(\d+)([A-Z])$")
+        
+        max_num = 0
+        max_letter = 'A'
+        
+        valid_found = False
+        for code in codes:
+            if not code: continue
+            match = pattern.match(code)
+            if match:
+                valid_found = True
+                num = int(match.group(1))
+                letter = match.group(2)
+                if num > max_num:
+                    max_num = num
+                    max_letter = letter
+                elif num == max_num:
+                    if letter > max_letter:
+                        max_letter = letter
+        
+        if not valid_found:
+            return f"{prefix}1A"
+            
+        # Increment logic: ETWK1A -> ETWK1B ... ETWK1Z -> ETWK2A
+        if max_letter == 'Z':
+            next_num = max_num + 1
+            next_letter = 'A'
+        else:
+            next_num = max_num
+            next_letter = chr(ord(max_letter) + 1)
+            
+        return f"{prefix}{next_num}{next_letter}"
 
     def get_rates_data(self):
         """Fetches all rates from construction_rates.db for the manager window."""
@@ -875,9 +962,9 @@ class DatabaseManager:
         conn = rates_db._get_connection()
         try:
             return conn.cursor().execute("""
-                SELECT id, rate_id, project_name, unit, currency, grand_total, adjustment_factor, date_created, notes 
+                SELECT id, rate_code, project_name, unit, currency, grand_total, adjustment_factor, date_created, notes 
                 FROM estimates 
-                ORDER BY rate_id DESC
+                ORDER BY rate_code DESC
             """).fetchall()
         finally:
             conn.close()

@@ -32,7 +32,7 @@ class RateManagerDialog(QDialog):
         header_layout.addStretch()
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("Search by Rate-ID or Description...")
+        self.search_input.setPlaceholderText("Search by Rate Code or Description...")
         self.search_input.setFixedWidth(400)
         self.search_input.textChanged.connect(self.filter_rates)
         header_layout.addWidget(self.search_input)
@@ -40,7 +40,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Rate-ID", "Description", "Unit", "Base Currency", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Gross Rate", "Adj. Factor", "Date", "Notes"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -74,7 +74,7 @@ class RateManagerDialog(QDialog):
             # data_to_display starts from index 1 (skip internal ID)
             for col_idx, data in enumerate(row_data[1:]):
                 # Row data indices (excluding lib-id at 0):
-                # 0: rate_id, 1: project_name, 2: unit, 3: currency, 4: grand_total, 5: adj_factor, 6: date, 7: notes
+                # 0: rate_code, 1: project_name, 2: unit, 3: currency, 4: grand_total, 5: adj_factor, 6: date, 7: notes
                 if col_idx == 4: # grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
                 elif col_idx == 5: # adjustment_factor

@@ -57,7 +57,7 @@ class Estimate:
     """Represents a project estimate with multiple tasks and global settings."""
     def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None, unit="", notes=""):
         self.id = None
-        self.rate_id = None
+        self.rate_code = None
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead

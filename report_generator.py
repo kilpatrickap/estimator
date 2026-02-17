@@ -138,7 +138,8 @@ class ReportGenerator:
             # 2. Meta Data Table
             meta_data = [
                 [f"Project: {self.estimate.project_name}", f"Date: {date_str}"],
-                [f"Client: {self.estimate.client_name}", f"Ref ID: #{self.estimate.id if self.estimate.id else 'New'}"]
+                [f"Client: {self.estimate.client_name}", 
+                 f"Rate Code: {self.estimate.rate_code}" if getattr(self.estimate, 'rate_code', None) else f"Ref ID: #{self.estimate.id if self.estimate.id else 'New'}"]
             ]
             meta_table = Table(meta_data, colWidths=[100*mm, 70*mm])
             meta_table.setStyle(TableStyle([

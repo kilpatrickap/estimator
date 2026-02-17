@@ -24,7 +24,7 @@ class RateBuildUpDialog(QDialog):
         self.estimate = estimate_object
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
-        self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
+        self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code}")
         self.setMinimumSize(726, 533)
         
         # Undo/Redo Stacks
@@ -78,7 +78,7 @@ class RateBuildUpDialog(QDialog):
         h_layout.setContentsMargins(10, 5, 10, 5)
         h_layout.setSpacing(0)
         
-        title_label = QLabel(f"Build-up Details for {self.estimate.rate_id}")
+        title_label = QLabel(f"Build-up Details for {self.estimate.rate_code}")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32; border: none;")
         
         h_layout.addWidget(title_label)
@@ -117,7 +117,7 @@ class RateBuildUpDialog(QDialog):
             "Structural Steelwork", "Blockwork", "Flooring", "Doors & Windows", 
             "Plastering", "Painting", "Roadwork & Fencing", "Miscellaneous", 
             "External Works", "Mechanical Works", "Electrical Works", 
-            "Plumbing Works", "Heating/Ventilation/AirConditioning"
+            "Plumbing Works", "Heating/Ventilation & AirConditioning"
         ]
         self.category_combo.addItems(self.categories)
         self.category_combo.currentTextChanged.connect(self.change_category)
@@ -361,11 +361,21 @@ class RateBuildUpDialog(QDialog):
         self.stateChanged.emit()
 
     def change_category(self, new_category):
-        """Updates the estimate's category."""
+        """Updates the estimate's category and refreshes the Rate Code."""
         if new_category == getattr(self.estimate, 'category', ""):
             return
         self._save_state()
         self.estimate.category = new_category
+        
+        # Generate new Rate Code based on the new category
+        new_code = self.db_manager.generate_next_rate_code(new_category)
+        self.estimate.rate_code = new_code
+        
+        # Update UI labels
+        if hasattr(self, 'title_label'):
+            self.title_label.setText(f"Build-up Details for {self.estimate.rate_code}")
+        
+        self.refresh_view()
         self.stateChanged.emit()
 
     def add_task(self):
@@ -577,12 +587,12 @@ class RateBuildUpDialog(QDialog):
         if factor_text != "N/A" and factor_text != "" and factor_text != "0.00":
             self.status_badge.setText("ADJUSTED RATE")
             self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: white; background-color: #673ab7; border: none; }")
-            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id} (ADJUSTED)")
+            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code} (ADJUSTED)")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
         else:
             self.status_badge.setText("BASE RATE")
             self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: #333; background-color: #fbc02d; border: none; }")
-            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
+            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code}")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Net Rates):")
 
         self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
