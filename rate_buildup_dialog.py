@@ -121,11 +121,10 @@ class RateBuildUpDialog(QDialog):
         ex_rate_btn = QPushButton("Exchange Rates")
         ex_rate_btn.clicked.connect(self.open_exchange_rates)
         toolbar.addWidget(ex_rate_btn)
+        toolbar.addStretch()
 
         # Adjustment Factor to Cost
         toolbar.addWidget(QLabel("Adjustment Factor:"))
-        self.adjstmt_factor_label = QLabel()
-        toolbar.addWidget(self.adjstmt_factor_label)
 
         self.adjstmt_factor_input = QLineEdit()
         self.adjstmt_factor_input.setFixedWidth(60)
@@ -140,7 +139,25 @@ class RateBuildUpDialog(QDialog):
         self.adjstmt_factor_input.editingFinished.connect(self._handle_factor_formatting)
         toolbar.addWidget(self.adjstmt_factor_input)
         
-        toolbar.addStretch()
+        # Unit Selection (Far Right, beneath capsule)
+        toolbar.addWidget(QLabel("Unit:"))
+        self.unit_combo = QComboBox()
+        self.units = ["m", "m2", "m3", "kg", "t", "Item"]
+        self.unit_combo.addItems(self.units)
+        self.unit_combo.setEditable(True) # Allow custom units too
+        self.unit_combo.setFixedWidth(80)
+        
+        # Set initial value if it exists in list, otherwise add and set
+        curr_unit = self.estimate.unit or "Item"
+        idx = self.unit_combo.findText(curr_unit)
+        if idx >= 0:
+            self.unit_combo.setCurrentIndex(idx)
+        else:
+            self.unit_combo.setEditText(curr_unit)
+            
+        self.unit_combo.currentTextChanged.connect(self.change_unit)
+        toolbar.addWidget(self.unit_combo)
+        
         layout.addLayout(toolbar)
 
         # Main Vertical Splitter for dynamic height management
@@ -318,6 +335,17 @@ class RateBuildUpDialog(QDialog):
         self.estimate.currency = new_currency
         self.refresh_view()
 
+    def change_unit(self, new_unit):
+        """Updates the estimate's unit and refreshes the display."""
+        if new_unit == self.estimate.unit:
+            return
+        self._save_state()
+        self.estimate.unit = new_unit
+        # Update the header label description dynamically
+        if hasattr(self, 'desc_label'):
+            self.desc_label.setText(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
+        self.stateChanged.emit()
+
     def add_task(self):
         desc, ok = QInputDialog.getText(self, "Add Task", "Task Description:")
         if ok and desc:
@@ -486,6 +514,16 @@ class RateBuildUpDialog(QDialog):
             self.currency_combo.blockSignals(True)
             self.currency_combo.setCurrentText(self.estimate.currency)
             self.currency_combo.blockSignals(False)
+            
+        if hasattr(self, 'unit_combo'):
+            self.unit_combo.blockSignals(True)
+            curr_unit = self.estimate.unit or "Item"
+            idx = self.unit_combo.findText(curr_unit)
+            if idx >= 0:
+                self.unit_combo.setCurrentIndex(idx)
+            else:
+                self.unit_combo.setEditText(curr_unit)
+            self.unit_combo.blockSignals(False)
             
         # Update Summary Labels
         totals = self.estimate.calculate_totals()

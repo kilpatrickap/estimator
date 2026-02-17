@@ -144,10 +144,24 @@ class EditItemDialog(QDialog):
         if not trimmed:
             return None
             
-        # Remove '=' and comments
-        term = text.split(';')[0]
-        if trimmed.startswith('='):
-            term = term.replace('=', '', 1)
+        # Check if it starts with '=' (Formula)
+        is_formula = trimmed.startswith('=')
+        
+        # Remove comments first (the part after semicolon or in quotes)
+        # We split by semicolon to handle notes
+        segment = text.split(';')[0]
+        
+        if not is_formula:
+            # For non-formula lines, we strictly only allow pure numbers.
+            # This prevents narrative text like "D4 Bulldozer" from being parsed as numbers.
+            try:
+                # Must be a valid float without any extra characters (semicolon already stripped)
+                return float(segment.strip())
+            except ValueError:
+                return None
+        
+        # If it is a formula, allow math and unit extraction
+        term = segment.replace('=', '', 1)
         term = re.sub(r'"[^"]*"', '', term) # Remove quoted comments
         
         # Normalize and sanitize
@@ -203,10 +217,10 @@ class EditItemDialog(QDialog):
                 val = self.parse_single_line(line)
                 if val is not None:
                     total += val
-                    has_formula = True
-                elif not has_formula and line.strip().replace('.','',1).isdigit():
-                    # Fallback for simple number if no formulas present at all
-                    total = float(line.strip())
+                    # Only mark as 'has_formula' to save the text if it's an explicit formula
+                    # or if there are multiple lines of input to preserve.
+                    if line.strip().startswith('=') or len(lines) > 1:
+                        has_formula = True
 
             # Update Item Data
             self.item_data[self.target_key] = total
