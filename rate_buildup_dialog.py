@@ -81,11 +81,29 @@ class RateBuildUpDialog(QDialog):
         title_label = QLabel(f"Build-up Details for {self.estimate.rate_id}")
         title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2e7d32; border: none;")
         
+        h_layout.addWidget(title_label)
+
+        desc_status_layout = QHBoxLayout()
         desc_label = QLabel(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
         desc_label.setStyleSheet("font-size: 12px; color: #606266; border: none;")
+        desc_status_layout.addWidget(desc_label)
+        desc_status_layout.addStretch()
         
-        h_layout.addWidget(title_label)
-        h_layout.addWidget(desc_label)
+        self.status_badge = QLabel("BASE RATE")
+        self.status_badge.setFixedSize(110, 24)
+        self.status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.status_badge.setStyleSheet("""
+            QLabel {
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: bold;
+                color: #333;
+                background-color: #fbc02d;
+                border: none;
+            }
+        """)
+        desc_status_layout.addWidget(self.status_badge)
+        h_layout.addLayout(desc_status_layout)
         layout.addWidget(header)
 
         # Toolbar Section
@@ -484,12 +502,17 @@ class RateBuildUpDialog(QDialog):
         if not self.notes_input.hasFocus():
             self.notes_input.setPlainText(self.estimate.notes or "")
 
-        # Update labels based on adjustment - logic matches user request
-        # We base this on both the value and the UI string to be 100% robust
+        # Update Dynamic Status Badge and Window Title
         factor_text = self.adjstmt_factor_input.text().strip().upper()
-        if factor_text != "N/A" and factor_text != "":
+        if factor_text != "N/A" and factor_text != "" and factor_text != "0.00":
+            self.status_badge.setText("ADJUSTED RATE")
+            self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: white; background-color: #673ab7; border: none; }")
+            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id} (ADJUSTED)")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
         else:
+            self.status_badge.setText("BASE RATE")
+            self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: #333; background-color: #fbc02d; border: none; }")
+            self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Net Rates):")
 
         self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
