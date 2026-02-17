@@ -65,6 +65,7 @@ class Estimate:
         self.currency = currency
         self.unit = unit
         self.remarks = remarks
+        self.adjustment_factor = 1.0
         
         if date:
             self.date = date if len(date) > 10 else f"{date} {datetime.now().strftime('%H:%M:%S')}"
@@ -103,6 +104,10 @@ class Estimate:
         for task in self.tasks:
             task_total = sum(self._get_item_total_in_base_currency(item) for item in task.all_items)
             subtotal += task_total
+
+        # Apply adjustment factor to subtotal
+        adj_factor = getattr(self, 'adjustment_factor', 1.0)
+        subtotal *= adj_factor
 
         overhead = subtotal * (self.overhead_percent / 100.0)
         # Profit is calculated on (Subtotal + Overhead)

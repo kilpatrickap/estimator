@@ -40,7 +40,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Rate-ID", "Description", "Unit", "Base Currency", "Rate", "Date", "Remarks"]
+        headers = ["Rate-ID", "Description", "Unit", "Base Currency", "Rate", "Adj. Factor", "Date", "Remarks"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -77,6 +77,12 @@ class RateManagerDialog(QDialog):
                 # 0: rate_id, 1: project_name, 2: unit, 3: currency, 4: grand_total, 5: date, 6: remarks
                 if col_idx == 4: # grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
+                elif col_idx == 5: # adjustment_factor
+                    try:
+                        val = float(data)
+                        display_text = f"{val:.2f}" if val != 1.0 else "N/A"
+                    except:
+                        display_text = "N/A"
                 else:
                     display_text = str(data) if data is not None else ""
                 
@@ -88,16 +94,16 @@ class RateManagerDialog(QDialog):
                     font.setBold(True)
                     item.setFont(font)
                 
-                if col_idx == 4: # Rate matches index 4 in loop
+                if col_idx in [4, 5]: # Rate and Adj Factor
                     font = item.font()
-                    font.setBold(True)
+                    font.setBold(True) if col_idx == 4 else None
                     item.setFont(font)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
                 self.table.setItem(row_idx, col_idx, item)
         
         # Initial fit for non-stretched columns
-        for i in [0, 2, 3, 5]:
+        for i in [0, 2, 3, 4, 5, 6]:
             self.table.resizeColumnToContents(i)
 
     def open_rate_buildup(self, index):

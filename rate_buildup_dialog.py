@@ -168,14 +168,18 @@ class RateBuildUpDialog(QDialog):
         try:
             if not text or text.upper() == "N/A":
                 self.adjstmt_factor_input.setText("N/A")
+                self.estimate.adjustment_factor = 1.0
             else:
                 val = float(text)
                 if val == 0.0:
                     self.adjstmt_factor_input.setText("N/A")
+                    self.estimate.adjustment_factor = 1.0
                 else:
                     self.adjstmt_factor_input.setText(f"{val:.2f}")
+                    self.estimate.adjustment_factor = val
         except ValueError:
             self.adjstmt_factor_input.setText("N/A")
+            self.estimate.adjustment_factor = 1.0
         
         self.refresh_view()
         self.stateChanged.emit()
@@ -364,35 +368,23 @@ class RateBuildUpDialog(QDialog):
         totals = self.estimate.calculate_totals()
         
         # Get adjustment factor
-        adj_factor = 1.0
-        adj_text = self.adjstmt_factor_input.text()
-        is_adjusted = False
-        try:
-            if adj_text and adj_text != "N/A":
-                adj_factor = float(adj_text)
-                is_adjusted = True
-        except ValueError:
-            adj_factor = 1.0
+        adj_factor = getattr(self.estimate, 'adjustment_factor', 1.0)
+        is_adjusted = (adj_factor != 1.0)
+        
+        # Update Input if not focused
+        if not self.adjstmt_factor_input.hasFocus():
+             self.adjstmt_factor_input.setText(f"{adj_factor:.2f}" if is_adjusted else "N/A")
 
         # Update labels based on adjustment
         if is_adjusted:
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
-            # Recalculate everything based on adjusted subtotal for consistency
-            adj_subtotal = totals['subtotal'] * adj_factor
-            adj_overhead = adj_subtotal * (self.estimate.overhead_percent / 100.0)
-            adj_profit = (adj_subtotal + adj_overhead) * (self.estimate.profit_margin_percent / 100.0)
-            adj_grand_total = adj_subtotal + adj_overhead + adj_profit
-            
-            self.subtotal_label.setText(f"{base_sym}{adj_subtotal:,.2f}")
-            self.overhead_label.setText(f"{base_sym}{adj_overhead:,.2f}")
-            self.profit_label.setText(f"{base_sym}{adj_profit:,.2f}")
-            self.total_label.setText(f"{base_sym}{adj_grand_total:,.2f}")
         else:
             self.subtotal_header_label.setText("Build-up Subtotal (Sum of Net Rates):")
-            self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
-            self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
-            self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
-            self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
+
+        self.subtotal_label.setText(f"{base_sym}{totals['subtotal']:,.2f}")
+        self.overhead_label.setText(f"{base_sym}{totals['overhead']:,.2f}")
+        self.profit_label.setText(f"{base_sym}{totals['profit']:,.2f}")
+        self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
 
         bold_font = self.tree.font()
         bold_font.setBold(True)
