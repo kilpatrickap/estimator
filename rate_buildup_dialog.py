@@ -157,7 +157,9 @@ class RateBuildUpDialog(QDialog):
         totals_layout.addRow(self.subtotal_header_label, self.subtotal_label)
         totals_layout.addRow(f"Overhead ({self.estimate.overhead_percent}%):", self.overhead_label)
         totals_layout.addRow(f"Profit ({self.estimate.profit_margin_percent}%):", self.profit_label)
-        totals_layout.addRow("TOTAL RATE:", self.total_label)
+        gross_rate_header = QLabel("Gross Rate:")
+        gross_rate_header.setStyleSheet("font-weight: bold;")
+        totals_layout.addRow(gross_rate_header, self.total_label)
         
         summary_layout.addWidget(totals_panel)
         layout.addLayout(summary_layout)
