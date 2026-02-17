@@ -203,7 +203,7 @@ class RateBuildUpDialog(QDialog):
         notes_container.setContentsMargins(0, 0, 0, 0)
         
         self.notes_input = QTextEdit()
-        self.notes_input.setPlaceholderText("Enter Rates notes here...")
+        self.notes_input.setPlaceholderText("Enter Rate's notes here...")
         self.notes_input.setAcceptRichText(False)
         self.notes_input.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         # Premium Light Yellow background for paper-like note taking
