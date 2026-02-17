@@ -39,6 +39,7 @@ class RateBuildUpDialog(QDialog):
         
         # Track items updated by library changes for highlighting
         self.impacted_resources = set() # Stores (type, name) tuples
+        self.show_impact_highlights = True
         
         self._init_ui()
         self.refresh_view()
@@ -333,6 +334,9 @@ class RateBuildUpDialog(QDialog):
         
         menu.addSeparator()
         
+        toggle_highlights_action = menu.addAction("Show/Hide Changes")
+        toggle_highlights_action.triggered.connect(self.toggle_highlights)
+        
         remove_action = menu.addAction("Remove Selected")
         remove_action.triggered.connect(self.remove_selected)
         
@@ -440,6 +444,11 @@ class RateBuildUpDialog(QDialog):
                         unit=selected_data.get('unit'), currency=selected_data['currency']
                     )
                 self.refresh_view()
+
+    def toggle_highlights(self):
+        """Toggles the visibility of library-sync highlights."""
+        self.show_impact_highlights = not self.show_impact_highlights
+        self.refresh_view()
 
     def remove_selected(self):
         item = self.tree.currentItem()
@@ -766,12 +775,8 @@ class RateBuildUpDialog(QDialog):
                     if label_prefix == 'Indirect': child.setForeground(1, Qt.GlobalColor.darkCyan)
                     
                     # Highlight if impacted by library change (Color Pink)
-                    if (type_code, item[name_key]) in self.impacted_resources:
+                    if self.show_impact_highlights and (type_code, item[name_key]) in self.impacted_resources:
                         for c in range(self.tree.columnCount()):
-                            child.setBackground(c, Qt.GlobalColor.magenta) # Magenta/Pink
-                            child.setForeground(c, Qt.GlobalColor.white)
-                            # Slightly softer pink using HEX if possible? 
-                            # Let's use QColor for better aesthetic
                             from PyQt6.QtGui import QColor
                             soft_pink = QColor("#fce4ec") # Very light pink
                             child.setBackground(c, soft_pink)
