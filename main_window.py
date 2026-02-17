@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         buildup_win.dataCommitted.connect(refresh_manager)
-        sub.resize(636, 605)
+        sub.resize(800, 576)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
@@ -373,7 +373,7 @@ class MainWindow(QMainWindow):
         dialog = DatabaseManagerDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
         dialog.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(800, 600)
+        sub.resize(950, 650)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
@@ -448,6 +448,10 @@ class MainWindow(QMainWindow):
             min_w = int(widget.minimumWidth() * ratio)
             min_h = int(widget.minimumHeight() * ratio)
             widget.setMinimumSize(min_w, min_h)
+            
+            # Ensure subwindow is large enough to contain the scaled widget (with padding for title bar/borders)
+            new_w = max(new_w, min_w + 30)
+            new_h = max(new_h, min_h + 50)
         
         sub.resize(new_w, new_h)
 

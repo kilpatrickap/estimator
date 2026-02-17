@@ -46,6 +46,7 @@ class DatabaseManager:
             self._ensure_column(cursor, "estimates", "unit", "unit TEXT")
             self._ensure_column(cursor, "estimates", "notes", "notes TEXT")
             self._ensure_column(cursor, "estimates", "adjustment_factor", "adjustment_factor REAL DEFAULT 1.0")
+            self._ensure_column(cursor, "estimates", "category", "category TEXT")
 
             # Data migration: Copy remarks to notes if remarks exists and notes is empty
             cursor.execute("PRAGMA table_info(estimates)")
@@ -278,7 +279,8 @@ class DatabaseManager:
                 rate_id TEXT,
                 unit TEXT,
                 notes TEXT,
-                adjustment_factor REAL DEFAULT 1.0
+                adjustment_factor REAL DEFAULT 1.0,
+                category TEXT
             )
         ''')
         cursor.execute('''
@@ -532,14 +534,14 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, notes = ?, adjustment_factor = ?
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, rate_id = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
                     estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, 
-                    estimate_obj.adjustment_factor, estimate_obj.id
+                    estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
                 # Wipe tasks to rebuild tree (simplest way to handle hierarchy changes)
@@ -547,13 +549,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, notes, adjustment_factor) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, rate_id, unit, notes, adjustment_factor, category) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, 
-                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor
+                    estimate_obj.rate_id, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -640,9 +642,11 @@ class DatabaseManager:
             try:
                 loaded_estimate.rate_id = est_data['rate_id']
                 loaded_estimate.adjustment_factor = est_data['adjustment_factor'] if est_data['adjustment_factor'] is not None else 1.0
+                loaded_estimate.category = est_data['category'] if 'category' in est_data.keys() and est_data['category'] is not None else ""
             except (IndexError, KeyError):
                 loaded_estimate.rate_id = None
                 loaded_estimate.adjustment_factor = 1.0
+                loaded_estimate.category = ""
 
             cursor.execute("SELECT * FROM tasks WHERE estimate_id = ?", (estimate_id,))
             tasks_data = cursor.fetchall()

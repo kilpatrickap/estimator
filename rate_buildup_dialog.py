@@ -25,7 +25,7 @@ class RateBuildUpDialog(QDialog):
         self.main_window = main_window
         self.db_manager = DatabaseManager("construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_id}")
-        self.setMinimumSize(550, 550)
+        self.setMinimumSize(726, 533)
         
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -108,6 +108,20 @@ class RateBuildUpDialog(QDialog):
 
         # Toolbar Section
         toolbar = QHBoxLayout()
+
+        # Category Selector (Far Left)
+        toolbar.addWidget(QLabel("Category:"))
+        self.category_combo = QComboBox()
+        self.categories = [
+            "Preliminaries", "Earthworks", "Concrete", "Formwork", "Reinforcement", 
+            "Structural Steelwork", "Blockwork", "Flooring", "Doors & Windows", 
+            "Plastering", "Painting", "Roadwork & Fencing", "Miscellaneous", 
+            "External Works", "Mechanical Works", "Electrical Works", 
+            "Plumbing Works", "Heating/Ventilation/AirConditioning"
+        ]
+        self.category_combo.addItems(self.categories)
+        self.category_combo.currentTextChanged.connect(self.change_category)
+        toolbar.addWidget(self.category_combo)
         
         # Base Currency Selector
         toolbar.addWidget(QLabel("Base Currency:"))
@@ -346,6 +360,14 @@ class RateBuildUpDialog(QDialog):
             self.desc_label.setText(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
         self.stateChanged.emit()
 
+    def change_category(self, new_category):
+        """Updates the estimate's category."""
+        if new_category == getattr(self.estimate, 'category', ""):
+            return
+        self._save_state()
+        self.estimate.category = new_category
+        self.stateChanged.emit()
+
     def add_task(self):
         desc, ok = QInputDialog.getText(self, "Add Task", "Task Description:")
         if ok and desc:
@@ -524,6 +546,16 @@ class RateBuildUpDialog(QDialog):
             else:
                 self.unit_combo.setEditText(curr_unit)
             self.unit_combo.blockSignals(False)
+            
+        if hasattr(self, 'category_combo'):
+            self.category_combo.blockSignals(True)
+            curr_cat = getattr(self.estimate, 'category', "")
+            idx = self.category_combo.findText(curr_cat)
+            if idx >= 0:
+                self.category_combo.setCurrentIndex(idx)
+            else:
+                self.category_combo.setCurrentIndex(-1) # Or keep first if new
+            self.category_combo.blockSignals(False)
             
         # Update Summary Labels
         totals = self.estimate.calculate_totals()

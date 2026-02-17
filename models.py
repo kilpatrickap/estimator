@@ -66,6 +66,7 @@ class Estimate:
         self.unit = unit
         self.notes = notes
         self.adjustment_factor = 1.0
+        self.category = ""
         
         if date:
             self.date = date if len(date) > 10 else f"{date} {datetime.now().strftime('%H:%M:%S')}"
