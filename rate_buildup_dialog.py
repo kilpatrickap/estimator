@@ -1,7 +1,8 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTreeWidget, 
                              QTreeWidgetItem, QHeaderView, QLabel, QFrame, QPushButton,
                              QInputDialog, QMessageBox, QLineEdit, QTableWidget, QTableWidgetItem,
-                             QComboBox, QMenu, QFormLayout, QTextEdit, QSplitter, QWidget)
+                             QComboBox, QMenu, QFormLayout, QTextEdit, QSplitter, QWidget,
+                             QRadioButton, QButtonGroup)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QDoubleValidator
 from database import DatabaseManager
@@ -118,38 +119,75 @@ class RateBuildUpDialog(QDialog):
         self.desc_input.installEventFilter(self)
         desc_status_layout.addWidget(self.desc_input, 1) # Stretch factor 1
 
-        # Unit label on the right - Transformed into a highlight box
-        self.unit_info_label = QLabel(self.estimate.unit or "N/A")
-        self.unit_info_label.setToolTip("Project Unit")
-        self.unit_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.unit_info_label.setStyleSheet("""
-            QLabel {
-                font-size: 28px; 
-                font-weight: bold; 
-                color: #1565c0; 
-                background-color: #e3f2fd; 
-                border: 2px solid #90caf9; 
-                border-radius: 8px; 
-                padding: 2px 15px;
-                min-width: 80px;
+        # Vertical Column 1: Unified Capsules (Toggle, Status, Unit)
+        unit_status_column = QVBoxLayout()
+        unit_status_column.setSpacing(4)
+        
+        # 1. Rate Type Toggle Capsule
+        self.toggle_frame = QFrame()
+        self.toggle_frame.setFixedSize(110, 22)
+        self.toggle_frame.setStyleSheet("""
+            QFrame {
+                background-color: #333;
+                border: 1px solid #00c896;
+                border-radius: 11px;
             }
         """)
-        desc_status_layout.addWidget(self.unit_info_label)
+        toggle_layout = QHBoxLayout(self.toggle_frame)
+        toggle_layout.setContentsMargins(1, 1, 1, 1)
+        toggle_layout.setSpacing(0)
         
+        self.simple_rate_btn = QPushButton("Simple")
+        self.composite_rate_btn = QPushButton("Composite")
+        self.simple_rate_btn.setCheckable(True)
+        self.composite_rate_btn.setCheckable(True)
+        self.simple_rate_btn.setChecked(True)
+        
+        self.rate_type_group = QButtonGroup(self)
+        self.rate_type_group.addButton(self.simple_rate_btn)
+        self.rate_type_group.addButton(self.composite_rate_btn)
+        self.rate_type_group.setExclusive(True)
+        
+        self.simple_rate_btn.clicked.connect(self._update_rate_type_style)
+        self.composite_rate_btn.clicked.connect(self._update_rate_type_style)
+        
+        toggle_layout.addWidget(self.simple_rate_btn)
+        toggle_layout.addWidget(self.composite_rate_btn)
+        unit_status_column.addWidget(self.toggle_frame, alignment=Qt.AlignmentFlag.AlignCenter)
+        self._update_rate_type_style()
+
+        # 2. Status Badge Capsule
         self.status_badge = QLabel("BASE RATE")
-        self.status_badge.setFixedSize(110, 24)
+        self.status_badge.setFixedSize(110, 22)
         self.status_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.status_badge.setStyleSheet("""
             QLabel {
-                border-radius: 12px;
-                font-size: 10px;
+                border-radius: 11px;
+                font-size: 8px;
                 font-weight: bold;
                 color: #333;
                 background-color: #fbc02d;
                 border: none;
             }
         """)
-        desc_status_layout.addWidget(self.status_badge)
+        unit_status_column.addWidget(self.status_badge, alignment=Qt.AlignmentFlag.AlignCenter)
+
+        # 3. Unit Capsule
+        self.unit_info_label = QLabel(self.estimate.unit or "N/A")
+        self.unit_info_label.setFixedSize(110, 22)
+        self.unit_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_info_label.setStyleSheet("""
+            QLabel {
+                font-size: 11px; 
+                font-weight: bold; 
+                color: #1565c0; 
+                background-color: #e3f2fd; 
+                border: 1px solid #90caf9; 
+                border-radius: 11px; 
+            }
+        """)
+        unit_status_column.addWidget(self.unit_info_label, alignment=Qt.AlignmentFlag.AlignCenter)
+        desc_status_layout.addLayout(unit_status_column)
         h_layout.addLayout(desc_status_layout)
         layout.addWidget(header)
 
@@ -317,6 +355,40 @@ class RateBuildUpDialog(QDialog):
         gross_rate_header.setStyleSheet("font-weight: bold;")
         totals_layout.addRow(gross_rate_header, self.total_label)
         
+
+    def _update_rate_type_style(self):
+        """Updates the visual style of the toggle buttons based on selection."""
+        active_style = """
+            QPushButton { 
+                background-color: #00c896; 
+                color: #1a1a1a; 
+                border: none; 
+                border-radius: 10px; 
+                font-weight: bold; 
+                font-size: 9px; 
+                padding: 1px;
+            }
+        """
+        inactive_style = """
+            QPushButton { 
+                background-color: transparent; 
+                color: #00c896; 
+                border: none; 
+                font-weight: bold; 
+                font-size: 9px; 
+                padding: 1px;
+            }
+            QPushButton:hover {
+                color: white;
+            }
+        """
+        
+        if self.simple_rate_btn.isChecked():
+            self.simple_rate_btn.setStyleSheet(active_style)
+            self.composite_rate_btn.setStyleSheet(inactive_style)
+        else:
+            self.simple_rate_btn.setStyleSheet(inactive_style)
+            self.composite_rate_btn.setStyleSheet(active_style)
 
     def _handle_factor_formatting(self):
         """Formats input to 2 decimal places and handles N/A placeholder logic."""
@@ -746,12 +818,12 @@ class RateBuildUpDialog(QDialog):
         factor_text = self.adjstmt_factor_input.text().strip().upper()
         if factor_text != "N/A" and factor_text != "" and factor_text != "0.00":
             self.status_badge.setText("ADJUSTED RATE")
-            self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: white; background-color: #673ab7; border: none; }")
+            self.status_badge.setStyleSheet("QLabel { border-radius: 11px; font-size: 8px; font-weight: bold; color: white; background-color: #673ab7; border: none; }")
             self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code} (ADJUSTED)")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Adjusted Net Rates):")
         else:
             self.status_badge.setText("BASE RATE")
-            self.status_badge.setStyleSheet("QLabel { border-radius: 12px; font-size: 10px; font-weight: bold; color: #333; background-color: #fbc02d; border: none; }")
+            self.status_badge.setStyleSheet("QLabel { border-radius: 11px; font-size: 8px; font-weight: bold; color: #333; background-color: #fbc02d; border: none; }")
             self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code}")
             self.subtotal_header_label.setText("Build-up Sub-Total (Sum of Net Rates):")
 
