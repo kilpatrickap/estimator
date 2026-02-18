@@ -980,7 +980,7 @@ class DatabaseManager:
             return conn.cursor().execute("""
                 SELECT id, rate_code, project_name, unit, currency, net_total, grand_total, adjustment_factor, date_created, notes 
                 FROM estimates 
-                ORDER BY rate_code DESC
+                ORDER BY rate_code ASC
             """).fetchall()
         finally:
             conn.close()

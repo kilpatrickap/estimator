@@ -52,6 +52,12 @@ class RateBuildUpDialog(QDialog):
         if hasattr(self, 'notes_widget'):
             self.notes_widget.setMinimumWidth(int(self.rect().width() * 0.4))
 
+    def eventFilter(self, obj, event):
+        from PyQt6.QtCore import QEvent
+        if obj == self.desc_input and event.type() == QEvent.Type.FocusOut:
+            self.on_description_edited()
+        return super().eventFilter(obj, event)
+
     def _save_state(self):
         """Saves current estimate state to undo stack."""
         self.undo_stack.append(copy.deepcopy(self.estimate))
@@ -90,10 +96,45 @@ class RateBuildUpDialog(QDialog):
         h_layout.addWidget(self.title_label)
 
         desc_status_layout = QHBoxLayout()
-        self.desc_label = QLabel(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
-        self.desc_label.setStyleSheet("font-size: 12px; color: blue; border: none;")
-        desc_status_layout.addWidget(self.desc_label)
-        desc_status_layout.addStretch()
+        desc_status_layout.setSpacing(10)
+        
+        self.desc_input = QTextEdit(self.estimate.project_name)
+        self.desc_input.setFixedHeight(60) # Height for ~3 lines
+        self.desc_input.setTabChangesFocus(True)
+        self.desc_input.setAcceptRichText(False)
+        self.desc_input.setStyleSheet("""
+            QTextEdit {
+                font-size: 14px; 
+                font-weight: bold; 
+                color: blue; 
+                border: 1px solid #ccc; 
+                border-radius: 4px; 
+                padding: 4px;
+                background-color: white;
+            }
+        """)
+        
+        # Save on focus out
+        self.desc_input.installEventFilter(self)
+        desc_status_layout.addWidget(self.desc_input, 1) # Stretch factor 1
+
+        # Unit label on the right - Transformed into a highlight box
+        self.unit_info_label = QLabel(self.estimate.unit or "N/A")
+        self.unit_info_label.setToolTip("Project Unit")
+        self.unit_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.unit_info_label.setStyleSheet("""
+            QLabel {
+                font-size: 28px; 
+                font-weight: bold; 
+                color: #1565c0; 
+                background-color: #e3f2fd; 
+                border: 2px solid #90caf9; 
+                border-radius: 8px; 
+                padding: 2px 15px;
+                min-width: 80px;
+            }
+        """)
+        desc_status_layout.addWidget(self.unit_info_label)
         
         self.status_badge = QLabel("BASE RATE")
         self.status_badge.setFixedSize(110, 24)
@@ -383,8 +424,18 @@ class RateBuildUpDialog(QDialog):
         new_code = self.db_manager.generate_next_rate_code(new_category)
         self.estimate.rate_code = new_code
         
+        self.save_changes(show_message=False)
         self.refresh_view()
         self.stateChanged.emit()
+
+    def on_description_edited(self):
+        """Handles manual editing of the main Rate Description."""
+        new_desc = self.desc_input.toPlainText().strip()
+        if new_desc and new_desc != self.estimate.project_name:
+            self._save_state()
+            self.estimate.project_name = new_desc
+            self.save_changes(show_message=False)
+            self.refresh_view()
 
     def add_task(self):
         desc, ok = QInputDialog.getText(self, "Add Task", "Task Description:")
@@ -508,6 +559,7 @@ class RateBuildUpDialog(QDialog):
                 self._save_state()
                 self.estimate.tasks[task_idx].description = new_desc
                 # Refresh to ensure styling and other labels are correct
+                self.save_changes(show_message=False)
                 self.refresh_view()
             elif not new_desc:
                 # Revert if empty
@@ -613,7 +665,7 @@ class RateBuildUpDialog(QDialog):
                      self.refresh_view()
                      self.stateChanged.emit()
 
-    def save_changes(self):
+    def save_changes(self, show_message=True):
         """Saves the modified rate build-up back to the rates database."""
         # Sync latest notes from UI FIRST (before any potential refresh_view() calls)
         self.estimate.notes = self.notes_input.toPlainText().strip()
@@ -626,11 +678,18 @@ class RateBuildUpDialog(QDialog):
         
         if self.db_manager.save_estimate(self.estimate):
             self.dataCommitted.emit()
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.information(self, "Success", "Rate build-up updated successfully.")
+            if show_message:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.information(self, "Success", "Rate build-up updated successfully.")
         else:
-            from PyQt6.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "Error", "Failed to save changes.")
+            if show_message:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "Error", "Failed to save changes.")
+
+    def closeEvent(self, event):
+        """Automatically save changes when the window is closed."""
+        self.save_changes(show_message=False)
+        super().closeEvent(event)
 
     def refresh_view(self):
         self.is_loading = True
@@ -702,8 +761,10 @@ class RateBuildUpDialog(QDialog):
         self.total_label.setText(f"{base_sym}{totals['grand_total']:,.2f}")
 
         # Update dynamic labels
-        if hasattr(self, 'desc_label'):
-            self.desc_label.setText(f"{self.estimate.project_name} (Unit: {self.estimate.unit or 'N/A'})")
+        if hasattr(self, 'desc_input') and not self.desc_input.hasFocus():
+            self.desc_input.setPlainText(self.estimate.project_name)
+        if hasattr(self, 'unit_info_label'):
+            self.unit_info_label.setText(self.estimate.unit or "N/A")
         if hasattr(self, 'title_label'):
             self.title_label.setText(f"{self.estimate.rate_code}")
 

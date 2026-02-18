@@ -1,9 +1,52 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QTableWidget, 
-                             QTableWidgetItem, QHeaderView, QLabel, QLineEdit, QPushButton, QWidget, QMenu, QMessageBox)
+                             QTableWidgetItem, QHeaderView, QLabel, QLineEdit, QPushButton, QWidget, QMenu, QMessageBox, QFormLayout, QComboBox)
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt
 from database import DatabaseManager
 from rate_buildup_dialog import RateBuildUpDialog
+
+class NewRateDialog(QDialog):
+    def __init__(self, categories, units, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("New Rate Details")
+        self.setMinimumWidth(400)
+        layout = QVBoxLayout(self)
+        
+        form = QFormLayout()
+        self.desc_input = QLineEdit()
+        self.desc_input.setPlaceholderText("e.g. Excavation in topsoil...")
+        
+        self.unit_combo = QComboBox()
+        self.unit_combo.setEditable(True)
+        self.unit_combo.addItems(units)
+        
+        self.category_combo = QComboBox()
+        self.category_combo.addItems(categories)
+        
+        form.addRow("Description:", self.desc_input)
+        form.addRow("Unit:", self.unit_combo)
+        form.addRow("Category:", self.category_combo)
+        layout.addLayout(form)
+        
+        btns = QHBoxLayout()
+        save_btn = QPushButton("Save & Continue")
+        save_btn.setStyleSheet("background-color: #2e7d32; color: white; padding: 6px; font-weight: bold;")
+        save_btn.clicked.connect(self.accept)
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        
+        btns.addStretch()
+        btns.addWidget(cancel_btn)
+        btns.addWidget(save_btn)
+        layout.addLayout(btns)
+
+    def get_data(self):
+        return {
+            "description": self.desc_input.text().strip(),
+            "unit": self.unit_combo.currentText().strip(),
+            "category": self.category_combo.currentText()
+        }
 
 class RateManagerDialog(QDialog):
     """Dialog for viewing and managing saved rates in construction_rates.db."""
@@ -215,13 +258,34 @@ class RateManagerDialog(QDialog):
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
         
-        new_est = Estimate("New Rate", "N/A", 15.0, 10.0)
-        new_est.category = "Miscellaneous"
-        new_est.rate_code = self.db_manager.generate_next_rate_code(new_est.category)
+        # Standard Categories and Units
+        categories = [
+            "Preliminaries", "Earthworks", "Concrete", "Formwork", "Reinforcement", 
+            "Structural Steelwork", "Blockwork", "Flooring", "Doors & Windows", 
+            "Plastering", "Painting", "Roadwork & Fencing", "Miscellaneous", 
+            "External Works", "Mechanical Works", "Electrical Works", 
+            "Plumbing Works", "Heating/Ventilation & AirConditioning"
+        ]
+        units = ["m", "m2", "m3", "kg", "t", "Item", "nr", "sum"]
         
-        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self)
-        dialog.dataCommitted.connect(self.load_rates)
-        dialog.exec()
+        details_dialog = NewRateDialog(categories, units, self)
+        if details_dialog.exec():
+            data = details_dialog.get_data()
+            if not data["description"]:
+                QMessageBox.warning(self, "Invalid Input", "Description is required.")
+                return
+                
+            new_est = Estimate(data["description"], data["unit"], 15.0, 10.0)
+            new_est.category = data["category"]
+            new_est.rate_code = self.db_manager.generate_next_rate_code(new_est.category)
+            
+            # Save it to database immediately as requested (or upon closing/Global Save?)-
+            # The request says: "ask the user ... and window is closed or Global Save button is clicked, Save it"
+            # This implies the RateBuildUpDialog will handle the saving.
+            
+            dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self)
+            dialog.dataCommitted.connect(self.load_rates)
+            dialog.exec()
 
     def duplicate_rate(self):
         """Duplicates the selected rate."""
