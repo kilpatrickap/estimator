@@ -620,11 +620,13 @@ class DatabaseManager:
                                (estimate_id, curr, data['rate'], data['date'], op))
             
             # Save Sub-Rates (linking composite rates to their sub-rates)
-            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
+            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, quantity REAL DEFAULT 1.0, formula TEXT, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
             cursor.execute("DELETE FROM estimate_sub_rates WHERE estimate_id = ?", (estimate_id,))
             for sub_rate in estimate_obj.sub_rates:
                 if sub_rate.id:
-                    cursor.execute("INSERT INTO estimate_sub_rates (estimate_id, sub_rate_id) VALUES (?, ?)", (estimate_id, sub_rate.id))
+                    qty = getattr(sub_rate, 'quantity', 1.0)
+                    formula = getattr(sub_rate, 'formula', None)
+                    cursor.execute("INSERT INTO estimate_sub_rates (estimate_id, sub_rate_id, quantity, formula) VALUES (?, ?, ?, ?)", (estimate_id, sub_rate.id, qty, formula))
             
             conn.commit()
             return True
@@ -798,13 +800,19 @@ class DatabaseManager:
 
             # Load Sub-Rates
             loaded_estimate.sub_rates = []
-            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
-            cursor.execute("SELECT sub_rate_id FROM estimate_sub_rates WHERE estimate_id = ?", (estimate_id,))
+            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, quantity REAL DEFAULT 1.0, formula TEXT, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
+            self._ensure_column(cursor, "estimate_sub_rates", "quantity", "quantity REAL DEFAULT 1.0")
+            self._ensure_column(cursor, "estimate_sub_rates", "formula", "formula TEXT")
+            
+            cursor.execute("SELECT sub_rate_id, quantity, formula FROM estimate_sub_rates WHERE estimate_id = ?", (estimate_id,))
             sub_rate_rows = cursor.fetchall()
             for row in sub_rate_rows:
                 sub_rate_id = row['sub_rate_id']
                 sub_rate = self.load_estimate_details(sub_rate_id)
                 if sub_rate:
+                    # Determine quantity/formula safely from sqlite row
+                    sub_rate.quantity = row['quantity'] if row['quantity'] is not None else 1.0
+                    sub_rate.formula = row['formula']
                     loaded_estimate.add_sub_rate(sub_rate)
 
             return loaded_estimate

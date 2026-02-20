@@ -121,11 +121,12 @@ class Estimate:
         # Sum of sub-rates (Composite Calculation)
         sub_est_total = 0.0
         for sub in self.sub_rates:
+            qty = getattr(sub, 'quantity', 1.0)
             sub_res = sub.calculate_totals()
             # Convert sub-rate grand_total to base currency
             # We assume sub-rates are standalone final costs
             val = self.convert_to_base_currency(sub_res['grand_total'], sub.currency)
-            sub_est_total += val
+            sub_est_total += val * qty
 
         grand_total = subtotal + overhead + profit + sub_est_total
         

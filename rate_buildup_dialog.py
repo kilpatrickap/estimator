@@ -293,6 +293,7 @@ class RateBuildUpDialog(QDialog):
         
         self.composite_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.composite_table.customContextMenuRequested.connect(self.show_composite_context_menu)
+        self.composite_table.cellDoubleClicked.connect(self.edit_composite_calculation)
         
         self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
         self.tables_splitter.addWidget(self.tree)
@@ -519,6 +520,36 @@ class RateBuildUpDialog(QDialog):
                 remove_action.triggered.connect(lambda: self.remove_composite_rate(row))
                 
         menu.exec(self.composite_table.viewport().mapToGlobal(pos))
+
+    def edit_composite_calculation(self, row, col):
+        if col != 6: # Calculations column
+            return
+            
+        if row >= len(self.estimate.sub_rates): # Blank row check
+            return
+            
+        sub = self.estimate.sub_rates[row]
+        totals = sub.calculate_totals()
+        
+        # Create a mock dictionary that behaves like a material item for the dialog
+        mock_item = {
+            'name': sub.project_name,
+            'qty': getattr(sub, 'quantity', 1.0),
+            'formula': getattr(sub, 'formula', None),
+            'unit_cost': totals['grand_total'] 
+        }
+        
+        from edit_item_dialog import EditItemDialog
+        dialog = EditItemDialog(mock_item, 'material', self.estimate.currency, self)
+        dialog.setWindowTitle(f"Convert Unit: {sub.rate_code}")
+        
+        if dialog.exec():
+            self._save_state()
+            sub.quantity = mock_item['qty']
+            sub.formula = mock_item['formula']
+            self.save_changes(show_message=False)
+            self.refresh_view()
+            self.stateChanged.emit()
 
     def _update_sub_rate_unit(self, sub_estimate, new_unit):
         if sub_estimate.unit != new_unit:
@@ -1063,7 +1094,7 @@ class RateBuildUpDialog(QDialog):
                     QTableWidgetItem(str(sub.currency)),
                     QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
                     None, # Convert Unit
-                    QTableWidgetItem("") # Calculations
+                    QTableWidgetItem(f"{getattr(sub, 'quantity', 1.0):.2f}") # Calculations
                 ]
                 for col, item in enumerate(items):
                     if item:
@@ -1075,7 +1106,7 @@ class RateBuildUpDialog(QDialog):
                 
                 # Convert Unit ComboBox
                 combo = QComboBox()
-                units_list = ["", "m", "m2", "m3", "kg", "t", "Item"]
+                units_list = ["m", "m2", "m3", "kg", "t", "Item"]
                 if sub.unit and sub.unit not in units_list:
                     units_list.append(sub.unit)
                 combo.addItems(units_list)
