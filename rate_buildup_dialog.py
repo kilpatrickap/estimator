@@ -431,6 +431,20 @@ class RateBuildUpDialog(QDialog):
 
     def _toggle_simple(self):
         if self.estimate.rate_type != 'Simple':
+            if hasattr(self.estimate, 'sub_rates') and len(self.estimate.sub_rates) > 0:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Cannot Switch to Simple", 
+                                    "This rate currently contains imported rates.\n\n"
+                                    "Please remove all imported rates from the composite build-up before switching back to a Simple rate.")
+                # Revert button states visually without triggering signals
+                self.simple_rate_btn.blockSignals(True)
+                self.composite_rate_btn.blockSignals(True)
+                self.simple_rate_btn.setChecked(False)
+                self.composite_rate_btn.setChecked(True)
+                self.simple_rate_btn.blockSignals(False)
+                self.composite_rate_btn.blockSignals(False)
+                return
+                
             self._save_state()
             self.estimate.rate_type = 'Simple'
             self._update_rate_type_style()
