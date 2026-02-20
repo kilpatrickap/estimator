@@ -914,6 +914,14 @@ class RateBuildUpDialog(QDialog):
             rtype = item.item_type
             rdata = item.item_data
             
+            if hasattr(item, 'task_object') and item.task_object.description == "Imported Rates":
+                name = rdata.get('name', '')
+                if ':' in name:
+                    rate_code = name.split(':')[0].strip()
+                    if rate_code and self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
+                        self.main_window.show_rate_in_database(rate_code)
+                        return
+            
             # Map type to database table name
             table_map = {
                 'material': 'materials',
