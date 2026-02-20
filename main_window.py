@@ -314,7 +314,7 @@ class MainWindow(QMainWindow):
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
-    def open_edit_item_window(self, item_data, item_type, currency, parent_window, custom_title=None):
+    def open_edit_item_window(self, item_data, item_type, currency, parent_window, custom_title=None, custom_name_label=None):
         """Opens the resource editor as an MDI sub-window."""
         # Check if already open (simple check, maybe improve later to allow multiple diff items)
         # For now, just open a new one
@@ -326,7 +326,7 @@ class MainWindow(QMainWindow):
         # Store snapshot on the parent window logic? 
         # RateBuildUpDialog handles its own undo stack. We should let it handle the push.
         
-        edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window, is_modal=False)
+        edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window, is_modal=False, custom_name_label=custom_name_label)
         if custom_title:
             edit_win.setWindowTitle(custom_title)
         

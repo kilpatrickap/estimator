@@ -949,11 +949,22 @@ class RateBuildUpDialog(QDialog):
     def edit_item(self, item, column):
         """Opens the formula-based edit dialog for the double-clicked resource."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+            custom_title = None
+            custom_name_label = None
+            if hasattr(item, 'task_object') and item.task_object.description == "Imported Rates":
+                custom_title = "Edit Rate"
+                custom_name_label = "Description:"
+                
             if self.main_window and hasattr(self.main_window, 'open_edit_item_window'):
-                self.main_window.open_edit_item_window(item.item_data, item.item_type, self.estimate.currency, self)
+                self.main_window.open_edit_item_window(
+                    item.item_data, item.item_type, self.estimate.currency, self, 
+                    custom_title=custom_title, custom_name_label=custom_name_label
+                )
             else:
                  # Fallback for dialog mode
-                 dialog = EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self)
+                 dialog = EditItemDialog(item.item_data, item.item_type, self.estimate.currency, self, custom_name_label=custom_name_label)
+                 if custom_title:
+                     dialog.setWindowTitle(custom_title)
                  if dialog.exec():
                      self.refresh_view()
                      self.stateChanged.emit()

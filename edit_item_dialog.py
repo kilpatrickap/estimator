@@ -36,7 +36,7 @@ class EditItemDialog(QDialog):
     stateChanged = pyqtSignal()
     dataCommitted = pyqtSignal()
     
-    def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False, is_modal=True):
+    def __init__(self, item_data, item_type, estimate_currency, parent=None, is_library=False, is_modal=True, custom_name_label=None):
         super().__init__(parent)
         self.item_data = item_data
         self.item_type = item_type
@@ -57,9 +57,9 @@ class EditItemDialog(QDialog):
         self.setMinimumWidth(400)
         self.setMinimumHeight(350)
         
-        self._init_ui(name)
+        self._init_ui(name, custom_name_label)
 
-    def _init_ui(self, name):
+    def _init_ui(self, name, custom_name_label=None):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
@@ -69,7 +69,8 @@ class EditItemDialog(QDialog):
         self.name_display = QLineEdit(name)
         self.name_display.setReadOnly(True)
         self.name_display.setStyleSheet("background-color: #f8fdf9; border: 1px solid #c8e6c9; color: #2e7d32; font-weight: bold;")
-        header_layout.addRow("Item Name:", self.name_display)
+        label_text = custom_name_label if custom_name_label else "Item Name:"
+        header_layout.addRow(label_text, self.name_display)
         layout.addLayout(header_layout)
         
         # Main Editing Area
