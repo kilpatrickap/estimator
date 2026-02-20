@@ -141,20 +141,20 @@ class RateBuildUpDialog(QDialog):
         self.composite_rate_btn = QPushButton("Composite")
         self.simple_rate_btn.setCheckable(True)
         self.composite_rate_btn.setCheckable(True)
-        self.simple_rate_btn.setChecked(True)
+        self.simple_rate_btn.setChecked(self.estimate.rate_type == 'Simple')
+        self.composite_rate_btn.setChecked(self.estimate.rate_type == 'Composite')
         
         self.rate_type_group = QButtonGroup(self)
         self.rate_type_group.addButton(self.simple_rate_btn)
         self.rate_type_group.addButton(self.composite_rate_btn)
         self.rate_type_group.setExclusive(True)
         
-        self.simple_rate_btn.clicked.connect(self._update_rate_type_style)
-        self.composite_rate_btn.clicked.connect(self._update_rate_type_style)
+        self.simple_rate_btn.clicked.connect(self._toggle_simple)
+        self.composite_rate_btn.clicked.connect(self._toggle_composite)
         
         toggle_layout.addWidget(self.simple_rate_btn)
         toggle_layout.addWidget(self.composite_rate_btn)
         unit_status_column.addWidget(self.toggle_frame, alignment=Qt.AlignmentFlag.AlignCenter)
-        self._update_rate_type_style()
 
         # 2. Status Badge Capsule
         self.status_badge = QLabel("BASE RATE")
@@ -277,7 +277,27 @@ class RateBuildUpDialog(QDialog):
         self.tree.customContextMenuRequested.connect(self.show_context_menu)
         self.tree.itemChanged.connect(self.on_item_changed)
         
-        self.main_v_splitter.addWidget(self.tree)
+        # Composite Table
+        self.composite_table = QTableWidget()
+        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        self.composite_table.setColumnCount(len(headers))
+        self.composite_table.setHorizontalHeaderLabels(headers)
+        header_view2 = self.composite_table.horizontalHeader()
+        header_view2.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header_view2.setStretchLastSection(True)
+        self.composite_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.composite_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.composite_table.setAlternatingRowColors(True)
+        self.composite_table.setRowCount(1)
+        
+        self.composite_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.composite_table.customContextMenuRequested.connect(self.show_composite_context_menu)
+        
+        self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
+        self.tables_splitter.addWidget(self.tree)
+        self.tables_splitter.addWidget(self.composite_table)
+        
+        self.main_v_splitter.addWidget(self.tables_splitter)
 
         # Summary Row (Build-up Totals & Notes)
         self.summary_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -354,6 +374,9 @@ class RateBuildUpDialog(QDialog):
         gross_rate_header = QLabel("Gross Rate:")
         gross_rate_header.setStyleSheet("font-weight: bold;")
         totals_layout.addRow(gross_rate_header, self.total_label)
+
+        # Ensure correct visibility of the tables at startup
+        self._update_rate_type_style()
         
 
     def _update_rate_type_style(self):
@@ -383,12 +406,38 @@ class RateBuildUpDialog(QDialog):
             }
         """
         
-        if self.simple_rate_btn.isChecked():
+        if self.estimate.rate_type == 'Simple':
+            self.simple_rate_btn.setChecked(True)
+            self.composite_rate_btn.setChecked(False)
             self.simple_rate_btn.setStyleSheet(active_style)
             self.composite_rate_btn.setStyleSheet(inactive_style)
+            if hasattr(self, 'composite_table'):
+                self.composite_table.hide()
+            if hasattr(self, 'tree'):
+                self.tree.show()
         else:
+            self.composite_rate_btn.setChecked(True)
+            self.simple_rate_btn.setChecked(False)
             self.simple_rate_btn.setStyleSheet(inactive_style)
             self.composite_rate_btn.setStyleSheet(active_style)
+            if hasattr(self, 'composite_table'):
+                self.composite_table.show()
+            if hasattr(self, 'tree'):
+                self.tree.show()
+
+    def _toggle_simple(self):
+        if self.estimate.rate_type != 'Simple':
+            self._save_state()
+            self.estimate.rate_type = 'Simple'
+            self._update_rate_type_style()
+            self.save_changes(show_message=False)
+            
+    def _toggle_composite(self):
+        if self.estimate.rate_type != 'Composite':
+            self._save_state()
+            self.estimate.rate_type = 'Composite'
+            self._update_rate_type_style()
+            self.save_changes(show_message=False)
 
     def _handle_factor_formatting(self):
         """Formats input to 2 decimal places and handles N/A placeholder logic."""
@@ -454,6 +503,60 @@ class RateBuildUpDialog(QDialog):
         remove_action.triggered.connect(self.remove_selected)
         
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def show_composite_context_menu(self, pos):
+        menu = QMenu(self)
+        import_action = menu.addAction("Import Rate")
+        import_action.triggered.connect(self.import_composite_rate)
+        
+        selected_indexes = self.composite_table.selectionModel().selectedRows()
+        if selected_indexes:
+            row = selected_indexes[0].row()
+            if row < len(self.estimate.sub_rates): # Not the blank row
+                menu.addSeparator()
+                remove_action = menu.addAction("Remove Rate")
+                remove_action.triggered.connect(lambda: self.remove_composite_rate(row))
+                
+        menu.exec(self.composite_table.viewport().mapToGlobal(pos))
+
+    def import_composite_rate(self):
+        dialog = RateSelectionDialog(self)
+        if dialog.exec() and dialog.selected_rate_id:
+            db_id = dialog.selected_rate_id
+            
+            # Load estimate object
+            selected_estimate = self.db_manager.load_estimate_details(db_id)
+            if not selected_estimate:
+                QMessageBox.warning(self, "Error", "Failed to load rate details from database.")
+                return
+
+            reply = QMessageBox.question(
+                self, 'Import Rate',
+                f"Are you sure you want to add rate '{selected_estimate.rate_code}' to the composite build-up?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self._save_state()
+                new_sub = copy.deepcopy(selected_estimate)
+                self.estimate.add_sub_rate(new_sub)
+                self.refresh_view()
+                self.save_changes(show_message=False)
+
+    def remove_composite_rate(self, index):
+        if 0 <= index < len(self.estimate.sub_rates):
+            reply = QMessageBox.question(
+                self, 'Remove Rate',
+                "Are you sure you want to remove this rate from the composite build-up?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self._save_state()
+                self.estimate.remove_sub_rate(index)
+                self.refresh_view()
+                self.save_changes(show_message=False)
 
     def open_exchange_rates(self):
         """Opens exchange rate settings in MDI."""
@@ -924,6 +1027,47 @@ class RateBuildUpDialog(QDialog):
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         
+        # Refresh Composite Table
+        if hasattr(self, 'composite_table'):
+            self.composite_table.setRowCount(0)
+            
+            # Add existing sub-rates
+            for sub in self.estimate.sub_rates:
+                row = self.composite_table.rowCount()
+                self.composite_table.insertRow(row)
+                
+                totals = sub.calculate_totals()
+                adj_factor = getattr(sub, 'adjustment_factor', 1.0)
+                
+                items = [
+                    QTableWidgetItem(str(getattr(sub, 'rate_code', ''))),
+                    QTableWidgetItem(str(sub.project_name)),
+                    QTableWidgetItem(str(sub.unit)),
+                    QTableWidgetItem(str(sub.currency)),
+                    QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
+                    QTableWidgetItem(f"{totals['grand_total']:,.2f}"),
+                    QTableWidgetItem(f"{adj_factor:.2f}" if adj_factor != 1.0 else "N/A"),
+                    QTableWidgetItem(str(getattr(sub, 'date', ''))),
+                    QTableWidgetItem(str(getattr(sub, 'notes', '')))
+                ]
+                for col, item in enumerate(items):
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    # We can store the object ref in the first item
+                    if col == 0:
+                        item.setData(Qt.ItemDataRole.UserRole, sub)
+                    self.composite_table.setItem(row, col, item)
+                    
+            # Add one blank row at the end
+            row = self.composite_table.rowCount()
+            self.composite_table.insertRow(row)
+            for col in range(self.composite_table.columnCount()):
+                item = QTableWidgetItem("")
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self.composite_table.setItem(row, col, item)
+            
+            self.composite_table.resizeColumnsToContents()
+            self.composite_table.horizontalHeader().setStretchLastSection(True)
+        
         self.is_loading = False
         # self._update_undo_redo_buttons()
 
@@ -1033,3 +1177,95 @@ class CostSelectionDialog(QDialog):
             super().accept()
         else:
             QMessageBox.warning(self, "Selection Error", "Please select an item.")
+
+class RateSelectionDialog(QDialog):
+    """Dialog to select a rate build-up from the rates database."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Rate from Database")
+        self.setMinimumSize(700, 400)
+        self.selected_rate_id = None
+        
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setSpacing(5)
+        
+        # Search
+        search_layout = QHBoxLayout()
+        search_layout.addWidget(QLabel("Search:"))
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Type to filter...")
+        self.search_input.textChanged.connect(self.filter_table)
+        search_layout.addWidget(self.search_input)
+        layout.addLayout(search_layout)
+        
+        # Table
+        self.table = QTableWidget()
+        self.db_manager = DatabaseManager("construction_rates.db")
+        self.load_data()
+        
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.table.verticalHeader().setDefaultSectionSize(22)
+        self.table.doubleClicked.connect(self.accept)
+        
+        layout.addWidget(self.table)
+        
+        # Buttons
+        btns = QHBoxLayout()
+        btns.addStretch()
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        select_btn = QPushButton("Select")
+        select_btn.clicked.connect(self.accept)
+        select_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        
+        btns.addWidget(cancel_btn)
+        btns.addWidget(select_btn)
+        layout.addLayout(btns)
+
+    def load_data(self):
+        rates = self.db_manager.get_rates_data()
+        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate"]
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.setRowCount(0)
+        
+        self.full_data = [] # To hold (db_id, row_data)
+        for r, row_data in enumerate(rates):
+            self.table.insertRow(r)
+            self.full_data.append((row_data[0], row_data))
+            
+            # 0: db_id, 1: rate_code, 2: project_name, 3: unit, 4: currency, 5: net_total, 6: grand_total ...
+            items = [
+                row_data[1], row_data[2], row_data[3], row_data[4], 
+                f"{row_data[5]:,.2f}" if row_data[5] is not None else "0.00",
+                f"{row_data[6]:,.2f}" if row_data[6] is not None else "0.00"
+            ]
+            for c, val in enumerate(items):
+                item = QTableWidgetItem(str(val))
+                self.table.setItem(r, c, item)
+                
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.resizeColumnsToContents()
+        self.table.horizontalHeader().setStretchLastSection(True)
+
+    def filter_table(self, text):
+        query = text.lower()
+        for row in range(self.table.rowCount()):
+            match = False
+            for col in range(self.table.columnCount()):
+                val = self.table.item(row, col)
+                if val and query in val.text().lower():
+                    match = True
+                    break
+            self.table.setRowHidden(row, not match)
+
+    def accept(self):
+        row = self.table.currentRow()
+        if row >= 0:
+            self.selected_rate_id = self.full_data[row][0]
+            super().accept()
+        else:
+            QMessageBox.warning(self, "Selection Error", "Please select a rate.")

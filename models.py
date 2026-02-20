@@ -59,7 +59,7 @@ class Estimate:
         self.id = None
         self.id = None
         self.rate_code = None
-        self.sub_estimates = [] # List of sub-estimates for composite rates
+        self.sub_rates = [] # List of sub-rates for composite rates
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead
@@ -69,6 +69,7 @@ class Estimate:
         self.notes = notes
         self.adjustment_factor = 1.0
         self.category = ""
+        self.rate_type = "Simple" # 'Simple' or 'Composite'
         
         if date:
             self.date = date if len(date) > 10 else f"{date} {datetime.now().strftime('%H:%M:%S')}"
@@ -117,12 +118,12 @@ class Estimate:
         # Profit is calculated on (Subtotal + Overhead)
         profit = (subtotal + overhead) * (self.profit_margin_percent / 100.0)
 
-        # Sum of sub-estimates (Composite Calculation)
+        # Sum of sub-rates (Composite Calculation)
         sub_est_total = 0.0
-        for sub in self.sub_estimates:
+        for sub in self.sub_rates:
             sub_res = sub.calculate_totals()
-            # Convert sub-estimate grand_total to base currency
-            # We assume sub-estimates are standalone final costs
+            # Convert sub-rate grand_total to base currency
+            # We assume sub-rates are standalone final costs
             val = self.convert_to_base_currency(sub_res['grand_total'], sub.currency)
             sub_est_total += val
 
@@ -132,14 +133,14 @@ class Estimate:
             "subtotal": subtotal,
             "overhead": overhead,
             "profit": profit,
-            "sub_estimates_total": sub_est_total,
+            "sub_rates_total": sub_est_total,
             "grand_total": grand_total,
             "currency": self.currency
         }
 
-    def add_sub_estimate(self, sub_estimate):
-        self.sub_estimates.append(sub_estimate)
+    def add_sub_rate(self, sub_estimate):
+        self.sub_rates.append(sub_estimate)
 
-    def remove_sub_estimate(self, index):
-        if 0 <= index < len(self.sub_estimates):
-            self.sub_estimates.pop(index)
+    def remove_sub_rate(self, index):
+        if 0 <= index < len(self.sub_rates):
+            self.sub_rates.pop(index)

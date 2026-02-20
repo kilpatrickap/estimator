@@ -201,6 +201,9 @@ class DatabaseManager:
                 )
             ''')
             self._ensure_column(cursor, "estimate_exchange_rates", "operator", "operator TEXT DEFAULT '*'")
+            
+            # Ensure new estimate cols
+            self._ensure_column(cursor, "estimates", "rate_type", "rate_type TEXT DEFAULT 'Simple'")
 
             conn.commit()
         except sqlite3.Error as e:
@@ -316,7 +319,8 @@ class DatabaseManager:
                 unit TEXT,
                 notes TEXT,
                 adjustment_factor REAL DEFAULT 1.0,
-                category TEXT
+                category TEXT,
+                rate_type TEXT DEFAULT 'Simple'
             )
         ''')
         cursor.execute('''
@@ -571,14 +575,14 @@ class DatabaseManager:
                 cursor.execute("""
                     UPDATE estimates 
                     SET project_name = ?, client_name = ?, overhead_percent = ?, 
-                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, net_total = ?, rate_code = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?
+                        profit_margin_percent = ?, currency = ?, date_created = ?, grand_total = ?, net_total = ?, rate_code = ?, unit = ?, notes = ?, adjustment_factor = ?, category = ?, rate_type = ?
                     WHERE id = ?
                 """, (
                     estimate_obj.project_name, estimate_obj.client_name,
                     estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                     estimate_obj.currency, estimate_obj.date, grand_total, net_total, 
                     estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, 
-                    estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), estimate_obj.id
+                    estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), getattr(estimate_obj, 'rate_type', "Simple"), estimate_obj.id
                 ))
                 estimate_id = estimate_obj.id
                 # Wipe tasks to rebuild tree (simplest way to handle hierarchy changes)
@@ -586,13 +590,13 @@ class DatabaseManager:
             else:
                 # Create new
                 cursor.execute("""
-                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, net_total, rate_code, unit, notes, adjustment_factor, category) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    INSERT INTO estimates (project_name, client_name, overhead_percent, profit_margin_percent, currency, date_created, grand_total, net_total, rate_code, unit, notes, adjustment_factor, category, rate_type) 
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 estimate_obj.project_name, estimate_obj.client_name,
                 estimate_obj.overhead_percent, estimate_obj.profit_margin_percent,
                 estimate_obj.currency, estimate_obj.date, grand_total, net_total, 
-                estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', "")
+                estimate_obj.rate_code, estimate_obj.unit, estimate_obj.notes, estimate_obj.adjustment_factor, getattr(estimate_obj, 'category', ""), getattr(estimate_obj, 'rate_type', "Simple")
                 ))
                 estimate_id = cursor.lastrowid
                 estimate_obj.id = estimate_id
@@ -614,6 +618,13 @@ class DatabaseManager:
                 op = data.get('operator', '*')
                 cursor.execute("INSERT INTO estimate_exchange_rates (estimate_id, currency, rate, date, operator) VALUES (?, ?, ?, ?, ?)",
                                (estimate_id, curr, data['rate'], data['date'], op))
+            
+            # Save Sub-Rates (linking composite rates to their sub-rates)
+            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
+            cursor.execute("DELETE FROM estimate_sub_rates WHERE estimate_id = ?", (estimate_id,))
+            for sub_rate in estimate_obj.sub_rates:
+                if sub_rate.id:
+                    cursor.execute("INSERT INTO estimate_sub_rates (estimate_id, sub_rate_id) VALUES (?, ?)", (estimate_id, sub_rate.id))
             
             conn.commit()
             return True
@@ -680,10 +691,12 @@ class DatabaseManager:
                 loaded_estimate.rate_code = est_data['rate_code']
                 loaded_estimate.adjustment_factor = est_data['adjustment_factor'] if est_data['adjustment_factor'] is not None else 1.0
                 loaded_estimate.category = est_data['category'] if 'category' in est_data.keys() and est_data['category'] is not None else ""
+                loaded_estimate.rate_type = est_data['rate_type'] if 'rate_type' in est_data.keys() and est_data['rate_type'] is not None else "Simple"
             except (IndexError, KeyError):
                 loaded_estimate.rate_code = None
                 loaded_estimate.adjustment_factor = 1.0
                 loaded_estimate.category = ""
+                loaded_estimate.rate_type = "Simple"
 
             cursor.execute("SELECT * FROM tasks WHERE estimate_id = ?", (estimate_id,))
             tasks_data = cursor.fetchall()
@@ -782,6 +795,17 @@ class DatabaseManager:
                 loaded_estimate.exchange_rates[row['currency']] = {
                     'rate': row['rate'], 'date': row['date'], 'operator': row['operator']
                 }
+
+            # Load Sub-Rates
+            loaded_estimate.sub_rates = []
+            cursor.execute("CREATE TABLE IF NOT EXISTS estimate_sub_rates (id INTEGER PRIMARY KEY, estimate_id INTEGER, sub_rate_id INTEGER, FOREIGN KEY(estimate_id) REFERENCES estimates(id) ON DELETE CASCADE)")
+            cursor.execute("SELECT sub_rate_id FROM estimate_sub_rates WHERE estimate_id = ?", (estimate_id,))
+            sub_rate_rows = cursor.fetchall()
+            for row in sub_rate_rows:
+                sub_rate_id = row['sub_rate_id']
+                sub_rate = self.load_estimate_details(sub_rate_id)
+                if sub_rate:
+                    loaded_estimate.add_sub_rate(sub_rate)
 
             return loaded_estimate
         finally:
@@ -978,7 +1002,7 @@ class DatabaseManager:
         conn = rates_db._get_connection()
         try:
             return conn.cursor().execute("""
-                SELECT id, rate_code, project_name, unit, currency, net_total, grand_total, adjustment_factor, date_created, notes 
+                SELECT id, rate_code, project_name, unit, currency, net_total, grand_total, adjustment_factor, date_created, notes, rate_type 
                 FROM estimates 
                 ORDER BY rate_code ASC
             """).fetchall()
