@@ -279,7 +279,7 @@ class RateBuildUpDialog(QDialog):
         
         # Composite Table
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Calculations"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view2 = self.composite_table.horizontalHeader()
@@ -1045,10 +1045,7 @@ class RateBuildUpDialog(QDialog):
                     QTableWidgetItem(str(sub.unit)),
                     QTableWidgetItem(str(sub.currency)),
                     QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
-                    QTableWidgetItem(f"{totals['grand_total']:,.2f}"),
-                    QTableWidgetItem(f"{adj_factor:.2f}" if adj_factor != 1.0 else "N/A"),
-                    QTableWidgetItem(str(getattr(sub, 'date', ''))),
-                    QTableWidgetItem(str(getattr(sub, 'notes', '')))
+                    QTableWidgetItem("") # Calculations
                 ]
                 for col, item in enumerate(items):
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
