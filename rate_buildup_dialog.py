@@ -531,25 +531,40 @@ class RateBuildUpDialog(QDialog):
         sub = self.estimate.sub_rates[row]
         totals = sub.calculate_totals()
         
-        # Create a mock dictionary that behaves like a material item for the dialog
-        mock_item = {
+        # Create a mock dictionary that behaves like a material item for the dialog,
+        # but intercepts dictionary assignments to mutate the sub rate directly!
+        class SubRateAdapterProxy(dict):
+            def __setitem__(self, key, value):
+                super().__setitem__(key, value)
+                if key == 'qty':
+                    sub.quantity = value
+                elif key == 'formula':
+                    sub.formula = value
+
+        mock_item = SubRateAdapterProxy({
             'name': sub.project_name,
             'qty': getattr(sub, 'quantity', 1.0),
             'formula': getattr(sub, 'formula', None),
             'unit_cost': totals['grand_total'] 
-        }
+        })
         
-        from edit_item_dialog import EditItemDialog
-        dialog = EditItemDialog(mock_item, 'material', self.estimate.currency, self)
-        dialog.setWindowTitle(f"Convert Unit: {sub.rate_code}")
-        
-        if dialog.exec():
-            self._save_state()
-            sub.quantity = mock_item['qty']
-            sub.formula = mock_item['formula']
-            self.save_changes(show_message=False)
-            self.refresh_view()
-            self.stateChanged.emit()
+        if self.main_window and hasattr(self.main_window, 'open_edit_item_window'):
+            self.main_window.open_edit_item_window(
+                mock_item, 'material', self.estimate.currency, self, 
+                custom_title=f"Convert Unit: {sub.rate_code}"
+            )
+        else:
+            from edit_item_dialog import EditItemDialog
+            dialog = EditItemDialog(mock_item, 'material', self.estimate.currency, self)
+            dialog.setWindowTitle(f"Convert Unit: {sub.rate_code}")
+            
+            if dialog.exec():
+                self._save_state()
+                sub.quantity = mock_item['qty']
+                sub.formula = mock_item['formula']
+                self.save_changes(show_message=False)
+                self.refresh_view()
+                self.stateChanged.emit()
 
     def _update_sub_rate_unit(self, sub_estimate, new_unit):
         if sub_estimate.unit != new_unit:
