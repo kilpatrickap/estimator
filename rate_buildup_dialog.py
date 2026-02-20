@@ -1230,14 +1230,6 @@ class RateBuildUpDialog(QDialog):
                 combo.currentTextChanged.connect(lambda txt, s=sub: self._update_sub_rate_unit(s, txt))
                 self.composite_table.setCellWidget(row, 5, combo)
                     
-            # Add one blank row at the end
-            row = self.composite_table.rowCount()
-            self.composite_table.insertRow(row)
-            for col in range(self.composite_table.columnCount()):
-                item = QTableWidgetItem("")
-                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self.composite_table.setItem(row, col, item)
-            
             self.composite_table.resizeColumnsToContents()
             self.composite_table.horizontalHeader().setStretchLastSection(True)
             
