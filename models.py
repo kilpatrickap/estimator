@@ -57,7 +57,9 @@ class Estimate:
     """Represents a project estimate with multiple tasks and global settings."""
     def __init__(self, project_name, client_name, overhead, profit, currency="GHS (₵)", date=None, unit="", notes=""):
         self.id = None
+        self.id = None
         self.rate_code = None
+        self.sub_estimates = [] # List of sub-estimates for composite rates
         self.project_name = project_name
         self.client_name = client_name
         self.overhead_percent = overhead
@@ -112,12 +114,32 @@ class Estimate:
 
         overhead = subtotal * (self.overhead_percent / 100.0)
         # Profit is calculated on (Subtotal + Overhead)
+        # Profit is calculated on (Subtotal + Overhead)
         profit = (subtotal + overhead) * (self.profit_margin_percent / 100.0)
+
+        # Sum of sub-estimates (Composite Calculation)
+        sub_est_total = 0.0
+        for sub in self.sub_estimates:
+            sub_res = sub.calculate_totals()
+            # Convert sub-estimate grand_total to base currency
+            # We assume sub-estimates are standalone final costs
+            val = self.convert_to_base_currency(sub_res['grand_total'], sub.currency)
+            sub_est_total += val
+
+        grand_total = subtotal + overhead + profit + sub_est_total
         
         return {
             "subtotal": subtotal,
             "overhead": overhead,
             "profit": profit,
-            "grand_total": subtotal + overhead + profit,
+            "sub_estimates_total": sub_est_total,
+            "grand_total": grand_total,
             "currency": self.currency
         }
+
+    def add_sub_estimate(self, sub_estimate):
+        self.sub_estimates.append(sub_estimate)
+
+    def remove_sub_estimate(self, index):
+        if 0 <= index < len(self.sub_estimates):
+            self.sub_estimates.pop(index)
