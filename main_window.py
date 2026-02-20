@@ -420,6 +420,26 @@ class MainWindow(QMainWindow):
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
+    def show_rate_in_database(self, rate_code):
+        """Opens the rate database and highlights a specific rate."""
+        rate_sub = None
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), RateManagerDialog):
+                rate_sub = sub
+                break
+        
+        if not rate_sub:
+            self.manage_rate_database()
+            # Find the newly created subwindow
+            for sub in self.mdi_area.subWindowList():
+                if isinstance(sub.widget(), RateManagerDialog):
+                    rate_sub = sub
+                    break
+        
+        if rate_sub:
+            self.mdi_area.setActiveSubWindow(rate_sub)
+            rate_sub.widget().highlight_rate(rate_code)
+
     def open_settings(self):
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), SettingsDialog):

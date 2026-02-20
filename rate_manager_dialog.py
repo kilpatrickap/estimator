@@ -183,6 +183,20 @@ class RateManagerDialog(QDialog):
                 dialog.dataCommitted.connect(self.load_rates)
                 dialog.exec()
 
+    def highlight_rate(self, rate_code):
+        """Finds and highlights a rate by its code."""
+        # Unhide from search first easily if we have one
+        self.search_input.clear()
+        
+        from PyQt6.QtWidgets import QTableWidget
+        for row in range(self.table.rowCount()):
+            item = self.table.item(row, 0)
+            if item and item.text() == rate_code:
+                self.table.clearSelection()
+                self.table.selectRow(row)
+                self.table.scrollToItem(item, QTableWidget.ScrollHint.PositionAtCenter)
+                break
+
     def filter_rates(self, text):
         query = text.lower()
         for row in range(self.table.rowCount()):

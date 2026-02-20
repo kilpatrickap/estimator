@@ -280,7 +280,7 @@ class RateBuildUpDialog(QDialog):
         
         # Composite Table
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations", "Converted Net Rate"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations", "New Net Rate"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view2 = self.composite_table.horizontalHeader()
@@ -516,10 +516,21 @@ class RateBuildUpDialog(QDialog):
             row = selected_indexes[0].row()
             if row < len(self.estimate.sub_rates): # Not the blank row
                 menu.addSeparator()
+                
+                goto_action = menu.addAction("Go To Rate")
+                goto_action.triggered.connect(lambda: self.go_to_composite_rate(row))
+                
                 remove_action = menu.addAction("Remove Rate")
                 remove_action.triggered.connect(lambda: self.remove_composite_rate(row))
                 
         menu.exec(self.composite_table.viewport().mapToGlobal(pos))
+
+    def go_to_composite_rate(self, row):
+        if row < len(self.estimate.sub_rates):
+            sub = self.estimate.sub_rates[row]
+            rate_code = getattr(sub, 'rate_code', '')
+            if rate_code and self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
+                self.main_window.show_rate_in_database(rate_code)
 
     def edit_composite_calculation(self, row, col):
         if col != 6: # Calculations column
@@ -1110,7 +1121,7 @@ class RateBuildUpDialog(QDialog):
                     QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
                     None, # Convert Unit
                     QTableWidgetItem(f"{getattr(sub, 'quantity', 1.0):.2f}"), # Calculations
-                    QTableWidgetItem(f"{(totals['subtotal'] * getattr(sub, 'quantity', 1.0)):,.2f}") # Converted Net Rate
+                    QTableWidgetItem(f"{(totals['subtotal'] * getattr(sub, 'quantity', 1.0)):,.2f}") # New Net Rate
                 ]
                 for col, item in enumerate(items):
                     if item:
