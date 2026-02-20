@@ -41,6 +41,7 @@ class RateBuildUpDialog(QDialog):
         # Track items updated by library changes for highlighting
         self.impacted_resources = set() # Stores (type, name) tuples
         self.show_impact_highlights = True
+        self.mismatch_notified = False
         
         self._init_ui()
         self.refresh_view()
@@ -279,7 +280,7 @@ class RateBuildUpDialog(QDialog):
         
         # Composite Table
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Calculations"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view2 = self.composite_table.horizontalHeader()
@@ -519,6 +520,15 @@ class RateBuildUpDialog(QDialog):
                 
         menu.exec(self.composite_table.viewport().mapToGlobal(pos))
 
+    def _update_sub_rate_unit(self, sub_estimate, new_unit):
+        if sub_estimate.unit != new_unit:
+            self._save_state()
+            sub_estimate.unit = new_unit
+            self.save_changes(show_message=False)
+            
+            from PyQt6.QtCore import QTimer
+            QTimer.singleShot(0, self.refresh_view)
+
     def import_composite_rate(self):
         dialog = RateSelectionDialog(self)
         if dialog.exec() and dialog.selected_rate_id:
@@ -529,6 +539,11 @@ class RateBuildUpDialog(QDialog):
             if not selected_estimate:
                 QMessageBox.warning(self, "Error", "Failed to load rate details from database.")
                 return
+                
+            if selected_estimate.unit != self.estimate.unit:
+                QMessageBox.warning(self, "Unit Mismatch",
+                    f"The imported rate unit '{selected_estimate.unit}' does not match the current rate unit '{self.estimate.unit}'.\n\n"
+                    "Please convert the imported rate unit and its calculations to match after importing.")
 
             reply = QMessageBox.question(
                 self, 'Import Rate',
@@ -1031,6 +1046,8 @@ class RateBuildUpDialog(QDialog):
         if hasattr(self, 'composite_table'):
             self.composite_table.setRowCount(0)
             
+            mismatched_rates = []
+            
             # Add existing sub-rates
             for sub in self.estimate.sub_rates:
                 row = self.composite_table.rowCount()
@@ -1045,14 +1062,34 @@ class RateBuildUpDialog(QDialog):
                     QTableWidgetItem(str(sub.unit)),
                     QTableWidgetItem(str(sub.currency)),
                     QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
+                    None, # Convert Unit
                     QTableWidgetItem("") # Calculations
                 ]
                 for col, item in enumerate(items):
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    # We can store the object ref in the first item
-                    if col == 0:
-                        item.setData(Qt.ItemDataRole.UserRole, sub)
-                    self.composite_table.setItem(row, col, item)
+                    if item:
+                        item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                        # We can store the object ref in the first item
+                        if col == 0:
+                            item.setData(Qt.ItemDataRole.UserRole, sub)
+                        self.composite_table.setItem(row, col, item)
+                
+                # Convert Unit ComboBox
+                combo = QComboBox()
+                units_list = ["", "m", "m2", "m3", "kg", "t", "Item"]
+                if sub.unit and sub.unit not in units_list:
+                    units_list.append(sub.unit)
+                combo.addItems(units_list)
+                combo.setEditable(True)
+                combo.setCurrentText(sub.unit or "")
+                
+                if sub.unit != self.estimate.unit:
+                    combo.setStyleSheet("color: red; font-weight: bold;")
+                    mismatched_rates.append(getattr(sub, 'rate_code', 'Unknown Rate'))
+                else:
+                    combo.setStyleSheet("")
+                    
+                combo.currentTextChanged.connect(lambda txt, s=sub: self._update_sub_rate_unit(s, txt))
+                self.composite_table.setCellWidget(row, 5, combo)
                     
             # Add one blank row at the end
             row = self.composite_table.rowCount()
@@ -1064,6 +1101,13 @@ class RateBuildUpDialog(QDialog):
             
             self.composite_table.resizeColumnsToContents()
             self.composite_table.horizontalHeader().setStretchLastSection(True)
+            
+            if mismatched_rates and not self.mismatch_notified:
+                self.mismatch_notified = True
+                QMessageBox.warning(self, "Unit Mismatches Detected", 
+                    f"The following imported rates have units that do not match the current rate unit ({self.estimate.unit}):\n"
+                    f"{', '.join(mismatched_rates)}\n\n"
+                    f"Please convert the imported rate units and review their calculations to match.")
         
         self.is_loading = False
         # self._update_undo_redo_buttons()
