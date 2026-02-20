@@ -280,7 +280,7 @@ class RateBuildUpDialog(QDialog):
         
         # Composite Table
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations", "Converted Net Rate"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view2 = self.composite_table.horizontalHeader()
@@ -1109,7 +1109,8 @@ class RateBuildUpDialog(QDialog):
                     QTableWidgetItem(str(sub.currency)),
                     QTableWidgetItem(f"{totals['subtotal']:,.2f}"),
                     None, # Convert Unit
-                    QTableWidgetItem(f"{getattr(sub, 'quantity', 1.0):.2f}") # Calculations
+                    QTableWidgetItem(f"{getattr(sub, 'quantity', 1.0):.2f}"), # Calculations
+                    QTableWidgetItem(f"{(totals['subtotal'] * getattr(sub, 'quantity', 1.0)):,.2f}") # Converted Net Rate
                 ]
                 for col, item in enumerate(items):
                     if item:
