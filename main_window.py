@@ -310,7 +310,7 @@ class MainWindow(QMainWindow):
         sub = self.mdi_area.addSubWindow(buildup_win)
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         buildup_win.dataCommitted.connect(refresh_manager)
-        sub.resize(800, 576)
+        sub.resize(800, 634)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 

@@ -87,6 +87,8 @@ class RateBuildUpDialog(QDialog):
 
         # Header Section
         header = QFrame()
+        from PyQt6.QtWidgets import QSizePolicy
+        header.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         header.setStyleSheet("background-color: #f8f9fa; border-radius: 4px; border: 1px solid #e0e0e0;")
         h_layout = QVBoxLayout(header)
         h_layout.setContentsMargins(10, 5, 10, 5)
@@ -517,6 +519,9 @@ class RateBuildUpDialog(QDialog):
             if row < len(self.estimate.sub_rates): # Not the blank row
                 menu.addSeparator()
                 
+                insert_action = menu.addAction("Insert Rate")
+                insert_action.triggered.connect(lambda: self.insert_composite_rate(row))
+                
                 goto_action = menu.addAction("Go To Rate")
                 goto_action.triggered.connect(lambda: self.go_to_composite_rate(row))
                 
@@ -524,6 +529,38 @@ class RateBuildUpDialog(QDialog):
                 remove_action.triggered.connect(lambda: self.remove_composite_rate(row))
                 
         menu.exec(self.composite_table.viewport().mapToGlobal(pos))
+
+    def insert_composite_rate(self, row):
+        if row >= len(self.estimate.sub_rates): return
+        sub = self.estimate.sub_rates[row]
+        
+        # Find or create "Imported Rates" task
+        imported_task = None
+        for task in self.estimate.tasks:
+            if task.description == "Imported Rates":
+                imported_task = task
+                break
+                
+        if not imported_task:
+            from models import Task
+            imported_task = Task("Imported Rates")
+            self.estimate.add_task(imported_task)
+            
+        qty = getattr(sub, 'quantity', 1.0)
+        calc_subtotal = sub.calculate_totals()['subtotal']
+        name = f"{getattr(sub, 'rate_code', '')}: {sub.project_name}"
+        
+        self._save_state()
+        imported_task.add_material(
+            name=name,
+            quantity=qty,
+            unit=getattr(sub, 'converted_unit', sub.unit),
+            unit_cost=calc_subtotal,
+            currency=sub.currency
+        )
+        self.save_changes(show_message=False)
+        self.refresh_view()
+        self.stateChanged.emit()
 
     def go_to_composite_rate(self, row):
         if row < len(self.estimate.sub_rates):
@@ -578,9 +615,10 @@ class RateBuildUpDialog(QDialog):
                 self.stateChanged.emit()
 
     def _update_sub_rate_unit(self, sub_estimate, new_unit):
-        if sub_estimate.unit != new_unit:
+        current = getattr(sub_estimate, 'converted_unit', sub_estimate.unit)
+        if current != new_unit:
             self._save_state()
-            sub_estimate.unit = new_unit
+            sub_estimate.converted_unit = new_unit
             self.save_changes(show_message=False)
             
             from PyQt6.QtCore import QTimer
@@ -1062,9 +1100,13 @@ class RateBuildUpDialog(QDialog):
                     unit_str = unit_func(item)
                     qty_val = item[qty_key]
                     
+                    item_label = f"{label_prefix}: {item[name_key]}"
+                    if task.description == "Imported Rates":
+                        item_label = str(item[name_key])
+                    
                     child = QTreeWidgetItem(task_item, [
                         f"{i}.{sub_idx}",
-                        f"{label_prefix}: {item[name_key]}",
+                        item_label,
                         f"{qty_val:.2f} {unit_str} @ {base_sym}{uc_conv:,.2f}",
                         f"{base_sym}{total_conv:,.2f}",
                         "",
@@ -1134,13 +1176,19 @@ class RateBuildUpDialog(QDialog):
                 # Convert Unit ComboBox
                 combo = QComboBox()
                 units_list = ["m", "m2", "m3", "kg", "t", "Item"]
+                
                 if sub.unit and sub.unit not in units_list:
                     units_list.append(sub.unit)
+                    
+                converted_unit = getattr(sub, 'converted_unit', sub.unit)
+                if converted_unit and converted_unit not in units_list:
+                    units_list.append(converted_unit)
+                    
                 combo.addItems(units_list)
                 combo.setEditable(True)
-                combo.setCurrentText(sub.unit or "")
+                combo.setCurrentText(converted_unit or "")
                 
-                if sub.unit != self.estimate.unit:
+                if converted_unit != self.estimate.unit:
                     combo.setStyleSheet("color: red; font-weight: bold;")
                     mismatched_rates.append(getattr(sub, 'rate_code', 'Unknown Rate'))
                 else:
