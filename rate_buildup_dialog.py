@@ -279,7 +279,7 @@ class RateBuildUpDialog(QDialog):
         
         # Composite Table
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view2 = self.composite_table.horizontalHeader()
@@ -1227,7 +1227,7 @@ class RateSelectionDialog(QDialog):
 
     def load_data(self):
         rates = self.db_manager.get_rates_data()
-        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         self.table.setRowCount(0)

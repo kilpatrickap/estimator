@@ -85,7 +85,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Currency", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
