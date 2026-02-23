@@ -485,10 +485,15 @@ class RateBuildUpDialog(QDialog):
         menu = QMenu(self)
         
         if item and hasattr(item, 'item_type'):
+            if hasattr(item, 'task_object') and item.task_object.description == "Imported Rates":
+                details_action = menu.addAction("Show/Hide Details")
+                details_action.triggered.connect(lambda checked=False, i=item: self.toggle_imported_rate_details(i))
+                menu.addSeparator()
+
             go_to_action = menu.addAction("Go to Resource")
             go_to_action.triggered.connect(lambda: self.go_to_resource(item))
             menu.addSeparator()
-        
+
         add_task_action = menu.addAction("Add Task")
         add_task_action.triggered.connect(self.add_task)
         
@@ -522,6 +527,19 @@ class RateBuildUpDialog(QDialog):
         remove_action.triggered.connect(self.remove_selected)
         
         menu.exec(self.tree.viewport().mapToGlobal(pos))
+
+    def toggle_imported_rate_details(self, item):
+        if not hasattr(self, 'expanded_imported_rates'):
+            self.expanded_imported_rates = set()
+            
+        if hasattr(item, 'item_data'):
+            name = item.item_data.get('name')
+            if name:
+                if name in self.expanded_imported_rates:
+                    self.expanded_imported_rates.remove(name)
+                else:
+                    self.expanded_imported_rates.add(name)
+                self.refresh_view()
 
     def show_composite_context_menu(self, pos):
         menu = QMenu(self)
@@ -1165,6 +1183,70 @@ class RateBuildUpDialog(QDialog):
                             soft_pink = QColor("#fce4ec") # Very light pink
                             child.setBackground(c, soft_pink)
                             child.setForeground(c, Qt.GlobalColor.black)
+
+                    if task.description == "Imported Rates" and hasattr(self, 'expanded_imported_rates') and item[name_key] in self.expanded_imported_rates:
+                        # Find the corresponding Estimate object in self.estimate.sub_rates
+                        sub = None
+                        for s in self.estimate.sub_rates:
+                            s_name = f"{getattr(s, 'rate_code', '')}: {s.project_name}"
+                            if item[name_key] == s_name:
+                                sub = s
+                                break
+                                
+                        if sub:
+                            sub_match = re.search(r'\((.*?)\)', sub.currency)
+                            sub_sym = sub_match.group(1) if sub_match else "$"
+                            
+                            for s_tidx, s_task in enumerate(getattr(sub, 'tasks', []), 1):
+                                s_task_total = sum([
+                                    sum(sub._get_item_total_in_base_currency(m) for m in s_task.materials),
+                                    sum(sub._get_item_total_in_base_currency(l) for l in s_task.labor),
+                                    sum(sub._get_item_total_in_base_currency(e) for e in s_task.equipment),
+                                    sum(sub._get_item_total_in_base_currency(p) for p in s_task.plant),
+                                    sum(sub._get_item_total_in_base_currency(ind) for ind in s_task.indirect_costs)
+                                ])
+                                
+                                s_task_item = QTreeWidgetItem(child, [
+                                    "",
+                                    f"Task {s_tidx}: {s_task.description}",
+                                    "",
+                                    "",
+                                    f"{sub_sym}{s_task_total:,.2f}",
+                                    ""
+                                ])
+                                
+                                from PyQt6.QtGui import QColor, QFont
+                                s_task_bg = QColor("#ffeceb") # pale pink for tasks
+                                b_font = QFont()
+                                b_font.setBold(True)
+                                for c_idx in range(self.tree.columnCount()):
+                                    s_task_item.setBackground(c_idx, s_task_bg)
+                                    s_task_item.setFont(c_idx, b_font)
+                                    s_task_item.setFlags(s_task_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                                for s_list_attr, s_label_prefix, s_name_key, s_unit_func, s_qty_key, s_rate_key, s_type_code in resources:
+                                    s_items = getattr(s_task, s_list_attr)
+                                    for s_item in s_items:
+                                        s_uc_conv = sub.convert_to_base_currency(s_item[s_rate_key], s_item.get('currency'))
+                                        s_total_conv = sub.convert_to_base_currency(s_item['total'], s_item.get('currency'))
+                                        s_unit_str = s_unit_func(s_item)
+                                        s_qty_val = s_item[s_qty_key]
+                                        
+                                        s_child = QTreeWidgetItem(s_task_item, [
+                                            "",
+                                            f"  {s_label_prefix}: {s_item[s_name_key]}",
+                                            f"{s_qty_val:.2f} {s_unit_str} @ {sub_sym}{s_uc_conv:,.2f}",
+                                            f"{sub_sym}{s_total_conv:,.2f}",
+                                            "",
+                                            ""
+                                        ])
+                                        
+                                        s_child_bg = QColor("#fff5f5") # very pale pink for resources
+                                        for c_idx in range(self.tree.columnCount()):
+                                            s_child.setBackground(c_idx, s_child_bg)
+                                            s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                            child.setExpanded(True)
 
                     sub_idx += 1
 
