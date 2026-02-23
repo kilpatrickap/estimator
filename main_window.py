@@ -4,8 +4,9 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
                              QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow,
-                             QStatusBar, QSlider, QRadioButton, QButtonGroup, QSpinBox, QGroupBox)
-from PyQt6.QtGui import QFont, QDoubleValidator, QAction
+                             QStatusBar, QSlider, QRadioButton, QButtonGroup, QSpinBox, QGroupBox,
+                             QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
+from PyQt6.QtGui import QFont, QDoubleValidator, QAction, QColor
 from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
@@ -689,6 +690,25 @@ class MainWindow(QMainWindow):
         win = self._get_active_estimate_window()
         
         active_sub = self.mdi_area.activeSubWindow()
+        
+        # Visually dim inactive windows and glow the active one
+        for sub in self.mdi_area.subWindowList():
+            if sub == active_sub:
+                shadow = QGraphicsDropShadowEffect()
+                shadow.setBlurRadius(40)
+                # Parse color from border if available, otherwise default
+                color_str = "#00c896" # Default glow color
+                style = sub.styleSheet()
+                import re
+                match = re.search(r'border:\s*4px\s+solid\s+(#[0-9a-fA-F]{6})', style)
+                if match:
+                    color_str = match.group(1)
+                shadow.setColor(QColor(color_str))
+                shadow.setOffset(0, 0)
+                sub.setGraphicsEffect(shadow)
+            else:
+                sub.setGraphicsEffect(None) # Remove shadows/effects for inactive
+                
         if active_sub and active_sub.widget():
             title = active_sub.widget().windowTitle()
             import re
