@@ -85,6 +85,15 @@ class RateBuildUpDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(5)
 
+        # Breadcrumbs
+        breadcrumb_text = "Estimate"
+        if hasattr(self.estimate, 'project_name') and self.estimate.project_name:
+            breadcrumb_text += f" &gt; <b>{self.estimate.project_name}</b>"
+        
+        breadcrumb_lbl = QLabel(breadcrumb_text)
+        breadcrumb_lbl.setStyleSheet("color: #777; font-size: 11px;")
+        layout.addWidget(breadcrumb_lbl)
+
         # Header Section
         header = QFrame()
         from PyQt6.QtWidgets import QSizePolicy
@@ -797,6 +806,13 @@ class RateBuildUpDialog(QDialog):
                 
         dialog = CurrencyConversionDialog(self.estimate, self)
         sub = self.main_window.mdi_area.addSubWindow(dialog)
+        
+        # Color code border
+        if hasattr(self.main_window, '_get_color_for_rate') and hasattr(self.estimate, 'rate_code'):
+            color = self.main_window._get_color_for_rate(self.estimate.rate_code)
+            if color != "transparent":
+                sub.setStyleSheet(f"QMdiSubWindow {{ border: 4px solid {color}; background-color: #ffffff; }}")
+        
         sub.resize(500, 350)
         if hasattr(self.main_window, '_apply_zoom_to_subwindow'):
             self.main_window._apply_zoom_to_subwindow(sub)

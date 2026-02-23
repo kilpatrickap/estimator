@@ -18,6 +18,18 @@ class CurrencyConversionDialog(QDialog):
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(5)
         
+        # Breadcrumbs
+        breadcrumb_text = "Estimate"
+        if hasattr(self.estimate, 'project_name') and self.estimate.project_name:
+            breadcrumb_text += f" &gt; {self.estimate.project_name}"
+        if hasattr(self.estimate, 'rate_code') and self.estimate.rate_code:
+            breadcrumb_text += f" &gt; Rate: {self.estimate.rate_code}"
+        breadcrumb_text += " &gt; <b>Exchange Rates</b>"
+        
+        breadcrumb_lbl = QLabel(breadcrumb_text)
+        breadcrumb_lbl.setStyleSheet("color: #777; font-size: 11px;")
+        layout.addWidget(breadcrumb_lbl)
+
         info_label = QLabel(f"Base Currency: <b>{self.estimate.currency}</b>")
         layout.addWidget(info_label)
         

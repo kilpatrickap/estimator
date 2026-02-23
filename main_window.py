@@ -158,6 +158,19 @@ class MainWindow(QMainWindow):
         # Track zoom scale for relative window resizing
         self.last_zoom_scale = 1.0
 
+    def _get_color_for_rate(self, rate_code):
+        if not rate_code: return "transparent"
+        import hashlib
+        hash_val = int(hashlib.md5(str(rate_code).encode()).hexdigest()[:6], 16)
+        r = (hash_val & 0xFF0000) >> 16
+        g = (hash_val & 0x00FF00) >> 8
+        b = hash_val & 0x0000FF
+        # Make pastel
+        r = (r + 255) // 2
+        g = (g + 255) // 2
+        b = (b + 255) // 2
+        return f"#{r:02x}{g:02x}{b:02x}"
+
     def _setup_navbar(self):
         """Creates the premium top navigation bar."""
         self.navbar = QFrame()
@@ -308,6 +321,12 @@ class MainWindow(QMainWindow):
 
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
         sub = self.mdi_area.addSubWindow(buildup_win)
+        
+        # Color code border
+        color = self._get_color_for_rate(estimate_obj.rate_code)
+        if color != "transparent":
+            sub.setStyleSheet(f"QMdiSubWindow {{ border: 4px solid {color}; background-color: #ffffff; }}")
+            
         buildup_win.stateChanged.connect(self._update_toolbar_state)
         buildup_win.dataCommitted.connect(refresh_manager)
         sub.resize(800, 634)
@@ -327,14 +346,32 @@ class MainWindow(QMainWindow):
         # RateBuildUpDialog handles its own undo stack. We should let it handle the push.
         
         edit_win = EditItemDialog(item_data, item_type, currency, parent=parent_window, is_modal=False, custom_name_label=custom_name_label)
+        
         if custom_title:
             edit_win.setWindowTitle(custom_title)
+        else:
+            parent_code = "Estimate"
+            if hasattr(parent_window, 'estimate') and hasattr(parent_window.estimate, 'rate_code') and parent_window.estimate.rate_code:
+                parent_code = f"Rate: {parent_window.estimate.rate_code}"
+            elif hasattr(parent_window, 'estimate') and hasattr(parent_window.estimate, 'project_name') and parent_window.estimate.project_name:
+                parent_code = f"Project: {parent_window.estimate.project_name}"
+            
+            item_name = item_data.get('name') or item_data.get('trade') or item_data.get('description') or 'New Item'
+            auto_title = f"{item_type.capitalize()}: {item_name} [{parent_code}]"
+            edit_win.setWindowTitle(auto_title)
         
         # Capture snapshot of parent's estimate state *before* any potential changes
         if hasattr(parent_window, 'estimate'):
              edit_win.snapshot = copy.deepcopy(parent_window.estimate)
         
         sub = self.mdi_area.addSubWindow(edit_win)
+        
+        # Color code border
+        color = "transparent"
+        if hasattr(parent_window, 'estimate') and hasattr(parent_window.estimate, 'rate_code'):
+            color = self._get_color_for_rate(parent_window.estimate.rate_code)
+        if color != "transparent":
+            sub.setStyleSheet(f"QMdiSubWindow {{ border: 4px solid {color}; background-color: #ffffff; }}")
         
         def on_save():
             # When EditItemDialog saves, it updates the item_data dict in place.
@@ -650,6 +687,16 @@ class MainWindow(QMainWindow):
     def _update_toolbar_state(self):
         """Updates enable/disable state of global actions based on active window."""
         win = self._get_active_estimate_window()
+        
+        active_sub = self.mdi_area.activeSubWindow()
+        if active_sub and active_sub.widget():
+            title = active_sub.widget().windowTitle()
+            import re
+            clean_title = re.sub(r'<[^>]+>', '', title)
+            self.statusBar().showMessage(f"Active: {clean_title}")
+        else:
+            self.statusBar().showMessage("Ready")
+            
         if win:
             self.save_btn.setEnabled(True)
             if hasattr(win, 'undo_stack'):

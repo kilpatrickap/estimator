@@ -64,6 +64,19 @@ class EditItemDialog(QDialog):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
         
+        # Breadcrumbs
+        parent_window = self.parent()
+        breadcrumb_text = "Estimate"
+        if parent_window and hasattr(parent_window, 'estimate'):
+            if hasattr(parent_window.estimate, 'project_name') and parent_window.estimate.project_name:
+                breadcrumb_text += f" &gt; {parent_window.estimate.project_name}"
+            if hasattr(parent_window.estimate, 'rate_code') and parent_window.estimate.rate_code:
+                breadcrumb_text += f" &gt; <b>Rate: {parent_window.estimate.rate_code}</b>"
+        
+        breadcrumb_lbl = QLabel(breadcrumb_text)
+        breadcrumb_lbl.setStyleSheet("color: #777; font-size: 11px;")
+        layout.addWidget(breadcrumb_lbl)
+
         # Header Info
         header_layout = QFormLayout()
         self.name_display = QLineEdit(name)
