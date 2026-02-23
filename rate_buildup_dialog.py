@@ -300,7 +300,7 @@ class RateBuildUpDialog(QDialog):
         self.tables_splitter = QSplitter(Qt.Orientation.Vertical)
         self.tables_splitter.addWidget(self.tree)
         self.tables_splitter.addWidget(self.composite_table)
-        self.tables_splitter.setSizes([400, 100]) # Give main tree more space, enough for ~2 imported rate rows
+        self.tables_splitter.setSizes([350, 150]) # Give main tree more space, enough for ~2 imported rate rows
         
         self.main_v_splitter.addWidget(self.tables_splitter)
 
