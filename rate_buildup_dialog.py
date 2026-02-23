@@ -1266,6 +1266,14 @@ class RateBuildUpDialog(QDialog):
                         for c_idx in range(self.tree.columnCount()):
                             s_child.setBackground(c_idx, s_child_bg)
                             s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                            
+                        # Highlight if impacted by library change (Color Pink)
+                        if getattr(self, 'show_impact_highlights', False) and (s_type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
+                            for c in range(self.tree.columnCount()):
+                                from PyQt6.QtGui import QColor
+                                soft_pink = QColor("#fce4ec") # Very light pink
+                                s_child.setBackground(c, soft_pink)
+                                s_child.setForeground(c, Qt.GlobalColor.black)
 
                         # Recursive call for deeply nested composite rates
                         if s_task.description == "Imported Rates" and hasattr(self, 'expanded_imported_rates') and item_display_name in self.expanded_imported_rates:
