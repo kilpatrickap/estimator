@@ -339,19 +339,22 @@ class MainWindow(QMainWindow):
         def on_save():
             # When EditItemDialog saves, it updates the item_data dict in place.
             # We need to notify the parent window to push the snapshot and refresh.
-            if hasattr(parent_window, 'undo_stack'):
-                parent_window.undo_stack.append(edit_win.snapshot)
-                parent_window.redo_stack.clear()
-            
-            # Update the snapshot for the NEXT save operation (if window stays open)
-            if hasattr(parent_window, 'estimate'):
-                edit_win.snapshot = copy.deepcopy(parent_window.estimate)
-            
-            if hasattr(parent_window, 'refresh_view'):
-                parent_window.refresh_view()
+            try:
+                if hasattr(parent_window, 'undo_stack'):
+                    parent_window.undo_stack.append(edit_win.snapshot)
+                    parent_window.redo_stack.clear()
                 
-            if hasattr(parent_window, 'stateChanged'):
-                parent_window.stateChanged.emit()
+                # Update the snapshot for the NEXT save operation (if window stays open)
+                if hasattr(parent_window, 'estimate'):
+                    edit_win.snapshot = copy.deepcopy(parent_window.estimate)
+                
+                if hasattr(parent_window, 'refresh_view'):
+                    parent_window.refresh_view()
+                    
+                if hasattr(parent_window, 'stateChanged'):
+                    parent_window.stateChanged.emit()
+            except RuntimeError:
+                pass
                 
         edit_win.dataCommitted.connect(on_save)
         edit_win.stateChanged.connect(self._update_toolbar_state)

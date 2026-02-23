@@ -485,11 +485,6 @@ class RateBuildUpDialog(QDialog):
         menu = QMenu(self)
         
         if item and hasattr(item, 'item_type'):
-            if hasattr(item, 'task_object') and item.task_object.description == "Imported Rates":
-                details_action = menu.addAction("Show/Hide Details")
-                details_action.triggered.connect(lambda checked=False, i=item: self.toggle_imported_rate_details(i))
-                menu.addSeparator()
-
             go_to_action = menu.addAction("Go to Resource")
             go_to_action.triggered.connect(lambda: self.go_to_resource(item))
             menu.addSeparator()
@@ -523,6 +518,13 @@ class RateBuildUpDialog(QDialog):
         toggle_highlights_action = menu.addAction("Show/Hide Changes")
         toggle_highlights_action.triggered.connect(self.toggle_highlights)
         
+        if item and hasattr(item, 'item_type') and hasattr(item, 'task_object') and item.task_object.description == "Imported Rates":
+            details_action = menu.addAction("Show/Hide Details")
+            details_action.triggered.connect(lambda checked=False, i=item: self.toggle_imported_rate_details(i))
+            
+            sync_action = menu.addAction("Sync with Database")
+            sync_action.triggered.connect(lambda checked=False, i=item: self.sync_imported_rate_from_db(i))
+        
         remove_action = menu.addAction("Remove Selected")
         remove_action.triggered.connect(self.remove_selected)
         
@@ -541,6 +543,70 @@ class RateBuildUpDialog(QDialog):
                     self.expanded_imported_rates.add(name)
                 self.refresh_view()
 
+    def sync_imported_rate_from_db(self, item):
+        if not hasattr(item, 'item_data'): return
+        name = item.item_data.get('name')
+        if not name: return
+        
+        # 1. Find the corresponding estimate object in sub_rates
+        sub_obj = None
+        sub_idx = -1
+        for i, s in enumerate(self.estimate.sub_rates):
+            if name == f"{getattr(s, 'rate_code', '')}: {s.project_name}":
+                sub_obj = s
+                sub_idx = i
+                break
+                
+        if not sub_obj:
+            QMessageBox.warning(self, "Error", f"Could not locate '{name}' in sub-rates.")
+            return
+            
+        self.sync_sub_rate(sub_idx)
+
+    def sync_sub_rate(self, sub_idx):
+        sub_obj = self.estimate.sub_rates[sub_idx]
+        name = f"{getattr(sub_obj, 'rate_code', '')}: {sub_obj.project_name}"
+        
+        # 2. Re-load from DB
+        db_id = getattr(sub_obj, 'id', None)
+        from database import DatabaseManager
+        rates_db = DatabaseManager("construction_rates.db")
+        
+        if not db_id:
+            for r in rates_db.get_rates_data():
+                if r[1] == getattr(sub_obj, 'rate_code', ''):
+                    db_id = r[0]
+                    break
+        
+        if not db_id:
+            QMessageBox.warning(self, "Error", f"No database record exists for '{name}'.")
+            return
+            
+        new_sub = rates_db.load_estimate_details(db_id)
+        if not new_sub:
+            QMessageBox.warning(self, "Error", f"Failed to load updated data for '{name}'.")
+            return
+            
+        self._save_state()
+        
+        # Keep old converted unit and quantity so the user's local work isn't fully wiped out seamlessly
+        new_sub.converted_unit = getattr(sub_obj, 'converted_unit', getattr(sub_obj, 'unit', ''))
+        new_sub.quantity = getattr(sub_obj, 'quantity', 1.0)
+        
+        # 3. Replace in sub-rates
+        self.estimate.sub_rates[sub_idx] = new_sub
+        
+        self.refresh_view()
+        self.save_changes(show_message=False)
+        
+        QMessageBox.information(
+            self, 
+            "Sync Successful", 
+            f"'{name}' has been synced with the latest changes from the database.\n\n"
+            "Please check for any unit mismatches and calculation changes in the Composite rate table below.\n\n"
+            "Once verified, right-click the rate and select 'Insert Rate' to update its calculations in the main Edit Rate Build-up table."
+        )
+
     def show_composite_context_menu(self, pos):
         menu = QMenu(self)
         import_action = menu.addAction("Import Rate")
@@ -550,6 +616,11 @@ class RateBuildUpDialog(QDialog):
         if selected_indexes:
             row = selected_indexes[0].row()
             if row < len(self.estimate.sub_rates): # Not the blank row
+                menu.addSeparator()
+                
+                sync_action = menu.addAction("Sync with Database")
+                sync_action.triggered.connect(lambda: self.sync_sub_rate(row))
+                
                 menu.addSeparator()
                 
                 insert_action = menu.addAction("Insert Rate")
@@ -584,13 +655,29 @@ class RateBuildUpDialog(QDialog):
         name = f"{getattr(sub, 'rate_code', '')}: {sub.project_name}"
         
         self._save_state()
-        imported_task.add_material(
-            name=name,
-            quantity=qty,
-            unit=getattr(sub, 'converted_unit', sub.unit),
-            unit_cost=calc_subtotal,
-            currency=sub.currency
-        )
+        
+        existing_mat = None
+        for m in imported_task.materials:
+            if m.get('name') == name:
+                existing_mat = m
+                break
+                
+        if existing_mat:
+            existing_mat['qty'] = qty
+            existing_mat['unit'] = getattr(sub, 'converted_unit', sub.unit)
+            existing_mat['unit_cost'] = calc_subtotal
+            existing_mat['currency'] = sub.currency
+            existing_mat['total'] = calc_subtotal * qty
+            QMessageBox.information(self, "Rate Updated", f"Calculations and Net Rate for '{name}' have been successfully updated in the Edit Rate Build-up table.")
+        else:
+            imported_task.add_material(
+                name=name,
+                quantity=qty,
+                unit=getattr(sub, 'converted_unit', sub.unit),
+                unit_cost=calc_subtotal,
+                currency=sub.currency
+            )
+            
         self.save_changes(show_message=False)
         self.refresh_view()
         self.stateChanged.emit()
@@ -1216,7 +1303,7 @@ class RateBuildUpDialog(QDialog):
                                 ])
                                 
                                 from PyQt6.QtGui import QColor, QFont
-                                s_task_bg = QColor("#ffeceb") # pale pink for tasks
+                                s_task_bg = QColor("#e3f2fd") # pale blue for tasks
                                 b_font = QFont()
                                 b_font.setBold(True)
                                 for c_idx in range(self.tree.columnCount()):
@@ -1241,7 +1328,7 @@ class RateBuildUpDialog(QDialog):
                                             ""
                                         ])
                                         
-                                        s_child_bg = QColor("#fff5f5") # very pale pink for resources
+                                        s_child_bg = QColor("#f4f9fb") # very pale blue for resources
                                         for c_idx in range(self.tree.columnCount()):
                                             s_child.setBackground(c_idx, s_child_bg)
                                             s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
