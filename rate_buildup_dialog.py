@@ -1195,6 +1195,93 @@ class RateBuildUpDialog(QDialog):
         bold_font = self.tree.font()
         bold_font.setBold(True)
 
+        # Define configurations for each type of resource
+        resources = [
+            ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
+            ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
+            ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment'),
+            ('plant', 'Plant', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'plant'),
+            ('indirect_costs', 'Indirect', 'description', lambda x: x.get('unit') or '', 'amount', 'amount', 'indirect_costs')
+        ]
+
+        def _render_sub_rate_recursive(parent_item, sub_estimate):
+            sub_match = re.search(r'\((.*?)\)', sub_estimate.currency)
+            sub_sym = sub_match.group(1) if sub_match else "$"
+            
+            for s_tidx, s_task in enumerate(getattr(sub_estimate, 'tasks', []), 1):
+                s_task_total = sum([
+                    sum(sub_estimate._get_item_total_in_base_currency(m) for m in s_task.materials),
+                    sum(sub_estimate._get_item_total_in_base_currency(l) for l in s_task.labor),
+                    sum(sub_estimate._get_item_total_in_base_currency(e) for e in s_task.equipment),
+                    sum(sub_estimate._get_item_total_in_base_currency(p) for p in s_task.plant),
+                    sum(sub_estimate._get_item_total_in_base_currency(ind) for ind in s_task.indirect_costs)
+                ])
+                
+                s_task_item = QTreeWidgetItem(parent_item, [
+                    "",
+                    f"Task {s_tidx}: {s_task.description}",
+                    "",
+                    "",
+                    f"{sub_sym}{s_task_total:,.2f}",
+                    ""
+                ])
+                
+                from PyQt6.QtGui import QColor, QFont
+                s_task_bg = QColor("#e3f2fd") # pale blue for tasks
+                b_font = QFont()
+                b_font.setBold(True)
+                for c_idx in range(self.tree.columnCount()):
+                    s_task_item.setBackground(c_idx, s_task_bg)
+                    s_task_item.setFont(c_idx, b_font)
+                    s_task_item.setFlags(s_task_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                for s_list_attr, s_label_prefix, s_name_key, s_unit_func, s_qty_key, s_rate_key, s_type_code in resources:
+                    s_items = getattr(s_task, s_list_attr)
+                    for s_item in s_items:
+                        s_uc_conv = sub_estimate.convert_to_base_currency(s_item[s_rate_key], s_item.get('currency'))
+                        s_total_conv = sub_estimate.convert_to_base_currency(s_item['total'], s_item.get('currency'))
+                        s_unit_str = s_unit_func(s_item)
+                        s_qty_val = s_item[s_qty_key]
+                        
+                        item_display_name = s_item[s_name_key]
+                        item_label = f"  {s_label_prefix}: {item_display_name}"
+                        if s_task.description == "Imported Rates":
+                            item_label = f"  {item_display_name}" # Remove prefix for imported rates
+                        
+                        s_child = QTreeWidgetItem(s_task_item, [
+                            "",
+                            item_label,
+                            f"{s_qty_val:.2f} {s_unit_str} @ {sub_sym}{s_uc_conv:,.2f}",
+                            f"{sub_sym}{s_total_conv:,.2f}",
+                            "",
+                            ""
+                        ])
+                        
+                        # Attach data for editing/context menus
+                        s_child.item_type = s_type_code
+                        s_child.item_data = s_item
+                        s_child.task_object = s_task
+                        
+                        s_child_bg = QColor("#f4f9fb") # very pale blue for resources
+                        for c_idx in range(self.tree.columnCount()):
+                            s_child.setBackground(c_idx, s_child_bg)
+                            s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                        # Recursive call for deeply nested composite rates
+                        if s_task.description == "Imported Rates" and hasattr(self, 'expanded_imported_rates') and item_display_name in self.expanded_imported_rates:
+                            nested_sub = None
+                            for n_s in sub_estimate.sub_rates:
+                                n_s_name = f"{getattr(n_s, 'rate_code', '')}: {n_s.project_name}"
+                                if item_display_name == n_s_name:
+                                    nested_sub = n_s
+                                    break
+                                    
+                            if nested_sub:
+                                _render_sub_rate_recursive(s_child, nested_sub)
+                                s_child.setExpanded(True)
+
+            parent_item.setExpanded(True)
+
         for i, task in enumerate(self.estimate.tasks, 1):
             # Calculate total for display
             task_total = sum([
@@ -1219,15 +1306,6 @@ class RateBuildUpDialog(QDialog):
             
             for col in range(self.tree.columnCount()):
                 task_item.setFont(col, bold_font)
-
-            # Define configurations for each type of resource
-            resources = [
-                ('materials', 'Material', 'name', lambda x: x['unit'], 'qty', 'unit_cost', 'material'),
-                ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
-                ('equipment', 'Equipment', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'equipment'),
-                ('plant', 'Plant', 'name', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'plant'),
-                ('indirect_costs', 'Indirect', 'description', lambda x: x.get('unit') or '', 'amount', 'amount', 'indirect_costs')
-            ]
             
             sub_idx = 1
             for list_attr, label_prefix, name_key, unit_func, qty_key, rate_key, type_code in resources:
@@ -1281,59 +1359,7 @@ class RateBuildUpDialog(QDialog):
                                 break
                                 
                         if sub:
-                            sub_match = re.search(r'\((.*?)\)', sub.currency)
-                            sub_sym = sub_match.group(1) if sub_match else "$"
-                            
-                            for s_tidx, s_task in enumerate(getattr(sub, 'tasks', []), 1):
-                                s_task_total = sum([
-                                    sum(sub._get_item_total_in_base_currency(m) for m in s_task.materials),
-                                    sum(sub._get_item_total_in_base_currency(l) for l in s_task.labor),
-                                    sum(sub._get_item_total_in_base_currency(e) for e in s_task.equipment),
-                                    sum(sub._get_item_total_in_base_currency(p) for p in s_task.plant),
-                                    sum(sub._get_item_total_in_base_currency(ind) for ind in s_task.indirect_costs)
-                                ])
-                                
-                                s_task_item = QTreeWidgetItem(child, [
-                                    "",
-                                    f"Task {s_tidx}: {s_task.description}",
-                                    "",
-                                    "",
-                                    f"{sub_sym}{s_task_total:,.2f}",
-                                    ""
-                                ])
-                                
-                                from PyQt6.QtGui import QColor, QFont
-                                s_task_bg = QColor("#e3f2fd") # pale blue for tasks
-                                b_font = QFont()
-                                b_font.setBold(True)
-                                for c_idx in range(self.tree.columnCount()):
-                                    s_task_item.setBackground(c_idx, s_task_bg)
-                                    s_task_item.setFont(c_idx, b_font)
-                                    s_task_item.setFlags(s_task_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-                                for s_list_attr, s_label_prefix, s_name_key, s_unit_func, s_qty_key, s_rate_key, s_type_code in resources:
-                                    s_items = getattr(s_task, s_list_attr)
-                                    for s_item in s_items:
-                                        s_uc_conv = sub.convert_to_base_currency(s_item[s_rate_key], s_item.get('currency'))
-                                        s_total_conv = sub.convert_to_base_currency(s_item['total'], s_item.get('currency'))
-                                        s_unit_str = s_unit_func(s_item)
-                                        s_qty_val = s_item[s_qty_key]
-                                        
-                                        s_child = QTreeWidgetItem(s_task_item, [
-                                            "",
-                                            f"  {s_label_prefix}: {s_item[s_name_key]}",
-                                            f"{s_qty_val:.2f} {s_unit_str} @ {sub_sym}{s_uc_conv:,.2f}",
-                                            f"{sub_sym}{s_total_conv:,.2f}",
-                                            "",
-                                            ""
-                                        ])
-                                        
-                                        s_child_bg = QColor("#f4f9fb") # very pale blue for resources
-                                        for c_idx in range(self.tree.columnCount()):
-                                            s_child.setBackground(c_idx, s_child_bg)
-                                            s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-                            child.setExpanded(True)
+                            _render_sub_rate_recursive(child, sub)
 
                     sub_idx += 1
 
