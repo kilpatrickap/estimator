@@ -9,7 +9,6 @@ from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
 from currency_conversion_dialog import CurrencyConversionDialog
 from selection_dialogs import CostSelectionDialog, RateSelectionDialog
-from event_bus import EventBus
 import re
 import copy
 from datetime import datetime

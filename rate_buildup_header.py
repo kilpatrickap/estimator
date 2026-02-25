@@ -3,8 +3,6 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QButtonGroup)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
-from event_bus import EventBus
-
 class RateBuildupHeaderWidget(QWidget):
     """Encapsulates the Header and Toolbar sections of the Rate Build-up Dialog."""
     
