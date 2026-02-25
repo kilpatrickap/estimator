@@ -43,7 +43,7 @@ class ColoredTabBar(QTabBar):
 class DatabaseManagerDialog(QDialog):
     """Dialog for managing the global cost library (Materials, Labor, Equipment)."""
     stateChanged = pyqtSignal()
-    resourceUpdated = pyqtSignal(str, str, float, str) # table, name, new_val, currency
+    resourceUpdated = pyqtSignal(str, str, float, str, str) # table, name, new_val, currency, unit
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -224,7 +224,8 @@ class DatabaseManagerDialog(QDialog):
             self.stateChanged.emit()
             
             # Emit broad update for Rate windows
-            self.resourceUpdated.emit(table_name, item_data['name'], new_val, currency)
+            unit = table.item(row, 2).text() if table.item(row, 2) else ""
+            self.resourceUpdated.emit(table_name, item_data['name'], new_val, currency, unit)
 
     def on_item_changed(self, item, table_name):
         if self.is_loading: return
@@ -276,17 +277,18 @@ class DatabaseManagerDialog(QDialog):
         self.db_manager.update_item_field(table_name, column_name, new_value, item_id)
         self.stateChanged.emit()
         
-        # If name or price/rate changed, notify system
-        if col in [1, 4]:
-            name = table.item(row, 1).text()
-            # For rate, it might be in col 4
-            val = float(table.item(row, 4).text().replace(',', ''))
+        # If name, unit or price/rate changed, notify system
+        if col in [1, 2, 4]:
+            name = table.item(row, 1).text() if table.item(row, 1) else ""
+            val = float(table.item(row, 4).text().replace(',', '')) if table.item(row, 4) else 0.0
+            unit = table.item(row, 2).text() if table.item(row, 2) else ""
+            
             # Get currency from combo widget
             curr = ""
             combo = table.cellWidget(row, 3)
             if combo: curr = combo.currentText()
             
-            self.resourceUpdated.emit(table_name, name, val, curr)
+            self.resourceUpdated.emit(table_name, name, val, curr, unit)
 
     def show_context_menu(self, pos, table_name):
         table = self.tables[table_name]
@@ -318,7 +320,16 @@ class DatabaseManagerDialog(QDialog):
         currencies = ["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"]
         combo.addItems(currencies)
         combo.setCurrentText(str(current_val or "GHS (₵)"))
-        combo.currentTextChanged.connect(lambda text: (self.db_manager.update_item_currency(table_name, item_id, text), self.stateChanged.emit()))
+        def handle_currency_changed(text):
+            self.db_manager.update_item_currency(table_name, item_id, text)
+            self.stateChanged.emit()
+            # Emit resourceUpdate for active estimate syncing
+            name = table.item(row, 1).text() if table.item(row, 1) else ""
+            unit = table.item(row, 2).text() if table.item(row, 2) else ""
+            val = float(table.item(row, 4).text().replace(',', '')) if table.item(row, 4) else 0.0
+            self.resourceUpdated.emit(table_name, name, val, text, unit)
+
+        combo.currentTextChanged.connect(handle_currency_changed)
         table.setCellWidget(row, col, combo)
         table.setItem(row, col, QTableWidgetItem(combo.currentText())) # For search/sort
 

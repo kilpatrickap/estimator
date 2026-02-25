@@ -1050,7 +1050,7 @@ class DatabaseManager:
         finally:
             conn.close()
 
-    def update_resource_in_all_estimates(self, table_name, resource_name, new_val, new_curr):
+    def update_resource_in_all_estimates(self, table_name, resource_name, new_val, new_curr, new_unit=None):
         """Updates the given resource across all saved estimates/rates."""
         est_ids = self.get_estimates_using_resource(table_name, resource_name)
         if not est_ids: return 0
@@ -1080,9 +1080,10 @@ class DatabaseManager:
                 for item in items:
                     if item.get(name_key) == resource_name:
                         # Check if different
-                        if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                        if item.get(rate_key) != new_val or item.get('currency') != new_curr or (new_unit and item.get('unit') != new_unit):
                             item[rate_key] = new_val
                             if new_curr: item['currency'] = new_curr
+                            if new_unit: item['unit'] = new_unit
                             qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
                             
                             # Update total

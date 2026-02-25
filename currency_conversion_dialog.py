@@ -96,18 +96,20 @@ class CurrencyConversionDialog(QDialog):
         return True
 
     def get_used_currencies(self):
-        """Finds all unique currencies used in the estimate tasks, excluding the base currency."""
+        """Finds all unique currencies used in the estimate tasks and sub-rates' base currencies."""
         used = set()
+        
         for task in self.estimate.tasks:
-            for m in task.materials:
-                if 'currency' in m and m['currency'] != self.estimate.currency:
-                    used.add(m['currency'])
-            for l in task.labor:
-                if 'currency' in l and l['currency'] != self.estimate.currency:
-                    used.add(l['currency'])
-            for e in task.equipment:
-                if 'currency' in e and e['currency'] != self.estimate.currency:
-                    used.add(e['currency'])
+            for item_list in [task.materials, task.labor, task.equipment, task.plant, task.indirect_costs]:
+                for item in item_list:
+                    if 'currency' in item and item['currency'] and item['currency'] != self.estimate.currency:
+                        used.add(item['currency'])
+                        
+        if hasattr(self.estimate, 'sub_rates'):
+            for sub in self.estimate.sub_rates:
+                if hasattr(sub, 'currency') and sub.currency and sub.currency != self.estimate.currency:
+                    used.add(sub.currency)
+                    
         return sorted(list(used))
 
     def populate_table(self):
@@ -169,4 +171,3 @@ class CurrencyConversionDialog(QDialog):
         
         self.estimate.exchange_rates = new_rates
         self.populate_table() # Refresh table to ensure values match internal state
-

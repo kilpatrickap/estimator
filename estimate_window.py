@@ -410,7 +410,7 @@ class EstimateWindow(QMainWindow):
 
         self.refresh_view()
 
-    def handle_library_update(self, table_name, resource_name, new_val, new_curr, auto_update=False):
+    def handle_library_update(self, table_name, resource_name, new_val, new_curr, new_unit="", auto_update=False):
         """Silently updates matching resources in this estimate if auto_update is True."""
         if not auto_update:
             return  # For estimates, we only do it if the global prompt was accepted
@@ -434,13 +434,14 @@ class EstimateWindow(QMainWindow):
             items = getattr(task, table_name, [])
             for item in items:
                 if item.get(name_key) == resource_name:
-                    if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                    if item.get(rate_key) != new_val or item.get('currency') != new_curr or (new_unit and item.get('unit') != new_unit):
                         if not affected:
                             self.save_state()
                             affected = True
                             
                         item[rate_key] = new_val
                         if new_curr: item['currency'] = new_curr
+                        if new_unit: item['unit'] = new_unit
                         qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
                         
                         qty = item.get(qty_key, 1.0)

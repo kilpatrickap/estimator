@@ -988,7 +988,7 @@ class RateBuildUpDialog(QDialog):
                 item.setText(column, old_desc)
                 self.is_loading = False
 
-    def handle_library_update(self, table_name, resource_name, new_val, new_curr, auto_update=False):
+    def handle_library_update(self, table_name, resource_name, new_val, new_curr, new_unit="", auto_update=False):
         """Checks if this rate uses the updated resource and prompts to update."""
         # Map table_name back to item_type
         type_map = {
@@ -1020,7 +1020,7 @@ class RateBuildUpDialog(QDialog):
             for item in items:
                 if item.get(name_key) == resource_name:
                     # Check if actually different
-                    if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                    if item.get(rate_key) != new_val or item.get('currency') != new_curr or (new_unit and item.get('unit') != new_unit):
                         affected_items.append(item)
 
         if affected_items:
@@ -1038,6 +1038,7 @@ class RateBuildUpDialog(QDialog):
                 for item in affected_items:
                     item[rate_key] = new_val
                     if new_curr: item['currency'] = new_curr
+                    if new_unit: item['unit'] = new_unit
                     # Recalculate item total (depends on qty)
                     qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
                     item['total'] = item[qty_key] * new_val

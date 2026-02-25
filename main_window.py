@@ -441,7 +441,7 @@ class MainWindow(QMainWindow):
             self.mdi_area.setActiveSubWindow(db_sub)
             db_sub.widget().highlight_resource(table_name, resource_name)
         
-    def _broadcast_library_update(self, table, name, val, curr):
+    def _broadcast_library_update(self, table, name, val, curr, unit=""):
         """Notifies all open rate windows about a resource update in the library."""
         from database import DatabaseManager
         from PyQt6.QtWidgets import QMessageBox
@@ -456,18 +456,19 @@ class MainWindow(QMainWindow):
         auto_update = False
         
         if total_affected > 0:
+            unit_msg = f" @ {unit}" if unit else ""
             reply = QMessageBox.question(
                 self, 
                 "Update Dependent Rates and Estimates",
                 f"The resource '{name}' is used in {total_affected} saved estimate(s)/rate(s).\n\n"
-                f"Do you want to update all of them to the new rate and currency: {curr} {val:,.2f}?",
+                f"Do you want to update all of them to the new rate, currency, and unit: {curr} {val:,.2f}{unit_msg}?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.Yes
             )
             
             if reply == QMessageBox.StandardButton.Yes:
-                db_costs.update_resource_in_all_estimates(table, name, val, curr)
-                db_rates.update_resource_in_all_estimates(table, name, val, curr)
+                db_costs.update_resource_in_all_estimates(table, name, val, curr, new_unit=unit)
+                db_rates.update_resource_in_all_estimates(table, name, val, curr, new_unit=unit)
                 
                 # Force recalculation for nested composite rates and historical totals
                 db_costs.recalculate_all_estimates()
@@ -478,7 +479,7 @@ class MainWindow(QMainWindow):
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if hasattr(widget, 'handle_library_update'):
-                widget.handle_library_update(table, name, val, curr, auto_update=auto_update)
+                widget.handle_library_update(table, name, val, curr, unit, auto_update=auto_update)
             elif hasattr(widget, 'load_rates'):
                 # Refresh Historical Rates view if open
                 widget.load_rates()
