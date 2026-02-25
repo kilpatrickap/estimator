@@ -1047,6 +1047,50 @@ class RateBuildUpDialog(QDialog):
                 self.refresh_view()
                 self.stateChanged.emit()
 
+        if auto_update and hasattr(self.estimate, 'sub_rates') and self.estimate.sub_rates:
+            from database import DatabaseManager
+            rates_db = DatabaseManager("construction_rates.db")
+            
+            sub_rates_affected = False
+            for sub_idx, sub_obj in enumerate(self.estimate.sub_rates):
+                db_id = getattr(sub_obj, 'id', None)
+                if not db_id:
+                    for r in rates_db.get_rates_data():
+                        if r[1] == getattr(sub_obj, 'rate_code', ''):
+                            db_id = r[0]
+                            break
+                            
+                if db_id:
+                    new_sub = rates_db.load_estimate_details(db_id)
+                    if new_sub:
+                        if not sub_rates_affected and not affected_items:
+                            self._save_state()
+                        sub_rates_affected = True
+                        
+                        new_sub.converted_unit = getattr(sub_obj, 'converted_unit', getattr(sub_obj, 'unit', ''))
+                        new_sub.quantity = getattr(sub_obj, 'quantity', 1.0)
+                        
+                        self.estimate.sub_rates[sub_idx] = new_sub
+                        
+                        # Apply to Imported Rates task in UI
+                        imported_task = None
+                        for task in self.estimate.tasks:
+                            if task.description == "Imported Rates":
+                                imported_task = task
+                                break
+                                
+                        if imported_task:
+                            name_str = f"{getattr(new_sub, 'rate_code', '')}: {new_sub.project_name}"
+                            calc_subtotal = new_sub.calculate_totals()['subtotal']
+                            for m in imported_task.materials:
+                                if m.get('name') == name_str:
+                                    m['unit_cost'] = calc_subtotal
+                                    m['total'] = calc_subtotal * m.get('qty', 1.0)
+            
+            if sub_rates_affected and not affected_items:
+                self.refresh_view()
+                self.stateChanged.emit()
+
     def go_to_resource(self, item):
         """Navigates to the master resource in the main database."""
         if hasattr(item, 'item_type') and hasattr(item, 'item_data'):
