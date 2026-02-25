@@ -711,10 +711,18 @@ class RateBuildUpDialog(QDialog):
         # Create a mock dictionary that behaves like a material item for the dialog,
         # but intercepts dictionary assignments to mutate the sub rate directly!
         class SubRateAdapterProxy(dict):
-            def __setitem__(self, key, value):
+            def __setitem__(self_proxy, key, value):
                 super().__setitem__(key, value)
                 if key == 'qty':
                     sub.quantity = value
+                    # Automatically update the calculation in the main view's 'Imported Rates' task
+                    name_str = f"{getattr(sub, 'rate_code', '')}: {sub.project_name}"
+                    for task in self.estimate.tasks:
+                        if task.description == "Imported Rates":
+                            for m in task.materials:
+                                if m.get('name') == name_str:
+                                    m['qty'] = value
+                                    m['total'] = value * m.get('unit_cost', 0.0)
                 elif key == 'formula':
                     sub.formula = value
 
