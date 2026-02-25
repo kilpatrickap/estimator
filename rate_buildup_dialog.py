@@ -988,7 +988,7 @@ class RateBuildUpDialog(QDialog):
                 item.setText(column, old_desc)
                 self.is_loading = False
 
-    def handle_library_update(self, table_name, resource_name, new_val, new_curr):
+    def handle_library_update(self, table_name, resource_name, new_val, new_curr, auto_update=False):
         """Checks if this rate uses the updated resource and prompts to update."""
         # Map table_name back to item_type
         type_map = {
@@ -1024,11 +1024,14 @@ class RateBuildUpDialog(QDialog):
                         affected_items.append(item)
 
         if affected_items:
-            reply = QMessageBox.question(self, "Library Resource Updated",
-                                       f"The resource '{resource_name}' was updated in the library.\n\n"
-                                       f"Rate {self.estimate.rate_code} uses this resource. Do you want to update it to the new rate and currency: {new_curr} {new_val:,.2f}?",
-                                       QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                       QMessageBox.StandardButton.Yes)
+            if auto_update:
+                reply = QMessageBox.StandardButton.Yes
+            else:
+                reply = QMessageBox.question(self, "Library Resource Updated",
+                                           f"The resource '{resource_name}' was updated in the library.\n\n"
+                                           f"Rate {self.estimate.rate_code} uses this resource. Do you want to update it to the new rate and currency: {new_curr} {new_val:,.2f}?",
+                                           QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                           QMessageBox.StandardButton.Yes)
             
             if reply == QMessageBox.StandardButton.Yes:
                 self._save_state()

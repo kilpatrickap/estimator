@@ -410,6 +410,50 @@ class EstimateWindow(QMainWindow):
 
         self.refresh_view()
 
+    def handle_library_update(self, table_name, resource_name, new_val, new_curr, auto_update=False):
+        """Silently updates matching resources in this estimate if auto_update is True."""
+        if not auto_update:
+            return  # For estimates, we only do it if the global prompt was accepted
+
+        type_map = {
+            'materials': 'material', 'labor': 'labor', 'equipment': 'equipment',
+            'plant': 'plant', 'indirect_costs': 'indirect_costs'
+        }
+        item_type = type_map.get(table_name)
+        if not item_type: return
+
+        name_key_map = {
+            'material': 'name', 'labor': 'trade', 'equipment': 'name',
+            'plant': 'name', 'indirect_costs': 'description'
+        }
+        name_key = name_key_map.get(item_type)
+        rate_key = 'price' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'rate')
+
+        affected = False
+        for task in self.estimate.tasks:
+            items = getattr(task, table_name, [])
+            for item in items:
+                if item.get(name_key) == resource_name:
+                    if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                        if not affected:
+                            self.save_state()
+                            affected = True
+                            
+                        item[rate_key] = new_val
+                        if new_curr: item['currency'] = new_curr
+                        qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
+                        
+                        qty = item.get(qty_key, 1.0)
+                        if item_type == 'indirect_costs':
+                            item['amount'] = new_val
+                            item['total'] = new_val
+                        else:
+                            item['total'] = qty * new_val
+
+        if affected:
+            self.refresh_view()
+            self.stateChanged.emit()
+
     def refresh_view(self):
         """Refreshes the tree view and summaries."""
         self.tree.clear()

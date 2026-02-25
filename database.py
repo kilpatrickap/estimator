@@ -1021,3 +1021,95 @@ class DatabaseManager:
             """).fetchall()
         finally:
             conn.close()
+
+    def get_estimates_using_resource(self, table_name, resource_name):
+        """Finds all estimates holding a specific resource by name."""
+        conn = self._get_connection()
+        try:
+            link_table = f"estimate_{table_name}"
+            # column mapping
+            col_map = {
+                'estimate_materials': 'name',
+                'estimate_labor': 'name_trade',
+                'estimate_equipment': 'name_trade',
+                'estimate_plant': 'name_trade',
+                'estimate_indirect_costs': 'description'
+            }
+            name_val = col_map.get(link_table)
+            if not name_val: return []
+
+            sql = f"""
+                SELECT DISTINCT e.id 
+                FROM estimates e
+                JOIN tasks t ON e.id = t.estimate_id
+                JOIN {link_table} link ON t.id = link.task_id
+                WHERE link.{name_val} = ?
+            """
+            rows = conn.cursor().execute(sql, (resource_name,)).fetchall()
+            return [r['id'] for r in rows]
+        finally:
+            conn.close()
+
+    def update_resource_in_all_estimates(self, table_name, resource_name, new_val, new_curr):
+        """Updates the given resource across all saved estimates/rates."""
+        est_ids = self.get_estimates_using_resource(table_name, resource_name)
+        if not est_ids: return 0
+
+        type_map = {
+            'materials': 'material', 'labor': 'labor', 'equipment': 'equipment',
+            'plant': 'plant', 'indirect_costs': 'indirect_costs'
+        }
+        item_type = type_map.get(table_name)
+        if not item_type: return 0
+
+        name_key_map = {
+            'material': 'name', 'labor': 'trade', 'equipment': 'name',
+            'plant': 'name', 'indirect_costs': 'description'
+        }
+        name_key = name_key_map.get(item_type)
+        rate_key = 'price' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'rate')
+
+        updated_count = 0
+        for eid in est_ids:
+            est = self.load_estimate_details(eid)
+            if not est: continue
+            
+            changed = False
+            for task in est.tasks:
+                items = getattr(task, table_name, [])
+                for item in items:
+                    if item.get(name_key) == resource_name:
+                        # Check if different
+                        if item.get(rate_key) != new_val or item.get('currency') != new_curr:
+                            item[rate_key] = new_val
+                            if new_curr: item['currency'] = new_curr
+                            qty_key = 'qty' if item_type == 'material' else ('amount' if item_type == 'indirect_costs' else 'hours')
+                            
+                            # Update total
+                            qty = item.get(qty_key, 1.0)
+                            if item_type == 'indirect_costs':
+                                # for indirect costs, amount is the total
+                                item['amount'] = new_val
+                                item['total'] = new_val
+                            else:
+                                item['total'] = qty * new_val
+                            changed = True
+
+            if changed:
+                self.save_estimate(est)
+                updated_count += 1
+
+        return updated_count
+
+    def recalculate_all_estimates(self):
+        """Forces all estimates to re-load their structure, recalculate their totals from the bottom-up, and save."""
+        conn = self._get_connection()
+        try:
+            ids = [row['id'] for row in conn.cursor().execute("SELECT id FROM estimates").fetchall()]
+        finally:
+            conn.close()
+
+        for eid in ids:
+            est = self.load_estimate_details(eid)
+            if est:
+                self.save_estimate(est)

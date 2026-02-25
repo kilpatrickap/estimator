@@ -443,10 +443,45 @@ class MainWindow(QMainWindow):
         
     def _broadcast_library_update(self, table, name, val, curr):
         """Notifies all open rate windows about a resource update in the library."""
+        from database import DatabaseManager
+        from PyQt6.QtWidgets import QMessageBox
+        
+        db_costs = self.db_manager
+        db_rates = DatabaseManager("construction_rates.db")
+        
+        costs_affected = db_costs.get_estimates_using_resource(table, name)
+        rates_affected = db_rates.get_estimates_using_resource(table, name)
+        
+        total_affected = len(costs_affected) + len(rates_affected)
+        auto_update = False
+        
+        if total_affected > 0:
+            reply = QMessageBox.question(
+                self, 
+                "Update Dependent Rates and Estimates",
+                f"The resource '{name}' is used in {total_affected} saved estimate(s)/rate(s).\n\n"
+                f"Do you want to update all of them to the new rate and currency: {curr} {val:,.2f}?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                db_costs.update_resource_in_all_estimates(table, name, val, curr)
+                db_rates.update_resource_in_all_estimates(table, name, val, curr)
+                
+                # Force recalculation for nested composite rates and historical totals
+                db_costs.recalculate_all_estimates()
+                db_rates.recalculate_all_estimates()
+                
+                auto_update = True
+        
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
-            if isinstance(widget, RateBuildUpDialog):
-                widget.handle_library_update(table, name, val, curr)
+            if hasattr(widget, 'handle_library_update'):
+                widget.handle_library_update(table, name, val, curr, auto_update=auto_update)
+            elif hasattr(widget, 'load_rates'):
+                # Refresh Historical Rates view if open
+                widget.load_rates()
 
     def manage_rate_database(self):
         for sub in self.mdi_area.subWindowList():
