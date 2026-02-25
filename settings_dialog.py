@@ -1,7 +1,66 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
-                             QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout)
-from PyQt6.QtGui import QDoubleValidator
+                             QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout,
+                             QColorDialog, QGroupBox)
+from PyQt6.QtGui import QDoubleValidator, QColor
 from database import DatabaseManager
+
+class ResourceColorsDialog(QDialog):
+    def __init__(self, db_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Resource Colors")
+        self.setMinimumWidth(300)
+        self.db_manager = db_manager
+        
+        layout = QVBoxLayout(self)
+        
+        self.colors = {}
+        categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates"]
+        default_colors = {
+            "Materials": "#e6f2ff",
+            "Labour": "#fff0e6",
+            "Equipment": "#e6ffe6",
+            "Plant": "#ffe6e6",
+            "Indirect Costs": "#f2e6ff",
+            "Rates": "#ffffe6"
+        }
+        
+        color_layout = QFormLayout()
+        
+        for cat in categories:
+            setting_key = f"color_{cat.lower().replace(' ', '_')}"
+            val = self.db_manager.get_setting(setting_key)
+            if not val:
+                val = default_colors[cat]
+            self.colors[setting_key] = val
+            
+            btn = QPushButton()
+            btn.setFixedSize(80, 25)
+            btn.setStyleSheet(f"background-color: {val}; border: 1px solid #777; border-radius: 3px;")
+            
+            btn.clicked.connect(lambda checked, c=cat, sk=setting_key, b=btn: self.choose_color(c, sk, b))
+            
+            color_layout.addRow(f"{cat} Color:", btn)
+            
+        layout.addLayout(color_layout)
+        
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.save_colors)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+
+    def choose_color(self, category, setting_key, btn):
+        initial_color = QColor(self.colors[setting_key])
+        color = QColorDialog.getColor(initial_color, self, f"Select Color for {category}")
+        if color.isValid():
+            hex_color = color.name()
+            self.colors[setting_key] = hex_color
+            btn.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #777; border-radius: 3px;")
+
+    def save_colors(self):
+        for sk, hex_color in self.colors.items():
+            self.db_manager.set_setting(sk, hex_color)
+        QMessageBox.information(self, "Success", "Resource colors saved successfully.")
+        self.accept()
 
 class SettingsDialog(QDialog):
     def __init__(self, parent=None):
@@ -57,6 +116,10 @@ class SettingsDialog(QDialog):
         form_layout.addRow("Company Name:", self.company_name)
         form_layout.addRow("Company Logo:", logo_layout)
 
+        self.resource_colors_btn = QPushButton("Resource Colors...")
+        self.resource_colors_btn.clicked.connect(self.open_resource_colors)
+        form_layout.addRow("Visuals:", self.resource_colors_btn)
+
         layout.addLayout(form_layout)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -68,6 +131,10 @@ class SettingsDialog(QDialog):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Logo", "", "Images (*.png *.jpg *.jpeg)")
         if file_path:
             self.logo_path.setText(file_path)
+
+    def open_resource_colors(self):
+        dialog = ResourceColorsDialog(self.db_manager, self)
+        dialog.exec()
 
     def save_settings(self):
         try:

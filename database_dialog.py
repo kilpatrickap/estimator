@@ -78,20 +78,20 @@ class DatabaseManagerDialog(QDialog):
             self.tabs.addTab(tab_widget, title)
             
             if table_name == 'materials':
-                # Pale Blue
-                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e3f2fd"))
+                color_val = self.db_manager.get_setting("color_materials", "#e6f2ff")
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor(color_val))
             elif table_name == 'labor':
-                # Pale Green
-                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e8f5e9"))
+                color_val = self.db_manager.get_setting("color_labour", "#fff0e6")
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor(color_val))
             elif table_name == 'equipment':
-                # Pale Red
-                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#ffebee"))
+                color_val = self.db_manager.get_setting("color_equipment", "#e6ffe6")
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor(color_val))
             elif table_name == 'plant':
-                # Pale Yellow
-                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#fffde7"))
+                color_val = self.db_manager.get_setting("color_plant", "#ffe6e6")
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor(color_val))
             elif table_name == 'indirect_costs':
-                # Pale Cyan
-                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e0f7fa"))
+                color_val = self.db_manager.get_setting("color_indirect_costs", "#f2e6ff")
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor(color_val))
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
