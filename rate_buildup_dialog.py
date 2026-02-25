@@ -1604,18 +1604,6 @@ class RateSelectionDialog(QDialog):
         
         layout.addWidget(self.table)
         
-        # Buttons
-        btns = QHBoxLayout()
-        btns.addStretch()
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.clicked.connect(self.reject)
-        select_btn = QPushButton("Select")
-        select_btn.clicked.connect(self.accept)
-        select_btn.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        
-        btns.addWidget(cancel_btn)
-        btns.addWidget(select_btn)
-        layout.addLayout(btns)
 
     def load_data(self):
         rates = self.db_manager.get_rates_data()

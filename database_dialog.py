@@ -3,11 +3,42 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTabWidget, QWidget, QPushButton,
                              QTableWidget, QTableWidgetItem, QHBoxLayout, QMessageBox,
                              QLineEdit, QFormLayout, QDialogButtonBox, QLabel, QHeaderView,
-                             QComboBox, QDateEdit, QMenu)
+                             QComboBox, QDateEdit, QMenu, QTabBar, QStylePainter, QStyleOptionTab, QStyle)
 from PyQt6.QtCore import QDate, Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 from database import DatabaseManager
 from edit_item_dialog import EditItemDialog
 
+
+class ColoredTabBar(QTabBar):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.colors = {}
+
+    def setTabBackgroundColor(self, idx, color):
+        self.colors[idx] = color
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QStylePainter(self)
+        opt = QStyleOptionTab()
+        for i in range(self.count()):
+            self.initStyleOption(opt, i)
+            # Draw base tab shape
+            painter.drawControl(QStyle.ControlElement.CE_TabBarTabShape, opt)
+            
+            # Fill inner rect with tint if color is set
+            if i in self.colors:
+                # adjust by 1 pixel to not overwrite border
+                rect = opt.rect.adjusted(1, 1, -2, -1)
+                
+                # If tab is selected, it usually has a distinct background (e.g., white)
+                # We preserve that by keeping the base unselected colors subtle 
+                # or just filling it anyway.
+                painter.fillRect(rect, self.colors[i])
+                
+            # Draw the text/icon label on top
+            painter.drawControl(QStyle.ControlElement.CE_TabBarTabLabel, opt)
 
 class DatabaseManagerDialog(QDialog):
     """Dialog for managing the global cost library (Materials, Labor, Equipment)."""
@@ -26,6 +57,10 @@ class DatabaseManagerDialog(QDialog):
         layout.setSpacing(5)
         self.tabs = QTabWidget()
         layout.addWidget(self.tabs)
+        
+        # Apply custom tab bar for colored backgrounds
+        self.colored_tab_bar = ColoredTabBar()
+        self.tabs.setTabBar(self.colored_tab_bar)
 
         # Tab configuration: (Tab Name, Table Name, Column Headers)
         self.tab_configs = [
@@ -37,10 +72,26 @@ class DatabaseManagerDialog(QDialog):
         ]
 
         self.tables = {}
-        for title, table_name, headers in self.tab_configs:
+        for i, (title, table_name, headers) in enumerate(self.tab_configs):
             tab_widget = QWidget()
             self._setup_tab(tab_widget, table_name, headers)
             self.tabs.addTab(tab_widget, title)
+            
+            if table_name == 'materials':
+                # Pale Blue
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e3f2fd"))
+            elif table_name == 'labor':
+                # Pale Green
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e8f5e9"))
+            elif table_name == 'equipment':
+                # Pale Red
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#ffebee"))
+            elif table_name == 'plant':
+                # Pale Yellow
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#fffde7"))
+            elif table_name == 'indirect_costs':
+                # Pale Cyan
+                self.colored_tab_bar.setTabBackgroundColor(i, QColor("#e0f7fa"))
 
     def _setup_tab(self, tab, table_name, headers):
         layout = QVBoxLayout(tab)
