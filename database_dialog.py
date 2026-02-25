@@ -148,34 +148,39 @@ class DatabaseManagerDialog(QDialog):
         for row_idx, row_data in enumerate(items):
             table.insertRow(row_idx)
             
-            # DB indices: 0:id, 1:name, 2:unit, 3:curr, 4:val, 5:formula, 6:date, 7:loc, 8:con, 9:rem
-            item_id = int(row_data[0])
+            item_id = int(row_data.get('id', 0))
             
-            # Map DB to UI
             # 0:ID, 1:Name, 2:Unit
-            table.setItem(row_idx, 0, QTableWidgetItem(str(row_data[0])))
-            table.setItem(row_idx, 1, QTableWidgetItem(str(row_data[1] or "")))
-            table.setItem(row_idx, 2, QTableWidgetItem(str(row_data[2] or "")))
+            name_val = row_data.get('trade') or row_data.get('description') or row_data.get('name') or ""
+            table.setItem(row_idx, 0, QTableWidgetItem(str(item_id)))
+            table.setItem(row_idx, 1, QTableWidgetItem(str(name_val)))
+            table.setItem(row_idx, 2, QTableWidgetItem(str(row_data.get('unit') or "")))
             
             # 3:Currency (Widget)
-            self._add_currency_widget(table, row_idx, curr_col, row_data[3], table_name, item_id)
+            self._add_currency_widget(table, row_idx, curr_col, row_data.get('currency'), table_name, item_id)
             
             # 4:Price/Rate (Value + Formula in UserRole)
-            val = row_data[4]
-            formula = row_data[5]
-            display = f"{float(val):,.2f}" if val is not None else "0.00"
+            val = row_data.get('price') if 'price' in row_data else \
+                  (row_data.get('rate') if 'rate' in row_data else \
+                   row_data.get('amount'))
+            if val is None:
+                val = 0.0
+                
+            formula = row_data.get('formula')
+            display = f"{float(val):,.2f}"
             val_item = QTableWidgetItem(display)
             val_item.setData(Qt.ItemDataRole.UserRole, formula)
             table.setItem(row_idx, price_col, val_item)
             
             # 5:Date (Widget)
-            self._add_date_widget(table, row_idx, date_col, row_data[6], table_name, item_id)
+            date_val = row_data.get('date_added')
+            self._add_date_widget(table, row_idx, date_col, date_val, table_name, item_id)
             
             # 6-8: Location, Contact, Remarks (if applicable)
             if table_name != 'indirect_costs':
-                table.setItem(row_idx, 6, QTableWidgetItem(str(row_data[7] or "")))
-                table.setItem(row_idx, 7, QTableWidgetItem(str(row_data[8] or "")))
-                table.setItem(row_idx, 8, QTableWidgetItem(str(row_data[9] or "")))
+                table.setItem(row_idx, 6, QTableWidgetItem(str(row_data.get('location') or "")))
+                table.setItem(row_idx, 7, QTableWidgetItem(str(row_data.get('contact') or "")))
+                table.setItem(row_idx, 8, QTableWidgetItem(str(row_data.get('remarks') or "")))
         
         self._adjust_widths(table, table_name)
         self.is_loading = False

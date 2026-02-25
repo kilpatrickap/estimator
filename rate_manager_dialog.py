@@ -123,9 +123,20 @@ class RateManagerDialog(QDialog):
         
         for row_idx, row_data in enumerate(rates):
             self.table.insertRow(row_idx)
-            for col_idx, data in enumerate(row_data[1:]):
-                # Row data indices (excluding lib-id at 0):
-                # 0: rate_code, 1: project_name, 2: unit, 3: currency, 4: net_total, 5: grand_total, 6: adj_factor, 7: date, 8: notes
+            
+            columns = [
+                row_data.get('rate_code'),
+                row_data.get('project_name'),
+                row_data.get('unit'),
+                row_data.get('currency'),
+                row_data.get('net_total'),
+                row_data.get('grand_total'),
+                row_data.get('adjustment_factor'),
+                row_data.get('date_created'),
+                row_data.get('notes')
+            ]
+            
+            for col_idx, data in enumerate(columns):
                 if col_idx in [4, 5]: # net_total or grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
                 elif col_idx == 6: # adjustment_factor
@@ -138,9 +149,9 @@ class RateManagerDialog(QDialog):
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
-                # Store the internal DB ID from row_data[0] in the first visible column's UserRole
+                # Store the internal DB ID from row_data['id'] in the first visible column's UserRole
                 if col_idx == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, row_data[0])
+                    item.setData(Qt.ItemDataRole.UserRole, row_data.get('id'))
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
