@@ -474,7 +474,8 @@ class DatabaseManager:
         return None
 
     def generate_next_rate_code(self, category):
-        prefix = CATEGORY_PREFIXES.get(category, "MISC")
+        prefixes = self.get_category_prefixes_dict()
+        prefix = prefixes.get(category, "MISC")
         with self.Session() as session:
             codes = [row[0] for row in session.query(DBEstimate.rate_code).filter(DBEstimate.rate_code.like(f"{prefix}%")).all()]
             
@@ -587,3 +588,43 @@ class DatabaseManager:
             est = self.load_estimate_details(eid)
             if est:
                 self.save_estimate(est)
+
+    def get_category_prefixes_dict(self):
+        val = self.get_setting('category_prefixes')
+        if not val and self.db_file == "construction_rates.db":
+            # Native fallback to main db
+            if os.path.exists("construction_costs.db"):
+                costs_db = DatabaseManager("construction_costs.db")
+                val = costs_db.get_setting('category_prefixes')
+                if val:
+                    self.set_setting('category_prefixes', val)
+                    
+        if not val:
+            return CATEGORY_PREFIXES
+            
+        import json
+        try:
+            return json.loads(val)
+        except Exception:
+            return CATEGORY_PREFIXES
+
+    def set_category_prefixes_dict(self, mapping):
+        import json
+        self.set_setting('category_prefixes', json.dumps(mapping))
+        
+        if self.db_file != "construction_rates.db" and os.path.exists("construction_rates.db"):
+            rates_db = DatabaseManager("construction_rates.db")
+            rates_db.set_setting('category_prefixes', json.dumps(mapping))
+
+    def rename_category(self, old_category, new_category):
+        # Update in the current DB and construction_rates.db
+        with self.Session() as session:
+            session.query(DBEstimate).filter(DBEstimate.category == old_category).update({"category": new_category})
+            session.commit()
+            
+        if self.db_file != "construction_rates.db" and os.path.exists("construction_rates.db"):
+            rates_db = DatabaseManager("construction_rates.db")
+            with rates_db.Session() as session:
+                session.query(DBEstimate).filter(DBEstimate.category == old_category).update({"category": new_category})
+                session.commit()
+

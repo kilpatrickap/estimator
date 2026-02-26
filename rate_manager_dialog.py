@@ -284,13 +284,7 @@ class RateManagerDialog(QDialog):
         from rate_buildup_dialog import RateBuildUpDialog
         
         # Standard Categories and Units
-        categories = [
-            "Preliminaries", "Earthworks", "Concrete", "Formwork", "Reinforcement", 
-            "Structural Steelwork", "Blockwork", "Flooring", "Doors & Windows", 
-            "Plastering", "Painting", "Roadwork & Fencing", "Miscellaneous", 
-            "External Works", "Mechanical Works", "Electrical Works", 
-            "Plumbing Works", "Heating/Ventilation & AirConditioning"
-        ]
+        categories = list(self.db_manager.get_category_prefixes_dict().keys())
         units = ["m", "m2", "m3", "kg", "t", "Item", "nr", "sum"]
         
         details_dialog = NewRateDialog(categories, units, self)

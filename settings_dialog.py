@@ -1,9 +1,113 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
                              QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout,
-                             QColorDialog, QGroupBox, QGridLayout)
+                             QColorDialog, QGroupBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView)
 from PyQt6.QtGui import QDoubleValidator, QColor
+from PyQt6.QtCore import Qt
 from database import DatabaseManager
 
+class CategoriesCodesDialog(QDialog):
+    def __init__(self, db_manager, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Categories and Codes")
+        self.db_manager = db_manager
+        self.resize(300, 350)
+        
+        self.original_prefixes = self.db_manager.get_category_prefixes_dict()
+        
+        layout = QVBoxLayout(self)
+        
+        self.table = QTableWidget()
+        self.table.setColumnCount(2)
+        self.table.setHorizontalHeaderLabels(["Category", "Code Prefix"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        layout.addWidget(self.table)
+        
+        self.load_data()
+        
+        btn_layout = QHBoxLayout()
+        add_btn = QPushButton("Add Category")
+        add_btn.clicked.connect(self.add_category)
+        remove_btn = QPushButton("Delete Selected")
+        remove_btn.clicked.connect(self.delete_category)
+        
+        btn_layout.addWidget(add_btn)
+        btn_layout.addWidget(remove_btn)
+        btn_layout.addStretch()
+        layout.addLayout(btn_layout)
+        
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(self.save_data)
+        button_box.rejected.connect(self.reject)
+        layout.addWidget(button_box)
+        
+    def load_data(self):
+        self.table.setRowCount(0)
+        for cat, code in self.original_prefixes.items():
+            self.add_row(cat, code)
+            
+    def add_row(self, cat, code):
+        row = self.table.rowCount()
+        self.table.insertRow(row)
+        cat_item = QTableWidgetItem(cat)
+        cat_item.setData(Qt.ItemDataRole.UserRole, cat)
+        code_item = QTableWidgetItem(code)
+        
+        self.table.setItem(row, 0, cat_item)
+        self.table.setItem(row, 1, code_item)
+        
+    def add_category(self):
+        self.add_row("New Category", "NEW")
+        self.table.selectRow(self.table.rowCount() - 1)
+        self.table.editItem(self.table.item(self.table.rowCount() - 1, 0))
+        
+    def delete_category(self):
+        selected_items = self.table.selectedItems()
+        if not selected_items:
+            return
+            
+        # Get unique rows from the selected items
+        rows_to_delete = sorted(list(set(item.row() for item in selected_items)), reverse=True)
+        count = len(rows_to_delete)
+        
+        reply = QMessageBox.question(self, 'Confirm Deletion',
+                                     f"Are you sure you want to delete {count} selected categor{'y' if count == 1 else 'ies'}?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                     QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            for row in rows_to_delete:
+                self.table.removeRow(row)
+            
+    def save_data(self):
+        new_prefixes = {}
+        renames = []
+        for row in range(self.table.rowCount()):
+            cat_item = self.table.item(row, 0)
+            code_item = self.table.item(row, 1)
+            
+            if not cat_item or not code_item:
+                continue
+                
+            new_cat = cat_item.text().strip()
+            new_code = code_item.text().strip()
+            
+            if not new_cat:
+                continue
+                
+            new_prefixes[new_cat] = new_code
+            
+            old_cat = cat_item.data(Qt.ItemDataRole.UserRole)
+            if old_cat and old_cat != "New Category" and old_cat != new_cat:
+                renames.append((old_cat, new_cat))
+                
+        self.db_manager.set_category_prefixes_dict(new_prefixes)
+        
+        for old_cat, new_cat in renames:
+            self.db_manager.rename_category(old_cat, new_cat)
+            
+        QMessageBox.information(self, "Success", "Categories and codes saved successfully. Please close and re-open any affected windows.")
+        self.accept()
 class ResourceColorsDialog(QDialog):
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -141,6 +245,10 @@ class SettingsDialog(QDialog):
         self.resource_colors_btn.clicked.connect(self.open_resource_colors)
         form_layout.addRow("Visuals:", self.resource_colors_btn)
 
+        self.categories_btn = QPushButton("Categories and Codes...")
+        self.categories_btn.clicked.connect(self.open_categories_dialog)
+        form_layout.addRow("Categories and Codes:", self.categories_btn)
+
         layout.addLayout(form_layout)
 
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
@@ -155,6 +263,10 @@ class SettingsDialog(QDialog):
 
     def open_resource_colors(self):
         dialog = ResourceColorsDialog(self.db_manager, self)
+        dialog.exec()
+
+    def open_categories_dialog(self):
+        dialog = CategoriesCodesDialog(self.db_manager, self)
         dialog.exec()
 
     def save_settings(self):

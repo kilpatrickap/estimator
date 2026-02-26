@@ -3,6 +3,9 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
                              QButtonGroup)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
+
+from database import DatabaseManager
+
 class RateBuildupHeaderWidget(QWidget):
     """Encapsulates the Header and Toolbar sections of the Rate Build-up Dialog."""
     
@@ -147,13 +150,10 @@ class RateBuildupHeaderWidget(QWidget):
         # Category Selector
         toolbar.addWidget(QLabel("Category:"))
         self.category_combo = QComboBox()
-        self.categories = [
-            "Preliminaries", "Earthworks", "Concrete", "Formwork", "Reinforcement", 
-            "Structural Steelwork", "Blockwork", "Flooring", "Doors & Windows", 
-            "Plastering", "Painting", "Roadwork & Fencing", "Miscellaneous", 
-            "External Works", "Mechanical Works", "Electrical Works", 
-            "Plumbing Works", "Heating/Ventilation & AirConditioning"
-        ]
+        
+        db_m = DatabaseManager()
+        self.categories = list(db_m.get_category_prefixes_dict().keys())
+        
         self.category_combo.addItems(self.categories)
         curr_category = getattr(self.estimate, 'category', 'Miscellaneous')
         if curr_category in self.categories:
