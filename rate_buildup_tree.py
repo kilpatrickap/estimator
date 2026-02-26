@@ -448,14 +448,18 @@ class RateBuildupTreeWidget(QWidget):
                         item_type_for_color = 'rates' if s_task.description == "Imported Rates" else s_type_code
                         color_hex = get_color_for_type(item_type_for_color)
                         if color_hex:
+                            from PyQt6.QtWidgets import QLabel
+                            s_child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
                             if s_task.description != "Imported Rates":
-                                from PyQt6.QtWidgets import QLabel
-                                s_child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
                                 lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{s_label_prefix}:</span> {item_display_name}')
-                                lbl.setStyleSheet("background: transparent;")
-                                self.tree.setItemWidget(s_child, 1, lbl)
                             else:
-                                s_child.setForeground(1, type_colors[item_type_for_color])
+                                parts = item_display_name.split(':', 1)
+                                if len(parts) > 1:
+                                    lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
+                                else:
+                                    lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                            lbl.setStyleSheet("background: transparent;")
+                            self.tree.setItemWidget(s_child, 1, lbl)
                             
                         if getattr(self, 'show_impact_highlights', False) and (s_type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
                             for c in range(self.tree.columnCount()):
@@ -534,14 +538,18 @@ class RateBuildupTreeWidget(QWidget):
                     item_type_for_color = 'rates' if task.description == "Imported Rates" else type_code
                     color_hex = get_color_for_type(item_type_for_color)
                     if color_hex:
+                        from PyQt6.QtWidgets import QLabel
+                        child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
                         if task.description != "Imported Rates":
-                            from PyQt6.QtWidgets import QLabel
-                            child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
                             lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
-                            lbl.setStyleSheet("background: transparent;")
-                            self.tree.setItemWidget(child, 1, lbl)
                         else:
-                            child.setForeground(1, type_colors[item_type_for_color])
+                            parts = item_display_name.split(':', 1)
+                            if len(parts) > 1:
+                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
+                            else:
+                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                        lbl.setStyleSheet("background: transparent;")
+                        self.tree.setItemWidget(child, 1, lbl)
                         
                     if getattr(self, 'show_impact_highlights', False) and (type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
                         for c in range(self.tree.columnCount()):
