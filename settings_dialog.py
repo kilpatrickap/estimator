@@ -198,15 +198,16 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Application Settings")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(320)
         self.db_manager = DatabaseManager()
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(6)
 
         form_layout = QFormLayout()
-        form_layout.setSpacing(5)
+        form_layout.setSpacing(4)
+        form_layout.setContentsMargins(0, 0, 0, 0)
 
         # Default Currency
         self.currency_combo = QComboBox()
@@ -237,6 +238,8 @@ class SettingsDialog(QDialog):
         self.logo_path.setPlaceholderText("No logo selected")
         
         logo_layout = QHBoxLayout()
+        logo_layout.setContentsMargins(0, 0, 0, 0)
+        logo_layout.setSpacing(4)
         logo_layout.addWidget(self.logo_path)
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self.browse_logo)
