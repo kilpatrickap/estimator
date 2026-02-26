@@ -525,7 +525,7 @@ class MainWindow(QMainWindow):
                 
         dialog = SettingsDialog(self)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(500, 600)
+        sub.adjustSize()
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 

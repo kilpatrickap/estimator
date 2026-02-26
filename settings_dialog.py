@@ -198,7 +198,6 @@ class SettingsDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Application Settings")
-        self.setMinimumWidth(320)
         self.db_manager = DatabaseManager()
 
         layout = QVBoxLayout(self)
