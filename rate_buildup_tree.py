@@ -449,7 +449,7 @@ class RateBuildupTreeWidget(QWidget):
                         color_hex = get_color_for_type(item_type_for_color)
                         if color_hex:
                             from PyQt6.QtWidgets import QLabel
-                            s_child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
+                            s_child.setText(1, "") # Clear underlying text to avoid selection overlaps
                             if s_task.description != "Imported Rates":
                                 lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{s_label_prefix}:</span> {item_display_name}')
                             else:
@@ -458,6 +458,7 @@ class RateBuildupTreeWidget(QWidget):
                                     lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
                                 else:
                                     lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                            lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                             lbl.setStyleSheet("background: transparent;")
                             self.tree.setItemWidget(s_child, 1, lbl)
                             
@@ -539,7 +540,7 @@ class RateBuildupTreeWidget(QWidget):
                     color_hex = get_color_for_type(item_type_for_color)
                     if color_hex:
                         from PyQt6.QtWidgets import QLabel
-                        child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
+                        child.setText(1, "") # Clear underlying text to avoid selection overlaps
                         if task.description != "Imported Rates":
                             lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
                         else:
@@ -548,6 +549,7 @@ class RateBuildupTreeWidget(QWidget):
                                 lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
                             else:
                                 lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                        lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                         lbl.setStyleSheet("background: transparent;")
                         self.tree.setItemWidget(child, 1, lbl)
                         

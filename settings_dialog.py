@@ -71,16 +71,15 @@ class ResourceColorsDialog(QDialog):
     def save_colors(self):
         for sk, hex_color in self.colors.items():
             self.db_manager.set_setting(sk, hex_color)
-            
-        main_win = self.parent().parent() if self.parent() else None
-        if main_win and hasattr(main_win, 'mdi_area'):
-            # Trigger refresh across open editor windows
-            for sub in main_win.mdi_area.subWindowList():
-                from rate_buildup_dialog import RateBuildUpDialog
-                widget = sub.widget()
-                if isinstance(widget, RateBuildUpDialog) and hasattr(widget, 'tree_widget'):
-                    widget.tree_widget.refresh_ui()
-                    
+        from PyQt6.QtWidgets import QApplication
+        for widget in QApplication.topLevelWidgets():
+            if hasattr(widget, 'mdi_area'):
+                # Trigger refresh across open editor windows
+                for sub in widget.mdi_area.subWindowList():
+                    from rate_buildup_dialog import RateBuildUpDialog
+                    sub_widget = sub.widget()
+                    if isinstance(sub_widget, RateBuildUpDialog) and hasattr(sub_widget, 'tree_widget'):
+                        sub_widget.tree_widget.refresh_ui()
         QMessageBox.information(self, "Success", "Resource colors saved successfully.")
         self.accept()
 
