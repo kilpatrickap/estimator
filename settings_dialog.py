@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
                              QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout,
-                             QColorDialog, QGroupBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView)
-from PyQt6.QtGui import QDoubleValidator, QColor
+                             QColorDialog, QGroupBox, QGridLayout, QTableWidget, QTableWidgetItem, QHeaderView, QMenu)
+from PyQt6.QtGui import QDoubleValidator, QColor, QAction
 from PyQt6.QtCore import Qt
 from database import DatabaseManager
 
@@ -25,16 +25,8 @@ class CategoriesCodesDialog(QDialog):
         
         self.load_data()
         
-        btn_layout = QHBoxLayout()
-        add_btn = QPushButton("Add Category")
-        add_btn.clicked.connect(self.add_category)
-        remove_btn = QPushButton("Delete Selected")
-        remove_btn.clicked.connect(self.delete_category)
-        
-        btn_layout.addWidget(add_btn)
-        btn_layout.addWidget(remove_btn)
-        btn_layout.addStretch()
-        layout.addLayout(btn_layout)
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self.show_context_menu)
         
         button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         button_box.accepted.connect(self.save_data)
@@ -108,6 +100,21 @@ class CategoriesCodesDialog(QDialog):
             
         QMessageBox.information(self, "Success", "Categories and codes saved successfully. Please close and re-open any affected windows.")
         self.accept()
+
+    def show_context_menu(self, pos):
+        menu = QMenu(self)
+        
+        add_action = QAction("Add Category", self)
+        add_action.triggered.connect(self.add_category)
+        menu.addAction(add_action)
+        
+        if self.table.selectedItems():
+            delete_action = QAction("Delete Selected", self)
+            delete_action.triggered.connect(self.delete_category)
+            menu.addAction(delete_action)
+            
+        menu.exec(self.table.viewport().mapToGlobal(pos))
+
 class ResourceColorsDialog(QDialog):
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
