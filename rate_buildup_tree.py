@@ -30,7 +30,7 @@ class RateBuildupTreeWidget(QWidget):
         header_view = self.tree.header()
         header_view.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         header_view.setStretchLastSection(True)
-        self.tree.setIndentation(15)
+        self.tree.setIndentation(25)
         
         self.tree.itemDoubleClicked.connect(self.edit_item)
         self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -384,9 +384,13 @@ class RateBuildupTreeWidget(QWidget):
             ('indirect_costs', 'Indirect', 'description', lambda x: x.get('unit') or '', 'qty', 'amount', 'indirect_costs')
         ]
 
-        def _render_sub_rate_recursive(parent_item, sub_estimate):
+        def _render_sub_rate_recursive(parent_item, sub_estimate, depth=2):
             sub_match = re.search(r'\((.*?)\)', sub_estimate.currency)
             sub_sym = sub_match.group(1) if sub_match else "$"
+            
+            t_indent = " " * (depth * 4)
+            r_indent = " " * ((depth + 1) * 4)
+            r_nbsp = "&nbsp;" * ((depth + 1) * 4 + 1)
             
             for s_tidx, s_task in enumerate(getattr(sub_estimate, 'tasks', []), 1):
                 s_task_total = sum([
@@ -399,7 +403,7 @@ class RateBuildupTreeWidget(QWidget):
                 
                 s_task_item = QTreeWidgetItem(parent_item, [
                     "",
-                    f"Task {s_tidx}: {s_task.description}",
+                    f"{t_indent}Task {s_tidx}: {s_task.description}",
                     "",
                     "",
                     f"{sub_sym}{s_task_total:,.2f}",
@@ -423,9 +427,9 @@ class RateBuildupTreeWidget(QWidget):
                         s_qty_val = s_item.get(s_qty_key, 1.0)
                         
                         item_display_name = s_item.get(s_name_key, 'Unknown')
-                        item_label = f"  {s_label_prefix}: {item_display_name}"
+                        item_label = f"{r_indent}{s_label_prefix}: {item_display_name}"
                         if s_task.description == "Imported Rates":
-                            item_label = f"  {item_display_name}"
+                            item_label = f"{r_indent}{item_display_name}"
                         
                         s_child = QTreeWidgetItem(s_task_item, [
                             "",
@@ -451,13 +455,13 @@ class RateBuildupTreeWidget(QWidget):
                             from PyQt6.QtWidgets import QLabel
                             s_child.setText(1, "") # Clear underlying text to avoid selection overlaps
                             if s_task.description != "Imported Rates":
-                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{s_label_prefix}:</span> {item_display_name}')
+                                lbl = QLabel(f'{r_nbsp}<span style="color: {color_hex}; font-weight: bold;">{s_label_prefix}:</span> {item_display_name}')
                             else:
                                 parts = item_display_name.split(':', 1)
                                 if len(parts) > 1:
-                                    lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
+                                    lbl = QLabel(f'{r_nbsp}<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
                                 else:
-                                    lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                                    lbl = QLabel(f'{r_nbsp}<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
                             lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                             lbl.setStyleSheet("background: transparent;")
                             self.tree.setItemWidget(s_child, 1, lbl)
@@ -476,7 +480,7 @@ class RateBuildupTreeWidget(QWidget):
                                     break
                                     
                             if nested_sub:
-                                _render_sub_rate_recursive(s_child, nested_sub)
+                                _render_sub_rate_recursive(s_child, nested_sub, depth + 2)
                                 s_child.setExpanded(True)
 
             parent_item.setExpanded(True)
@@ -515,10 +519,10 @@ class RateBuildupTreeWidget(QWidget):
                     qty_val = item.get(qty_key, 1.0)
                     
                     item_display_name = item.get(name_key, 'Unknown')
-                    item_label = f"  {label_prefix}: {item_display_name}"
+                    item_label = f"    {label_prefix}: {item_display_name}"
                     
                     if task.description == "Imported Rates":
-                        item_label = f"  {item_display_name}"
+                        item_label = f"    {item_display_name}"
                     
                     child = QTreeWidgetItem(task_item, [
                         f"{i}.{sub_idx}", 
@@ -542,13 +546,13 @@ class RateBuildupTreeWidget(QWidget):
                         from PyQt6.QtWidgets import QLabel
                         child.setText(1, "") # Clear underlying text to avoid selection overlaps
                         if task.description != "Imported Rates":
-                            lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
+                            lbl = QLabel(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
                         else:
                             parts = item_display_name.split(':', 1)
                             if len(parts) > 1:
-                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
+                                lbl = QLabel(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{parts[0]}:</span>{parts[1]}')
                             else:
-                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
+                                lbl = QLabel(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{item_display_name}</span>')
                         lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                         lbl.setStyleSheet("background: transparent;")
                         self.tree.setItemWidget(child, 1, lbl)
@@ -573,7 +577,10 @@ class RateBuildupTreeWidget(QWidget):
 
         self.tree.expandAll()
         for c_i in range(self.tree.columnCount()):
-            self.tree.resizeColumnToContents(c_i)
+            if c_i == 0:
+                self.tree.setColumnWidth(0, 90)
+            else:
+                self.tree.resizeColumnToContents(c_i)
         
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
