@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QFormLayout, QLineEdit, QComboBox, 
                              QDialogButtonBox, QLabel, QMessageBox, QPushButton, QFileDialog, QHBoxLayout,
-                             QColorDialog, QGroupBox)
+                             QColorDialog, QGroupBox, QGridLayout)
 from PyQt6.QtGui import QDoubleValidator, QColor
 from database import DatabaseManager
 
@@ -8,10 +8,11 @@ class ResourceColorsDialog(QDialog):
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Resource Colors")
-        self.setMinimumWidth(300)
         self.db_manager = db_manager
         
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
         
         self.colors = {}
         categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates"]
@@ -24,8 +25,12 @@ class ResourceColorsDialog(QDialog):
             "Rates": "#ffffe6"
         }
         
-        color_layout = QFormLayout()
+        color_layout = QGridLayout()
+        color_layout.setContentsMargins(0, 0, 0, 0)
+        color_layout.setHorizontalSpacing(15)
+        color_layout.setVerticalSpacing(5)
         
+        row, col = 0, 0
         for cat in categories:
             setting_key = f"color_{cat.lower().replace(' ', '_')}"
             val = self.db_manager.get_setting(setting_key)
@@ -34,12 +39,19 @@ class ResourceColorsDialog(QDialog):
             self.colors[setting_key] = val
             
             btn = QPushButton()
-            btn.setFixedSize(80, 25)
+            btn.setFixedSize(50, 20)
             btn.setStyleSheet(f"background-color: {val}; border: 1px solid #777; border-radius: 3px;")
             
             btn.clicked.connect(lambda checked, c=cat, sk=setting_key, b=btn: self.choose_color(c, sk, b))
             
-            color_layout.addRow(f"{cat} Color:", btn)
+            lbl = QLabel(f"{cat}:")
+            color_layout.addWidget(lbl, row, col)
+            color_layout.addWidget(btn, row, col + 1)
+            
+            col += 2
+            if col > 2:
+                col = 0
+                row += 1
             
         layout.addLayout(color_layout)
         
