@@ -359,6 +359,23 @@ class RateBuildupTreeWidget(QWidget):
         bold_font = self.tree.font()
         bold_font.setBold(True)
 
+        # Get text colors from settings using the default (costs) database
+        from database import DatabaseManager
+        settings_db = DatabaseManager()
+        type_colors = {
+            'material': QColor(settings_db.get_setting("color_materials") or "#000000"),
+            'labor': QColor(settings_db.get_setting("color_labour") or "#000000"),
+            'equipment': QColor(settings_db.get_setting("color_equipment") or "#000000"),
+            'plant': QColor(settings_db.get_setting("color_plant") or "#000000"),
+            'indirect_costs': QColor(settings_db.get_setting("color_indirect_costs") or "#000000"),
+            'rates': QColor(settings_db.get_setting("color_rates") or "#000000")
+        }
+
+        def get_color_for_type(type_name):
+            if type_name in type_colors and settings_db.get_setting(f"color_{type_name.replace('labor', 'labour').replace('material', 'materials')}"):
+                return type_colors[type_name].name()
+            return None
+
         resources = [
             ('materials', 'Material', 'name', lambda x: x.get('unit') or '', 'qty', 'unit_cost', 'material'),
             ('labor', 'Labor', 'trade', lambda x: x.get('unit') or 'hrs', 'hours', 'rate', 'labor'),
@@ -427,6 +444,18 @@ class RateBuildupTreeWidget(QWidget):
                         for c_idx in range(self.tree.columnCount()):
                             s_child.setBackground(c_idx, s_child_bg)
                             s_child.setFlags(s_child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                            
+                        item_type_for_color = 'rates' if s_task.description == "Imported Rates" else s_type_code
+                        color_hex = get_color_for_type(item_type_for_color)
+                        if color_hex:
+                            if s_task.description != "Imported Rates":
+                                from PyQt6.QtWidgets import QLabel
+                                s_child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
+                                lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{s_label_prefix}:</span> {item_display_name}')
+                                lbl.setStyleSheet("background: transparent;")
+                                self.tree.setItemWidget(s_child, 1, lbl)
+                            else:
+                                s_child.setForeground(1, type_colors[item_type_for_color])
                             
                         if getattr(self, 'show_impact_highlights', False) and (s_type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
                             for c in range(self.tree.columnCount()):
@@ -501,6 +530,18 @@ class RateBuildupTreeWidget(QWidget):
                     
                     for c in range(self.tree.columnCount()):
                         child.setFlags(child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                        
+                    item_type_for_color = 'rates' if task.description == "Imported Rates" else type_code
+                    color_hex = get_color_for_type(item_type_for_color)
+                    if color_hex:
+                        if task.description != "Imported Rates":
+                            from PyQt6.QtWidgets import QLabel
+                            child.setForeground(1, QColor(0, 0, 0, 0)) # Hide default text
+                            lbl = QLabel(f'&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
+                            lbl.setStyleSheet("background: transparent;")
+                            self.tree.setItemWidget(child, 1, lbl)
+                        else:
+                            child.setForeground(1, type_colors[item_type_for_color])
                         
                     if getattr(self, 'show_impact_highlights', False) and (type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
                         for c in range(self.tree.columnCount()):
