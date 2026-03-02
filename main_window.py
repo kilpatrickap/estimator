@@ -898,6 +898,7 @@ class NewEstimateDialog(QDialog):
         self.boq_btn.clicked.connect(self._browse_boq)
         self.boq_layout.addWidget(self.boq_path)
         self.boq_layout.addWidget(self.boq_btn)
+        self.boq_files = []
 
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Location:", self.location)
@@ -907,7 +908,7 @@ class NewEstimateDialog(QDialog):
         layout.addRow("Currency:", self.currency)
         layout.addRow("Library:", self.library_layout)
         layout.addRow("Project Directory:", self.project_dir_layout)
-        layout.addRow("BOQ:", self.boq_layout)
+        layout.addRow("Import Excel BOQs:", self.boq_layout)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
@@ -928,23 +929,27 @@ class NewEstimateDialog(QDialog):
 
     def _browse_boq(self):
         from PyQt6.QtWidgets import QFileDialog
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select BOQ", "", "Excel Files (*.xlsx *.xls);;PDF Files (*.pdf);;All Files (*)")
-        if file_path:
-            self.boq_path.setText(file_path)
+        import os
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Excel BOQ(s)", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
+        if file_paths:
+            self.boq_files = file_paths
+            names = [os.path.basename(f) for f in file_paths]
+            self.boq_path.setText(", ".join(names))
 
     def accept(self):
         project_name = self.project_name.text().strip()
         selected_dir = self.project_dir_path.text().strip()
-        boq_file = self.boq_path.text().strip()
         if project_name and selected_dir:
             import os
             import shutil
             new_project_path = os.path.join(selected_dir, project_name)
             try:
                 os.makedirs(new_project_path, exist_ok=True)
-                if boq_file and os.path.exists(boq_file):
-                    boq_filename = os.path.basename(boq_file)
-                    shutil.copy2(boq_file, os.path.join(new_project_path, boq_filename))
+                if hasattr(self, 'boq_files') and self.boq_files:
+                    for boq_file in self.boq_files:
+                        if os.path.exists(boq_file):
+                            boq_filename = os.path.basename(boq_file)
+                            shutil.copy2(boq_file, os.path.join(new_project_path, boq_filename))
             except Exception as e:
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, "Error", f"Failed to initialize project directory:\n{e}")
@@ -968,7 +973,7 @@ class NewEstimateDialog(QDialog):
             "currency": self.currency.currentText(),
             "library_path": self.library_path.text(),
             "project_dir": project_dir,
-            "boq_path": self.boq_path.text(),
+            "boq_files": getattr(self, 'boq_files', []),
             "db_path": db_path
         }
 
