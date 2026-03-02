@@ -81,10 +81,11 @@ class BOQSetupWindow(QWidget):
         self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
         
         sheet_layout.addWidget(self.sheet_selector)
+        sheet_layout.addStretch() # Push selector to the top
         
         # Add groups side-by-side
-        settings_layout.addWidget(col_group, stretch=5)
-        settings_layout.addWidget(sheet_group, stretch=4)
+        settings_layout.addWidget(col_group, stretch=5, alignment=Qt.AlignmentFlag.AlignTop)
+        settings_layout.addWidget(sheet_group, stretch=4, alignment=Qt.AlignmentFlag.AlignTop)
         
         right_layout.addLayout(settings_layout)
         
@@ -198,10 +199,9 @@ class BOQSetupWindow(QWidget):
                         for c in range(len(df.columns)):
                             if table.item(r, c): 
                                 table.item(r, c).setBackground(self.COLOR_HEADING)
-                # Set a good reasonable column width for description (assume col 1 or 2)
-                if len(df.columns) > 2:
-                    table.setColumnWidth(1, 350)
-                    table.setColumnWidth(2, 350)
+                
+                # Automatically align column widths to content
+                table.resizeColumnsToContents()
                 
                 # Resize rows to fit wrapped content based on new column widths
                 table.resizeRowsToContents()
@@ -299,8 +299,11 @@ class BOQSetupWindow(QWidget):
             table = data['table']
             
             for r in range(len(df)):
-                desc_val = str(df.iloc[r, desc_col]).strip() if desc_col < len(df.columns) else ""
-                qty_val = str(df.iloc[r, qty_col]).strip() if qty_col >= 0 and qty_col < len(df.columns) else ""
+                desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
+                qty_val = str(df.iloc[r, qty_col]).strip() if 0 <= qty_col < len(df.columns) else ""
+                
+                if desc_val.lower() == 'nan' or desc_val.lower() == '<na>': desc_val = ""
+                if qty_val.lower() == 'nan' or qty_val.lower() == '<na>': qty_val = ""
                 
                 # We skip overriding if the user manually set it, but for simplicity we'll override if ignore
                 # Actually, let's keep existing headings derived from bold font if they exist.
@@ -349,10 +352,15 @@ class BOQSetupWindow(QWidget):
                 rtype = row_types[r]
                 if rtype == 'ignore': continue
                 
-                ref_val = str(df.iloc[r, ref_col]) if 0 <= ref_col < len(df.columns) else ""
-                desc_val = str(df.iloc[r, desc_col]) if 0 <= desc_col < len(df.columns) else ""
-                qty_val = str(df.iloc[r, qty_col]) if 0 <= qty_col < len(df.columns) else ""
-                unit_val = str(df.iloc[r, unit_col]) if 0 <= unit_col < len(df.columns) else ""
+                ref_val = str(df.iloc[r, ref_col]).strip() if 0 <= ref_col < len(df.columns) else ""
+                desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
+                qty_val = str(df.iloc[r, qty_col]).strip() if 0 <= qty_col < len(df.columns) else ""
+                unit_val = str(df.iloc[r, unit_col]).strip() if 0 <= unit_col < len(df.columns) else ""
+                
+                if ref_val.lower() in ('nan', '<na>'): ref_val = ""
+                if desc_val.lower() in ('nan', '<na>'): desc_val = ""
+                if qty_val.lower() in ('nan', '<na>'): qty_val = ""
+                if unit_val.lower() in ('nan', '<na>'): unit_val = ""
                 
                 if rtype == 'heading':
                     current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", "Heading"])
@@ -360,6 +368,7 @@ class BOQSetupWindow(QWidget):
                     current_heading_item.setBackground(2, self.COLOR_HEADING)
                 
                 elif rtype == 'item':
+                    # Only map as item if it actually has description and qty correctly extracted
                     parent = current_heading_item if current_heading_item else sheet_node
                     item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, "Item"])
                     
