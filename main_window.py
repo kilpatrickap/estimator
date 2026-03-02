@@ -862,17 +862,61 @@ class NewEstimateDialog(QDialog):
         self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
         self.currency.setCurrentText(self.db_manager.get_setting('currency', 'GHS (₵)'))
 
+        self.library_layout = QHBoxLayout()
+        self.library_path = QLineEdit()
+        self.library_path.setReadOnly(True)
+        self.library_btn = QPushButton("Browse...")
+        self.library_btn.clicked.connect(self._browse_library)
+        self.library_layout.addWidget(self.library_path)
+        self.library_layout.addWidget(self.library_btn)
+
+        self.project_dir_layout = QHBoxLayout()
+        self.project_dir_path = QLineEdit()
+        self.project_dir_path.setReadOnly(True)
+        self.project_dir_btn = QPushButton("Browse...")
+        self.project_dir_btn.clicked.connect(self._browse_project_dir)
+        self.project_dir_layout.addWidget(self.project_dir_path)
+        self.project_dir_layout.addWidget(self.project_dir_btn)
+
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Location:", self.location)
         layout.addRow("Project Date:", self.project_date)
         layout.addRow("Overhead (%):", self.overhead)
         layout.addRow("Profit (%):", self.profit)
         layout.addRow("Currency:", self.currency)
+        layout.addRow("Library:", self.library_layout)
+        layout.addRow("Project Directory:", self.project_dir_layout)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def _browse_library(self):
+        from PyQt6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
+        if file_path:
+            self.library_path.setText(file_path)
+
+    def _browse_project_dir(self):
+        from PyQt6.QtWidgets import QFileDialog
+        dir_path = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+        if dir_path:
+            self.project_dir_path.setText(dir_path)
+
+    def accept(self):
+        project_name = self.project_name.text().strip()
+        selected_dir = self.project_dir_path.text().strip()
+        if project_name and selected_dir:
+            import os
+            new_project_path = os.path.join(selected_dir, project_name)
+            try:
+                os.makedirs(new_project_path, exist_ok=True)
+            except Exception as e:
+                from PyQt6.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"Failed to create project directory:\n{e}")
+                return
+        super().accept()
 
     def get_data(self):
         return {
@@ -881,7 +925,9 @@ class NewEstimateDialog(QDialog):
             "date": self.project_date.date().toString("yyyy-MM-dd"),
             "overhead": float(self.overhead.text() or 0),
             "profit": float(self.profit.text() or 0),
-            "currency": self.currency.currentText()
+            "currency": self.currency.currentText(),
+            "library_path": self.library_path.text(),
+            "project_dir": self.project_dir_path.text()
         }
 
 
