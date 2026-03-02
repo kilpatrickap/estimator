@@ -173,12 +173,15 @@ class BOQSetupWindow(QWidget):
                         for c in range(len(df.columns)):
                             if table.item(r, c): 
                                 table.item(r, c).setBackground(self.COLOR_HEADING)
-                                
-                table.resizeRowsToContents()
                 # Set a good reasonable column width for description (assume col 1 or 2)
                 if len(df.columns) > 2:
                     table.setColumnWidth(1, 350)
                     table.setColumnWidth(2, 350)
+                
+                # Resize rows to fit wrapped content based on new column widths
+                table.resizeRowsToContents()
+                # Automatically resize row height as user resizes columns/modifies layout
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
                 
                 self.sheet_data[sheet_name] = {
                     'df': df,
