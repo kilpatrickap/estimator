@@ -203,8 +203,12 @@ class BOQSetupWindow(QWidget):
                 
                 # Automatically align column widths to content
                 table.resizeColumnsToContents()
+                # Enforce a maximum column width so that long descriptions are forced to wrap
+                for c in range(table.columnCount()):
+                    if table.columnWidth(c) > 400:
+                        table.setColumnWidth(c, 400)
                 
-                # Resize rows to fit wrapped content based on new column widths
+                # Resize rows to fit wrapped content based on new capped column widths
                 table.resizeRowsToContents()
                 # Automatically resize row height as user resizes columns/modifies layout
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
