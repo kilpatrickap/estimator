@@ -21,7 +21,7 @@ class BOQSetupWindow(QWidget):
         
         # Color codes for visual feedback
         self.COLOR_HEADING = QColor("#e8f5e9") # Light green
-        self.COLOR_ITEM = QColor("#ffffff")    # White
+        self.COLOR_ITEM = QColor("#fff9c4")    # Pale yellow
         self.COLOR_IGNORE = QColor("#ffebee")  # Light red
 
         self.setWindowTitle(f"BOQ Setup - {os.path.basename(boq_file_path)}")
@@ -372,6 +372,7 @@ class BOQSetupWindow(QWidget):
                     # Only map as item if it actually has description and qty correctly extracted
                     parent = current_heading_item if current_heading_item else sheet_node
                     item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, "Item"])
+                    item_node.setBackground(2, self.COLOR_ITEM)
                     
         self.tree.expandAll()
 
