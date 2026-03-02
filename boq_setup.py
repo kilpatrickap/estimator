@@ -3,7 +3,7 @@ import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
     QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QMessageBox, QInputDialog, QMenu, QFormLayout
+    QMessageBox, QInputDialog, QMenu, QFormLayout, QTabWidget
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
@@ -14,17 +14,16 @@ class BOQSetupWindow(QWidget):
         super().__init__(parent)
         self.boq_file_path = boq_file_path
         self.active_est_window = active_est_window
-        self.df = None
+        
+        # Dictionary to store dataframe and row types per sheet name
+        self.sheet_data = {} 
+        self.active_sheet = None
         
         # Color codes for visual feedback
         self.COLOR_HEADING = QColor("#e8f5e9") # Light green
         self.COLOR_ITEM = QColor("#ffffff")    # White
         self.COLOR_IGNORE = QColor("#ffebee")  # Light red
 
-        # Core logic state
-        self.columns = []
-        self.row_types = [] # List of 'heading', 'item', or 'ignore' parallel to dataframe
-        
         self.setWindowTitle(f"BOQ Setup - {os.path.basename(boq_file_path)}")
         self._init_ui()
         self._load_excel()
@@ -34,17 +33,14 @@ class BOQSetupWindow(QWidget):
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
         
-        # LEFT PANE: Raw Excel View
+        # LEFT PANE: Raw Excel View with Tabs
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.addWidget(QLabel("Raw BOQ Data (from Excel):"))
         
-        self.table = QTableWidget()
-        self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self._show_context_menu)
-        left_layout.addWidget(self.table)
+        self.tabs = QTabWidget()
+        self.tabs.currentChanged.connect(self._on_tab_changed)
+        left_layout.addWidget(self.tabs)
         
         # RIGHT PANE: Mapping and Preview
         right_widget = QWidget()
@@ -64,7 +60,7 @@ class BOQSetupWindow(QWidget):
         mapping_form.addRow("Unit Column:", self.cb_unit)
         mapping_form.addRow("Rate Column (Optional):", self.cb_rate)
         
-        apply_map_btn = QPushButton("Apply Mapping & Auto-Format")
+        apply_map_btn = QPushButton("Apply Mapping to All Sheets")
         apply_map_btn.clicked.connect(self._apply_mapping)
         
         right_layout.addLayout(mapping_form)
@@ -72,7 +68,7 @@ class BOQSetupWindow(QWidget):
         
         right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Ref", "Description", "Quantity", "Unit", "Type"])
+        self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Type"])
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         right_layout.addWidget(self.tree)
@@ -86,7 +82,6 @@ class BOQSetupWindow(QWidget):
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
         
-        # Ratios (Left gets more space usually for the excel view)
         splitter.setStretchFactor(0, 6)
         splitter.setStretchFactor(1, 4)
         
@@ -94,73 +89,163 @@ class BOQSetupWindow(QWidget):
 
     def _load_excel(self):
         try:
-            # We skip the first few rows sometimes, but let's just read header=None to display everything raw
-            self.df = pd.read_excel(self.boq_file_path, header=None)
-            self.df.fillna("", inplace=True)
-            self.row_types = ['ignore'] * len(self.df) # Initialize all as ignore
+            xl = pd.ExcelFile(self.boq_file_path)
+            sheet_names = xl.sheet_names
             
-            # Populate Table
-            self.table.setRowCount(len(self.df))
-            self.table.setColumnCount(len(self.df.columns))
+            # Basic parsing of cell styles for bold detection (auto headings)
+            is_xlsx = self.boq_file_path.lower().endswith('.xlsx')
             
-            self.columns = [f"Column {i}" for i in range(len(self.df.columns))]
-            self.table.setHorizontalHeaderLabels(self.columns)
-            
-            for r in range(len(self.df)):
-                for c in range(len(self.df.columns)):
-                    val = str(self.df.iloc[r, c])
-                    item = QTableWidgetItem(val)
-                    item.setBackground(self.COLOR_IGNORE)
-                    self.table.setItem(r, c, item)
-            
-            # Populate ComboBoxes
-            for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate]:
-                cb.clear()
-                cb.addItem("-- Select Column --")
-                cb.addItems(self.columns)
-            
-            # Attempt a basic auto-guess
-            if len(self.columns) > 1: self.cb_ref.setCurrentIndex(1)
-            if len(self.columns) > 2: self.cb_desc.setCurrentIndex(2)
-            if len(self.columns) > 3: self.cb_qty.setCurrentIndex(3)
-            if len(self.columns) > 4: self.cb_unit.setCurrentIndex(4)
+            wb = None
+            if is_xlsx:
+                import openpyxl
+                try:
+                    wb = openpyxl.load_workbook(self.boq_file_path, data_only=True)
+                except: pass
+            else:
+                import xlrd
+                try:
+                    wb = xlrd.open_workbook(self.boq_file_path, formatting_info=True)
+                except: pass
+                
+            for sheet_name in sheet_names:
+                df = xl.parse(sheet_name, header=None)
+                df.fillna("", inplace=True)
+                row_types = ['ignore'] * len(df)
+                
+                table = QTableWidget()
+                table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+                table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+                table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                table.customContextMenuRequested.connect(self._show_context_menu)
+                # Word wrap to handle long descriptions
+                table.setWordWrap(True)
+                
+                table.setRowCount(len(df))
+                table.setColumnCount(len(df.columns))
+                
+                columns = [f"Column {i}" for i in range(len(df.columns))]
+                table.setHorizontalHeaderLabels(columns)
+                
+                ws = None
+                if wb and is_xlsx and sheet_name in wb.sheetnames:
+                    ws = wb[sheet_name]
+                elif wb and not is_xlsx:
+                    try:
+                        ws = wb.sheet_by_name(sheet_name)
+                    except: pass
+                    
+                bold_font = QFont()
+                bold_font.setBold(True)
+                
+                for r in range(len(df)):
+                    row_is_bold = False
+                    for c in range(len(df.columns)):
+                        val = str(df.iloc[r, c])
+                        item = QTableWidgetItem(val)
+                        
+                        # Preserve simple formatting (Bold check)
+                        is_bold = False
+                        if ws and is_xlsx:
+                            try:
+                                cell = ws.cell(row=r+1, column=c+1)
+                                if cell.font and cell.font.bold: is_bold = True
+                            except: pass
+                        elif ws and not is_xlsx:
+                            try:
+                                xf_idx = ws.cell_xf_index(r, c)
+                                xf = wb.xf_list[xf_idx]
+                                font = wb.font_list[xf.font_index]
+                                if font.weight >= 700: is_bold = True   # 700 is typically bold in xlrd
+                            except: pass
+                            
+                        if is_bold:
+                            item.setFont(bold_font)
+                            # If the cell has text and is bold, we might guess this row is a heading
+                            if val.strip():
+                                row_is_bold = True
+                                
+                        item.setBackground(self.COLOR_IGNORE)
+                        table.setItem(r, c, item)
+                        
+                    # Auto guess: if major cell in row was bold, default it to heading initially
+                    if row_is_bold:
+                        row_types[r] = 'heading'
+                        for c in range(len(df.columns)):
+                            if table.item(r, c): 
+                                table.item(r, c).setBackground(self.COLOR_HEADING)
+                                
+                table.resizeRowsToContents()
+                # Set a good reasonable column width for description (assume col 1 or 2)
+                if len(df.columns) > 2:
+                    table.setColumnWidth(1, 350)
+                    table.setColumnWidth(2, 350)
+                
+                self.sheet_data[sheet_name] = {
+                    'df': df,
+                    'row_types': row_types,
+                    'table': table,
+                    'columns': columns
+                }
+                self.tabs.addTab(table, sheet_name)
+
+            if sheet_names:
+                self.active_sheet = sheet_names[0]
+                self._populate_comboboxes(self.sheet_data[self.active_sheet]['columns'])
 
         except Exception as e:
             QMessageBox.critical(self, "Excel Error", f"Failed to load BOQ Excel file.\nError: {e}")
 
+    def _on_tab_changed(self, index):
+        sheet_name = self.tabs.tabText(index)
+        self.active_sheet = sheet_name
+        
+    def _populate_comboboxes(self, columns):
+        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate]:
+            cb.clear()
+            cb.addItem("-- Select Column --")
+            cb.addItems(columns)
+        
+        if len(columns) > 1: self.cb_ref.setCurrentIndex(1)
+        if len(columns) > 2: self.cb_desc.setCurrentIndex(2)
+        if len(columns) > 3: self.cb_qty.setCurrentIndex(3)
+        if len(columns) > 4: self.cb_unit.setCurrentIndex(4)
+
     def _show_context_menu(self, pos):
+        if not self.active_sheet: return
+        data = self.sheet_data[self.active_sheet]
+        table = data['table']
+        
         menu = QMenu()
         set_heading_action = menu.addAction("Set row(s) as Heading")
         set_item_action = menu.addAction("Set row(s) as Item")
         set_ignore_action = menu.addAction("Set row(s) to Ignore")
         
-        action = menu.exec(self.table.mapToGlobal(pos))
-        
+        action = menu.exec(table.mapToGlobal(pos))
         if not action: return
         
-        rows = list(set([idx.row() for idx in self.table.selectedIndexes()]))
+        rows = list(set([idx.row() for idx in table.selectedIndexes()]))
         
         for r in rows:
             if action == set_heading_action:
-                self.row_types[r] = 'heading'
-                self._update_row_color(r, self.COLOR_HEADING)
+                data['row_types'][r] = 'heading'
+                self._update_row_color(table, r, self.COLOR_HEADING)
             elif action == set_item_action:
-                self.row_types[r] = 'item'
-                self._update_row_color(r, self.COLOR_ITEM)
+                data['row_types'][r] = 'item'
+                self._update_row_color(table, r, self.COLOR_ITEM)
             elif action == set_ignore_action:
-                self.row_types[r] = 'ignore'
-                self._update_row_color(r, self.COLOR_IGNORE)
+                data['row_types'][r] = 'ignore'
+                self._update_row_color(table, r, self.COLOR_IGNORE)
         
         self._build_tree_preview()
 
-    def _update_row_color(self, row, color):
-        for c in range(self.table.columnCount()):
-            item = self.table.item(row, c)
+    def _update_row_color(self, table, row, color):
+        for c in range(table.columnCount()):
+            item = table.item(row, c)
             if item:
                 item.setBackground(color)
 
     def _apply_mapping(self):
-        """Auto detects Headings vs Items based on columns"""
+        """Auto detects Headings vs Items based on columns across ALL sheets based on selected columns."""
         desc_col = self.cb_desc.currentIndex() - 1
         qty_col = self.cb_qty.currentIndex() - 1
         
@@ -168,23 +253,28 @@ class BOQSetupWindow(QWidget):
             QMessageBox.warning(self, "Mapping Error", "You must at least select a Description column.")
             return
 
-        for r in range(len(self.df)):
-            desc_val = str(self.df.iloc[r, desc_col]).strip()
-            qty_val = str(self.df.iloc[r, qty_col]).strip() if qty_col >= 0 else ""
+        for sheet_name, data in self.sheet_data.items():
+            df = data['df']
+            table = data['table']
             
-            if not desc_val:
-                self.row_types[r] = 'ignore'
-                self._update_row_color(r, self.COLOR_IGNORE)
-                continue
+            for r in range(len(df)):
+                desc_val = str(df.iloc[r, desc_col]).strip() if desc_col < len(df.columns) else ""
+                qty_val = str(df.iloc[r, qty_col]).strip() if qty_col >= 0 and qty_col < len(df.columns) else ""
                 
-            # If it has a description but no quantity, assume Heading
-            if desc_val and not qty_val:
-                self.row_types[r] = 'heading'
-                self._update_row_color(r, self.COLOR_HEADING)
-            # If it has both, assume Item
-            elif desc_val and qty_val:
-                self.row_types[r] = 'item'
-                self._update_row_color(r, self.COLOR_ITEM)
+                # We skip overriding if the user manually set it, but for simplicity we'll override if ignore
+                # Actually, let's keep existing headings derived from bold font if they exist.
+                if not desc_val:
+                    data['row_types'][r] = 'ignore'
+                    self._update_row_color(table, r, self.COLOR_IGNORE)
+                    continue
+                    
+                # If it has a description but no quantity, and it wasn't already mapped, assume Heading
+                if desc_val and not qty_val:
+                    data['row_types'][r] = 'heading'
+                    self._update_row_color(table, r, self.COLOR_HEADING)
+                elif desc_val and qty_val:
+                    data['row_types'][r] = 'item'
+                    self._update_row_color(table, r, self.COLOR_ITEM)
 
         self._build_tree_preview()
 
@@ -196,33 +286,42 @@ class BOQSetupWindow(QWidget):
         qty_col = self.cb_qty.currentIndex() - 1
         unit_col = self.cb_unit.currentIndex() - 1
         
-        current_heading_item = None
-        
         bold_font = QFont()
         bold_font.setBold(True)
         
-        for r in range(len(self.df)):
-            rtype = self.row_types[r]
-            if rtype == 'ignore': continue
+        for sheet_name, data in self.sheet_data.items():
+            df = data['df']
+            row_types = data['row_types']
             
-            ref_val = str(self.df.iloc[r, ref_col]) if ref_col >= 0 else ""
-            desc_val = str(self.df.iloc[r, desc_col]) if desc_col >= 0 else ""
-            qty_val = str(self.df.iloc[r, qty_col]) if qty_col >= 0 else ""
-            unit_val = str(self.df.iloc[r, unit_col]) if unit_col >= 0 else ""
+            # Create a root node for the sheet
+            sheet_node = QTreeWidgetItem(self.tree, [sheet_name, "", "Sheet Root", "", "", "Heading"])
+            for i in range(6): sheet_node.setFont(i, bold_font)
+            sheet_node.setBackground(2, QColor("#bbdefb")) # light blue
+
+            current_heading_item = sheet_node
             
-            if rtype == 'heading':
-                current_heading_item = QTreeWidgetItem(self.tree, [ref_val, desc_val, "", "", "Heading"])
-                for i in range(5): current_heading_item.setFont(i, bold_font)
-                current_heading_item.setBackground(1, self.COLOR_HEADING)
-            
-            elif rtype == 'item':
-                parent = current_heading_item if current_heading_item else self.tree
-                item_node = QTreeWidgetItem(parent, [ref_val, desc_val, qty_val, unit_val, "Item"])
+            for r in range(len(df)):
+                rtype = row_types[r]
+                if rtype == 'ignore': continue
                 
+                ref_val = str(df.iloc[r, ref_col]) if 0 <= ref_col < len(df.columns) else ""
+                desc_val = str(df.iloc[r, desc_col]) if 0 <= desc_col < len(df.columns) else ""
+                qty_val = str(df.iloc[r, qty_col]) if 0 <= qty_col < len(df.columns) else ""
+                unit_val = str(df.iloc[r, unit_col]) if 0 <= unit_col < len(df.columns) else ""
+                
+                if rtype == 'heading':
+                    current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", "Heading"])
+                    for i in range(6): current_heading_item.setFont(i, bold_font)
+                    current_heading_item.setBackground(2, self.COLOR_HEADING)
+                
+                elif rtype == 'item':
+                    parent = current_heading_item if current_heading_item else sheet_node
+                    item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, "Item"])
+                    
         self.tree.expandAll()
 
     def _import_to_estimate(self):
-        """Creates Tasks in the active estimate based on the mapped items."""
+        """Creates Tasks in the active estimate based on the mapped items across all sheets."""
         if not self.active_est_window:
             QMessageBox.warning(self, "Error", "No active estimate window found to import into.")
             return
@@ -239,36 +338,44 @@ class BOQSetupWindow(QWidget):
         self.active_est_window.save_state()
         from models import Task
         
-        current_category = ""
         imported_count = 0
         
-        for r in range(len(self.df)):
-            rtype = self.row_types[r]
+        for sheet_name, data in self.sheet_data.items():
+            df = data['df']
+            row_types = data['row_types']
+            current_category = ""
             
-            desc_val = str(self.df.iloc[r, desc_col]).strip() if desc_col >= 0 else ""
-            if not desc_val: continue
-            
-            if rtype == 'heading':
-                current_category = desc_val
-            elif rtype == 'item':
-                ref_val = str(self.df.iloc[r, ref_col]).strip() if ref_col >= 0 else ""
-                qty_str = str(self.df.iloc[r, qty_col]).strip() if qty_col >= 0 else "0"
-                unit_val = str(self.df.iloc[r, unit_col]).strip() if unit_col >= 0 else ""
+            for r in range(len(df)):
+                rtype = row_types[r]
                 
-                try:
-                    qty = float(qty_str.replace(',', ''))
-                except ValueError:
-                    qty = 1.0 # fallback
+                desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
+                if not desc_val: continue
+                
+                if rtype == 'heading':
+                    current_category = desc_val
+                elif rtype == 'item':
+                    ref_val = str(df.iloc[r, ref_col]).strip() if 0 <= ref_col < len(df.columns) else ""
+                    qty_str = str(df.iloc[r, qty_col]).strip() if 0 <= qty_col < len(df.columns) else "0"
+                    unit_val = str(df.iloc[r, unit_col]).strip() if 0 <= unit_col < len(df.columns) else ""
                     
-                full_desc = f"[{ref_val}] {desc_val}" if ref_val else desc_val
-                if current_category:
-                    full_desc = f"{current_category} - {full_desc}"
-                    
-                new_task = Task(description=full_desc, quantity=qty, unit=unit_val)
-                self.active_est_window.estimate.add_task(new_task)
-                imported_count += 1
+                    try:
+                        qty = float(qty_str.replace(',', '').replace(' ', ''))
+                    except ValueError:
+                        qty = 1.0 # fallback
+                        
+                    full_desc = f"[{ref_val}] {desc_val}" if ref_val else desc_val
+                    # Structure: [Sheet Name] -> [Heading Category] -> Description
+                    prefix = f"[{sheet_name}]"
+                    if current_category:
+                        prefix += f" {current_category} -"
+                        
+                    full_desc = f"{prefix} {full_desc}"
+                        
+                    new_task = Task(description=full_desc, quantity=qty, unit=unit_val)
+                    self.active_est_window.estimate.add_task(new_task)
+                    imported_count += 1
                 
         self.active_est_window.db_manager.save_estimate(self.active_est_window.estimate)
         self.active_est_window.refresh_view()
-        QMessageBox.information(self, "Success", f"Successfully imported {imported_count} items into the estimate.")
+        QMessageBox.information(self, "Success", f"Successfully imported {imported_count} items from all sheets into the estimate.")
         self.close()
