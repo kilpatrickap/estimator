@@ -46,7 +46,16 @@ class BOQSetupWindow(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
-        mapping_form = QFormLayout()
+        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView
+        
+        # Top right layout for settings
+        settings_layout = QHBoxLayout()
+        
+        # 1. Column Selection Group
+        col_group = QGroupBox("Column Mapping")
+        col_layout = QFormLayout(col_group)
+        col_layout.setContentsMargins(5, 5, 5, 5)
+        col_layout.setSpacing(5)
         
         self.cb_ref = QComboBox()
         self.cb_desc = QComboBox()
@@ -54,25 +63,32 @@ class BOQSetupWindow(QWidget):
         self.cb_unit = QComboBox()
         self.cb_rate = QComboBox()
         
-        mapping_form.addRow("Ref / Item No Column:", self.cb_ref)
-        mapping_form.addRow("Description Column:", self.cb_desc)
-        mapping_form.addRow("Quantity Column:", self.cb_qty)
-        mapping_form.addRow("Unit Column:", self.cb_unit)
-        mapping_form.addRow("Rate Column (Optional):", self.cb_rate)
+        col_layout.addRow("Ref / Item No:", self.cb_ref)
+        col_layout.addRow("Description:", self.cb_desc)
+        col_layout.addRow("Quantity:", self.cb_qty)
+        col_layout.addRow("Unit:", self.cb_unit)
+        col_layout.addRow("Rate (Optional):", self.cb_rate)
         
-        # Add Sheet Selection logic
-        from PyQt6.QtWidgets import QListWidget, QAbstractItemView
+        # 2. Sheet Selection Group
+        sheet_group = QGroupBox("Sheets to Process")
+        sheet_layout = QVBoxLayout(sheet_group)
+        sheet_layout.setContentsMargins(5, 5, 5, 5)
+        sheet_layout.setSpacing(5)
+        
         self.sheet_selector = QListWidget()
-        self.sheet_selector.setMaximumHeight(80)
+        self.sheet_selector.setMaximumHeight(130) # Compact height
         self.sheet_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
         
-        mapping_form.addRow("Sheets to process:", self.sheet_selector)
+        sheet_layout.addWidget(self.sheet_selector)
+        
+        # Add groups side-by-side
+        settings_layout.addWidget(col_group, stretch=5)
+        settings_layout.addWidget(sheet_group, stretch=4)
+        
+        right_layout.addLayout(settings_layout)
         
         apply_map_btn = QPushButton("Apply Mapping to Selected Sheets")
-        apply_map_btn.clicked.connect(self._apply_mapping)
-        
-        right_layout.addLayout(mapping_form)
         right_layout.addWidget(apply_map_btn)
         
         right_layout.addWidget(QLabel("Formatted Preview:"))
