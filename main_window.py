@@ -590,16 +590,51 @@ class MainWindow(QMainWindow):
             rate_sub.widget().highlight_rate(rate_code)
 
     def open_settings(self):
-        for sub in self.mdi_area.subWindowList():
-            if isinstance(sub.widget(), SettingsDialog):
-                self.mdi_area.setActiveSubWindow(sub)
+        active_est = self._get_active_estimate_window()
+        options = ["Application Settings"]
+        if active_est and type(active_est).__name__ == "EstimateWindow":
+            options.append("Project Settings")
+        
+        from PyQt6.QtWidgets import QInputDialog
+        if len(options) > 1:
+            choice, ok = QInputDialog.getItem(self, "Settings", "Select settings to open:", options, 0, False)
+            if not ok:
                 return
+        else:
+            choice = options[0]
+            
+        if choice == "Application Settings":
+            for sub in self.mdi_area.subWindowList():
+                if isinstance(sub.widget(), SettingsDialog):
+                    self.mdi_area.setActiveSubWindow(sub)
+                    return
+                    
+            dialog = SettingsDialog(self)
+            sub = self.mdi_area.addSubWindow(dialog)
+            sub.adjustSize()
+            self._apply_zoom_to_subwindow(sub)
+            sub.show()
+        elif choice == "Project Settings":
+            dialog = ProjectSettingsDialog(active_est, self)
+            if dialog.exec():
+                data = dialog.get_data()
+                active_est.save_state()
+                import re
                 
-        dialog = SettingsDialog(self)
-        sub = self.mdi_area.addSubWindow(dialog)
-        sub.adjustSize()
-        self._apply_zoom_to_subwindow(sub)
-        sub.show()
+                active_est.estimate.project_name = data['name']
+                active_est.estimate.client_name = data['client']
+                active_est.estimate.date = data['date']
+                active_est.estimate.overhead_percent = data['overhead']
+                active_est.estimate.profit_margin_percent = data['profit']
+                active_est.estimate.currency = data['currency']
+                active_est.library_path = data['library_path']
+                
+                match = re.search(r'\((.*?)\)', active_est.estimate.currency)
+                active_est.currency_symbol = match.group(1) if match else "$"
+                
+                active_est.db_manager.save_estimate(active_est.estimate)
+                active_est.refresh_view()
+                active_est.setWindowTitle(f"Estimate: {data['name']}")
 
     # --- Global Action Handlers ---
     
@@ -975,6 +1010,78 @@ class NewEstimateDialog(QDialog):
             "project_dir": project_dir,
             "boq_files": getattr(self, 'boq_files', []),
             "db_path": db_path
+        }
+
+
+class ProjectSettingsDialog(QDialog):
+    """Dialog for project-specific settings."""
+    def __init__(self, active_est_window, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Project Settings")
+        self.setMinimumWidth(400)
+        
+        layout = QFormLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(5)
+
+        estimate = active_est_window.estimate
+        self.project_name = QLineEdit(estimate.project_name)
+        self.location = QLineEdit(estimate.client_name)
+        
+        self.project_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
+        if estimate.date:
+            qdate = QDate.fromString(estimate.date[:10], "yyyy-MM-dd")
+            self.project_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
+        else:
+            self.project_date.setDate(QDate.currentDate())
+            
+        validator = QDoubleValidator(0.0, 100.0, 2, notation=QDoubleValidator.Notation.StandardNotation)
+        
+        self.overhead = QLineEdit(str(estimate.overhead_percent))
+        self.overhead.setValidator(validator)
+        self.profit = QLineEdit(str(estimate.profit_margin_percent))
+        self.profit.setValidator(validator)
+        
+        self.currency = QComboBox()
+        self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
+        self.currency.setCurrentText(estimate.currency)
+
+        self.library_layout = QHBoxLayout()
+        self.library_path = QLineEdit(active_est_window.library_path)
+        self.library_path.setReadOnly(True)
+        self.library_btn = QPushButton("Browse...")
+        self.library_btn.clicked.connect(self._browse_library)
+        self.library_layout.addWidget(self.library_path)
+        self.library_layout.addWidget(self.library_btn)
+
+        layout.addRow("Project Name:", self.project_name)
+        layout.addRow("Location:", self.location)
+        layout.addRow("Project Date:", self.project_date)
+        layout.addRow("Overhead (%):", self.overhead)
+        layout.addRow("Profit (%):", self.profit)
+        layout.addRow("Currency:", self.currency)
+        layout.addRow("Library:", self.library_layout)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def _browse_library(self):
+        from PyQt6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
+        if file_path:
+            self.library_path.setText(file_path)
+
+    def get_data(self):
+        return {
+            "name": self.project_name.text().strip(),
+            "client": self.location.text().strip(),
+            "date": self.project_date.date().toString("yyyy-MM-dd"),
+            "overhead": float(self.overhead.text() or 0),
+            "profit": float(self.profit.text() or 0),
+            "currency": self.currency.currentText(),
+            "library_path": self.library_path.text().strip()
         }
 
 
