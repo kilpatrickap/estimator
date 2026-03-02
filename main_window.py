@@ -287,7 +287,8 @@ class MainWindow(QMainWindow):
             ("Load Estimate", self.load_estimate),
             ("Cost Database", self.manage_database),
             ("Rate Database", self.manage_rate_database),
-            ("Settings", self.open_settings)
+            ("Settings", self.open_settings),
+            ("BOQ Setup", self.open_boq_setup)
         ]
 
         for text, slot in nav_items:
@@ -635,6 +636,45 @@ class MainWindow(QMainWindow):
                 active_est.db_manager.save_estimate(active_est.estimate)
                 active_est.refresh_view()
                 active_est.setWindowTitle(f"Estimate: {data['name']}")
+
+    def open_boq_setup(self):
+        active_est = self._get_active_estimate_window()
+        if not active_est or type(active_est).__name__ != "EstimateWindow":
+            QMessageBox.warning(self, "No Active Project", "Please open a project estimate first to set up its BOQ.")
+            return
+            
+        import os
+        project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
+        if not project_dir or not os.path.exists(project_dir):
+            QMessageBox.warning(self, "Error", "Project directory is invalid.")
+            return
+            
+        boq_files = [f for f in os.listdir(project_dir) if f.lower().endswith(('.xlsx', '.xls'))]
+        if not boq_files:
+            QMessageBox.information(self, "No BOQs", "No Excel BOQ files found in this project directory.\nPlease import them via Project Settings or New Project Dialog.")
+            return
+            
+        from PyQt6.QtWidgets import QInputDialog
+        target_boq = boq_files[0]
+        if len(boq_files) > 1:
+            choice, ok = QInputDialog.getItem(self, "Select BOQ", "Select BOQ file to setup:", boq_files, 0, False)
+            if not ok: return
+            target_boq = choice
+            
+        full_path = os.path.join(project_dir, target_boq)
+        
+        from boq_setup import BOQSetupWindow
+        # Check if already open
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), BOQSetupWindow) and sub.widget().boq_file_path == full_path:
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = BOQSetupWindow(full_path, active_est, self)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(1000, 700)
+        self._apply_zoom_to_subwindow(sub)
+        sub.show()
 
     # --- Global Action Handlers ---
     

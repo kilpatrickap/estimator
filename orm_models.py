@@ -98,6 +98,9 @@ class DBTask(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     estimate_id = Column(Integer, ForeignKey('estimates.id', ondelete='CASCADE'), nullable=False)
     description = Column(String)
+    quantity = Column(Float, default=1.0)
+    unit = Column(String)
+    formula = Column(String)
 
     estimate = relationship("DBEstimate", back_populates="tasks")
     

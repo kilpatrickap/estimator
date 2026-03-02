@@ -2,8 +2,11 @@ from datetime import datetime
 
 class Task:
     """Represents a work package containing cost items."""
-    def __init__(self, description):
+    def __init__(self, description, quantity=1.0, unit="", formula=""):
         self.description = description
+        self.quantity = quantity
+        self.unit = unit
+        self.formula = formula
         self.materials = []
         self.labor = []
         self.equipment = []

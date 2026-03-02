@@ -55,6 +55,20 @@ class DatabaseManager:
         # In a real large-team project, you'd use Alembic. 
         # Here we just ensure all tables exist.
         Base.metadata.create_all(self.engine)
+        
+        # Manually alter tasks table for backwards compatibility
+        from sqlalchemy import text
+        with self.engine.connect() as conn:
+            try:
+                conn.execute(text("SELECT quantity FROM tasks LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE tasks ADD COLUMN quantity FLOAT DEFAULT 1.0"))
+                    conn.execute(text("ALTER TABLE tasks ADD COLUMN unit VARCHAR"))
+                    conn.execute(text("ALTER TABLE tasks ADD COLUMN formula VARCHAR"))
+                    conn.commit()
+                except Exception as e:
+                    pass
 
     def _insert_sample_data(self):
         now = datetime.now().strftime('%Y-%m-%d')
@@ -250,7 +264,7 @@ class DatabaseManager:
 
                 # Save tasks
                 for task_obj in estimate_obj.tasks:
-                    db_task = DBTask(estimate_id=db_est.id, description=task_obj.description)
+                    db_task = DBTask(estimate_id=db_est.id, description=task_obj.description, quantity=getattr(task_obj, 'quantity', 1.0), unit=getattr(task_obj, 'unit', ''), formula=getattr(task_obj, 'formula', ''))
                     session.add(db_task)
                     session.flush()
                     
@@ -319,7 +333,7 @@ class DatabaseManager:
             loaded.rate_type = db_est.rate_type or "Simple"
 
             for db_task in db_est.tasks:
-                task_obj = Task(db_task.description)
+                task_obj = Task(db_task.description, quantity=getattr(db_task, 'quantity', 1.0) or 1.0, unit=getattr(db_task, 'unit', '') or '', formula=getattr(db_task, 'formula', '') or '')
                 
                 for m in db_task.materials:
                     name = m.name or ""
