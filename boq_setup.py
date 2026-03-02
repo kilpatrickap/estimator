@@ -90,6 +90,7 @@ class BOQSetupWindow(QWidget):
         right_layout.addLayout(settings_layout)
         
         apply_map_btn = QPushButton("Apply Mapping to Selected Sheets")
+        apply_map_btn.clicked.connect(self._apply_mapping)
         right_layout.addWidget(apply_map_btn)
         
         right_layout.addWidget(QLabel("Formatted Preview:"))
