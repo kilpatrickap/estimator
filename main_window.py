@@ -125,6 +125,9 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1400, 900)
         self.db_manager = DatabaseManager()
 
+        # Build Standard Window Menu Bar
+        self._setup_menubar()
+
         # Main Layout Structure
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -158,6 +161,62 @@ class MainWindow(QMainWindow):
         
         # Track zoom scale for relative window resizing
         self.last_zoom_scale = 1.0
+
+    def _setup_menubar(self):
+        """Creates the standard top application menu bar."""
+        menubar = self.menuBar()
+        
+        # File Menu
+        file_menu = menubar.addMenu("File")
+        
+        new_action = self._create_action("New Estimate...", "Ctrl+N", self.new_estimate)
+        file_menu.addAction(new_action)
+        
+        load_action = self._create_action("Load Estimate...", "Ctrl+O", self.load_estimate)
+        file_menu.addAction(load_action)
+        
+        file_menu.addSeparator()
+        
+        save_action = self._create_action("Save Current", "Ctrl+S", self.trigger_save)
+        file_menu.addAction(save_action)
+        
+        file_menu.addSeparator()
+        
+        settings_action = self._create_action("Settings...", None, self.open_settings)
+        file_menu.addAction(settings_action)
+        
+        exit_action = self._create_action("Exit", "Alt+F4", self.close)
+        file_menu.addAction(exit_action)
+        
+        # Edit Menu
+        edit_menu = menubar.addMenu("Edit")
+        
+        undo_action = self._create_action("Undo", "Ctrl+Z", self.trigger_undo)
+        edit_menu.addAction(undo_action)
+        
+        redo_action = self._create_action("Redo", "Ctrl+Y", self.trigger_redo)
+        edit_menu.addAction(redo_action)
+        
+        # Windows Menu
+        window_menu = menubar.addMenu("Window")
+        
+        dash_action = self._create_action("Dashboard", None, self.show_dashboard)
+        window_menu.addAction(dash_action)
+        
+        window_menu.addSeparator()
+        
+        db_action = self._create_action("Cost Database", None, self.manage_database)
+        window_menu.addAction(db_action)
+        
+        rate_db_action = self._create_action("Rate Database", None, self.manage_rate_database)
+        window_menu.addAction(rate_db_action)
+
+    def _create_action(self, text, shortcut, slot):
+        action = QAction(text, self)
+        if shortcut:
+            action.setShortcut(shortcut)
+        action.triggered.connect(slot)
+        return action
 
     def _get_color_for_rate(self, rate_code):
         if not rate_code: return "transparent"
