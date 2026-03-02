@@ -346,24 +346,37 @@ class MainWindow(QMainWindow):
             self._add_estimate_window(est_window)
 
     def load_estimate(self):
-        dialog = LoadEstimateDialog(self)
-        if dialog.exec() == QDialog.DialogCode.Accepted and dialog.selected_estimate_id:
-            self._load_and_show_estimate(dialog.selected_estimate_id)
+        from PyQt6.QtWidgets import QFileDialog
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "Project Files (*.db);;All Files (*)")
+        if file_path:
+            from database import DatabaseManager
+            temp_db = DatabaseManager(file_path)
+            summaries = temp_db.get_saved_estimates_summary()
+            
+            if summaries:
+                # We assume a project DB holds one main estimate
+                self._load_and_show_estimate(summaries[0]['id'], db_path=file_path)
+            else:
+                QMessageBox.warning(self, "Empty Project", "No estimates found in this project file.")
 
-    def _load_and_show_estimate(self, est_id):
+    def _load_and_show_estimate(self, est_id, db_path=None):
+        db_path = db_path or "construction_costs.db"
+        
         # Check if already open
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
-            if isinstance(widget, EstimateWindow) and widget.estimate.id == est_id:
+            if isinstance(widget, EstimateWindow) and widget.estimate.id == est_id and getattr(widget, 'db_path', None) == db_path:
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
-        estimate_obj = self.db_manager.load_estimate_details(est_id)
+        from database import DatabaseManager
+        temp_db = DatabaseManager(db_path)
+        estimate_obj = temp_db.load_estimate_details(est_id)
         if estimate_obj:
-            est_window = EstimateWindow(estimate_object=estimate_obj, main_window=self)
+            est_window = EstimateWindow(estimate_object=estimate_obj, main_window=self, db_path=db_path)
             self._add_estimate_window(est_window)
         else:
-            QMessageBox.critical(self, "Error", "Failed to load estimate.")
+            QMessageBox.critical(self, "Error", "Failed to load estimate from the file.")
 
     def open_rate_buildup_window(self, estimate_obj):
         """Opens a rate build-up in an MDI window."""
@@ -919,16 +932,25 @@ class NewEstimateDialog(QDialog):
         super().accept()
 
     def get_data(self):
+        import os
+        project_dir = self.project_dir_path.text().strip()
+        project_name = self.project_name.text().strip()
+        db_path = None
+        if project_dir and project_name:
+            db_path = os.path.join(project_dir, project_name, f"{project_name}.db")
+
         return {
-            "name": self.project_name.text(),
+            "name": project_name,
             "client": self.location.text(),
             "date": self.project_date.date().toString("yyyy-MM-dd"),
             "overhead": float(self.overhead.text() or 0),
             "profit": float(self.profit.text() or 0),
             "currency": self.currency.currentText(),
             "library_path": self.library_path.text(),
-            "project_dir": self.project_dir_path.text()
+            "project_dir": project_dir,
+            "db_path": db_path
         }
+
 
 
 class EditEstimateDialog(QDialog):

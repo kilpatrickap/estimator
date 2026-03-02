@@ -24,24 +24,35 @@ class EstimateWindow(QMainWindow):
     """
     stateChanged = pyqtSignal()
 
-    def __init__(self, estimate_data=None, estimate_object=None, main_window=None, parent=None):
+    def __init__(self, estimate_data=None, estimate_object=None, main_window=None, parent=None, db_path=None, library_path=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.db_manager = DatabaseManager()
+
+        if estimate_data:
+            self.db_path = estimate_data.get('db_path') or "construction_costs.db"
+            self.library_path = estimate_data.get('library_path') or "construction_costs.db"
+            if not self.library_path:
+                self.library_path = "construction_costs.db"
+        else:
+            self.db_path = db_path or "construction_costs.db"
+            self.library_path = library_path or "construction_costs.db"
+
+        self.db_manager = DatabaseManager(self.db_path)
 
         if estimate_object:
             self.estimate = estimate_object
         elif estimate_data:
             self.estimate = Estimate(
-                project_name=estimate_data['name'],
-                client_name=estimate_data['client'],
-                overhead=estimate_data['overhead'],
-                profit=estimate_data['profit'],
+                project_name=estimate_data.get('name', 'New Project'),
+                client_name=estimate_data.get('client', ''),
+                overhead=estimate_data.get('overhead', 0.0),
+                profit=estimate_data.get('profit', 0.0),
                 currency=estimate_data.get('currency', "GHS (₵)"),
                 date=estimate_data.get('date')
             )
         else:
             self.estimate = Estimate("Error", "Error", 0, 0)
+
 
         # Undo/Redo Stacks
         self.undo_stack = []
@@ -356,21 +367,39 @@ class EstimateWindow(QMainWindow):
         task_obj = self._get_selected_task_object()
         if not task_obj: return
 
-        dialog = SelectItemDialog(resource_type, self)
+        dialog = SelectItemDialog(resource_type, self.library_path, self)
         if dialog.exec():
             item, quantity, formula = dialog.get_selection()
             if item and quantity > 0:
                 self.save_state() # Save before modification
+                
+                # Clone the selected library item into the project database if it doesn't exist yet
+                from datetime import datetime
+                name_val = item.get('name') or item.get('trade') or item.get('description') or ""
+                existing_id = self.db_manager.get_item_id_by_name(resource_type, name_val)
+                if not existing_id:
+                    if resource_type == 'materials':
+                        data_tuple = (item.get('name'), item.get('unit'), item.get('currency'), item.get('price'), item.get('formula'), item.get('date_added'), item.get('location'), item.get('contact'), item.get('remarks'))
+                    elif resource_type == 'labor':
+                        data_tuple = (item.get('trade'), item.get('unit'), item.get('currency'), item.get('rate'), item.get('formula'), item.get('date_added'), item.get('location'), item.get('contact'), item.get('remarks'))
+                    elif resource_type == 'indirect_costs':
+                        data_tuple = (item.get('description'), item.get('unit'), item.get('currency'), item.get('amount'), item.get('formula'), item.get('date_added'))
+                    else: # equipment, plant
+                        data_tuple = (item.get('name'), item.get('unit'), item.get('currency'), item.get('rate'), item.get('formula'), item.get('date_added'), item.get('location'), item.get('contact'), item.get('remarks'))
+                    
+                    self.db_manager.add_item(resource_type, data_tuple)
+                
+                # Now add it to the estimate's task
                 if resource_type == 'materials':
-                    task_obj.add_material(item['name'], quantity, item['unit'], item['price'], currency=item['currency'], formula=formula)
+                    task_obj.add_material(item.get('name', ''), quantity, str(item.get('unit', '')), item.get('price', 0.0), currency=str(item.get('currency', '')), formula=formula)
                 elif resource_type == 'labor':
-                    task_obj.add_labor(item['trade'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
+                    task_obj.add_labor(item.get('trade', ''), quantity, item.get('rate', 0.0), currency=str(item.get('currency', '')), formula=formula, unit=str(item.get('unit', '')))
                 elif resource_type == 'equipment':
-                    task_obj.add_equipment(item['name'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
+                    task_obj.add_equipment(item.get('name', ''), quantity, item.get('rate', 0.0), currency=str(item.get('currency', '')), formula=formula, unit=str(item.get('unit', '')))
                 elif resource_type == 'plant':
-                    task_obj.add_plant(item['name'], quantity, item['rate'], currency=item['currency'], formula=formula, unit=item['unit'])
+                    task_obj.add_plant(item.get('name', ''), quantity, item.get('rate', 0.0), currency=str(item.get('currency', '')), formula=formula, unit=str(item.get('unit', '')))
                 elif resource_type == 'indirect_costs':
-                    task_obj.add_indirect_cost(item['description'], quantity, unit=item['unit'], currency=item['currency'], formula=formula)
+                    task_obj.add_indirect_cost(item.get('description', ''), quantity, unit=str(item.get('unit', '')), currency=str(item.get('currency', '')), formula=formula)
                 self.refresh_view()
 
     def remove_item(self):
@@ -590,14 +619,15 @@ class EstimateWindow(QMainWindow):
 
 class SelectItemDialog(QDialog):
     """Dialog for selecting items from the database."""
-    def __init__(self, item_type, parent=None):
+    def __init__(self, item_type, library_path, parent=None):
         super().__init__(parent)
         self.item_type = item_type
         singular_name = item_type[:-1] if item_type.endswith('s') else item_type
         self.setWindowTitle(f"Select {singular_name.capitalize()}")
         self.setMinimumSize(420, 400)
         
-        self.db_manager = DatabaseManager()
+        # Read from the specified library database, not the default
+        self.db_manager = DatabaseManager(library_path)
         self.all_items = self.db_manager.get_items(item_type)
         self.current_items = []
 
@@ -656,10 +686,11 @@ class SelectItemDialog(QDialog):
 
     def filter_items(self, text):
         search_text = text.lower()
-        self.current_items = [
-            item for item in self.all_items 
-            if search_text in item[1].lower() # item[1] is name/trade
-        ]
+        self.current_items = []
+        for item in self.all_items:
+            name_val = item.get('name') or item.get('trade') or item.get('description') or ""
+            if search_text in name_val.lower():
+                self.current_items.append(item)
 
         self.table.setRowCount(len(self.current_items))
         for row, item_data in enumerate(self.current_items):
@@ -669,35 +700,48 @@ class SelectItemDialog(QDialog):
         self.table.resizeRowsToContents()
             
     def _fill_row(self, row, item_data):
-        self.table.setItem(row, 0, QTableWidgetItem(str(item_data[0]))) # ID
-        self.table.setItem(row, 1, QTableWidgetItem(item_data[1])) # Name
+        self.table.setItem(row, 0, QTableWidgetItem(str(item_data.get('id', '')))) # ID
         
-        col_offset = 2
+        name_val = item_data.get('name') or item_data.get('trade') or item_data.get('description') or ""
+        self.table.setItem(row, 1, QTableWidgetItem(name_val)) # Name
+        
+        unit_val = str(item_data.get('unit') or '')
+        curr_val = str(item_data.get('currency') or '')
+        
         if self.item_type == "materials":
-            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
-            self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
-            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):,.2f}")) # Price
-            date_idx = 5
+            price_val = item_data.get('price', 0.0)
+            self.table.setItem(row, 2, QTableWidgetItem(unit_val))
+            self.table.setItem(row, 3, QTableWidgetItem(curr_val))
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(price_val):,.2f}"))
+        elif self.item_type == "indirect_costs":
+            amount_val = item_data.get('amount', 0.0)
+            self.table.setItem(row, 2, QTableWidgetItem(unit_val))
+            self.table.setItem(row, 3, QTableWidgetItem(curr_val))
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(amount_val):,.2f}"))
         else:
-            self.table.setItem(row, 2, QTableWidgetItem(str(item_data[2]))) # Unit
-            self.table.setItem(row, 3, QTableWidgetItem(str(item_data[3]))) # Currency
-            self.table.setItem(row, 4, QTableWidgetItem(f"{float(item_data[4]):,.2f}")) # Rate
-            date_idx = 5
+            rate_val = item_data.get('rate', 0.0)
+            self.table.setItem(row, 2, QTableWidgetItem(unit_val))
+            self.table.setItem(row, 3, QTableWidgetItem(curr_val))
+            self.table.setItem(row, 4, QTableWidgetItem(f"{float(rate_val):,.2f}"))
             
         # Common end columns
-        qdate = QDate.fromString(str(item_data[date_idx]), "yyyy-MM-dd")
-        display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else str(item_data[date_idx])
+        date_str = str(item_data.get('date_added') or '')
+        qdate = QDate.fromString(date_str, "yyyy-MM-dd")
+        display_date = qdate.toString("dd-MM-yy") if qdate.isValid() else date_str
+        
+        self.table.setItem(row, 5, QTableWidgetItem(display_date))
         
         if self.item_type == "indirect_costs":
-             self.table.setItem(row, 5, QTableWidgetItem(display_date))
              return
 
-        self.table.setItem(row, col_offset + (3 if self.item_type == "materials" else 2), QTableWidgetItem(display_date))
-        
         # Location, Contact, Remarks
-        for i in range(1, 4):
-             val = item_data[date_idx + i] if len(item_data) > date_idx + i else ""
-             self.table.setItem(row, (6 if self.item_type == "materials" else 6) + i - 1, QTableWidgetItem(str(val) if val else ""))
+        loc_val = str(item_data.get('location') or "")
+        contact_val = str(item_data.get('contact') or "")
+        remarks_val = str(item_data.get('remarks') or "")
+        
+        self.table.setItem(row, 6, QTableWidgetItem(loc_val))
+        self.table.setItem(row, 7, QTableWidgetItem(contact_val))
+        self.table.setItem(row, 8, QTableWidgetItem(remarks_val))
 
     def get_selection(self):
         """Returns the selected item, quantity (default 1), and formula (None)."""
