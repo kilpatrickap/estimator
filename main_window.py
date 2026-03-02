@@ -1017,8 +1017,12 @@ class ProjectSettingsDialog(QDialog):
     """Dialog for project-specific settings."""
     def __init__(self, active_est_window, parent=None):
         super().__init__(parent)
+        import os
+        self.active_est_window = active_est_window
+        self.project_dir = os.path.dirname(active_est_window.db_path) if active_est_window.db_path else ""
+        
         self.setWindowTitle("Project Settings")
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(500)
         
         layout = QFormLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -1054,6 +1058,26 @@ class ProjectSettingsDialog(QDialog):
         self.library_layout.addWidget(self.library_path)
         self.library_layout.addWidget(self.library_btn)
 
+        # BOQ List Component
+        from PyQt6.QtWidgets import QListWidget, QAbstractItemView, QVBoxLayout, QMessageBox
+        
+        self.boq_list = QListWidget()
+        self.boq_list.setMaximumHeight(100)
+        self.boq_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._load_boqs()
+
+        boq_btn_layout = QHBoxLayout()
+        self.add_boq_btn = QPushButton("Add/Import BOQs...")
+        self.add_boq_btn.clicked.connect(self._add_boq)
+        self.del_boq_btn = QPushButton("Delete Selected")
+        self.del_boq_btn.clicked.connect(self._delete_boq)
+        boq_btn_layout.addWidget(self.add_boq_btn)
+        boq_btn_layout.addWidget(self.del_boq_btn)
+
+        boq_main_layout = QVBoxLayout()
+        boq_main_layout.addWidget(self.boq_list)
+        boq_main_layout.addLayout(boq_btn_layout)
+
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Location:", self.location)
         layout.addRow("Project Date:", self.project_date)
@@ -1061,11 +1085,70 @@ class ProjectSettingsDialog(QDialog):
         layout.addRow("Profit (%):", self.profit)
         layout.addRow("Currency:", self.currency)
         layout.addRow("Library:", self.library_layout)
+        layout.addRow("Imported BOQs:", boq_main_layout)
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
+
+    def _load_boqs(self):
+        self.boq_list.clear()
+        import os
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            return
+        
+        for f in os.listdir(self.project_dir):
+            if f.lower().endswith(('.xlsx', '.xls')):
+                self.boq_list.addItem(f)
+
+    def _add_boq(self):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import os, shutil
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            QMessageBox.warning(self, "Error", "Project directory is not uniquely identified or valid.")
+            return
+
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Excel BOQ(s)", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
+        if file_paths:
+            for boq_file in file_paths:
+                if os.path.exists(boq_file):
+                    boq_filename = os.path.basename(boq_file)
+                    target_path = os.path.join(self.project_dir, boq_filename)
+                    if os.path.exists(target_path):
+                        reply = QMessageBox.question(self, 'Overwrite BOQ?', 
+                                         f"'{boq_filename}' already exists in the project. Do you want to overwrite it?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+                        if reply == QMessageBox.StandardButton.No:
+                            continue
+                    try:
+                        shutil.copy2(boq_file, target_path)
+                    except Exception as e:
+                        QMessageBox.warning(self, "Error", f"Failed to copy '{boq_filename}':\n{e}")
+            self._load_boqs()
+
+    def _delete_boq(self):
+        from PyQt6.QtWidgets import QMessageBox
+        import os
+        selected = self.boq_list.currentItem()
+        if not selected:
+            return
+        
+        filename = selected.text()
+        file_path = os.path.join(self.project_dir, filename)
+        
+        reply = QMessageBox.warning(self, 'Confirm Deletion', 
+                                     f"Are you sure you want to PERMANENTLY delete '{filename}' from the project folder?\nThis action cannot be undone.",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                     QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                if os.path.exists(file_path):
+                    os.remove(file_path)
+                self._load_boqs()
+            except Exception as e:
+                QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
 
     def _browse_library(self):
         from PyQt6.QtWidgets import QFileDialog
