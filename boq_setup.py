@@ -60,7 +60,16 @@ class BOQSetupWindow(QWidget):
         mapping_form.addRow("Unit Column:", self.cb_unit)
         mapping_form.addRow("Rate Column (Optional):", self.cb_rate)
         
-        apply_map_btn = QPushButton("Apply Mapping to All Sheets")
+        # Add Sheet Selection logic
+        from PyQt6.QtWidgets import QListWidget, QAbstractItemView
+        self.sheet_selector = QListWidget()
+        self.sheet_selector.setMaximumHeight(80)
+        self.sheet_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
+        
+        mapping_form.addRow("Sheets to process:", self.sheet_selector)
+        
+        apply_map_btn = QPushButton("Apply Mapping to Selected Sheets")
         apply_map_btn.clicked.connect(self._apply_mapping)
         
         right_layout.addLayout(mapping_form)
@@ -190,6 +199,12 @@ class BOQSetupWindow(QWidget):
                     'columns': columns
                 }
                 self.tabs.addTab(table, sheet_name)
+                
+                # Add to selector list
+                from PyQt6.QtWidgets import QListWidgetItem
+                item = QListWidgetItem(sheet_name)
+                self.sheet_selector.addItem(item)
+                item.setSelected(True) # Select all by default
 
             if sheet_names:
                 self.active_sheet = sheet_names[0]
@@ -248,7 +263,7 @@ class BOQSetupWindow(QWidget):
                 item.setBackground(color)
 
     def _apply_mapping(self):
-        """Auto detects Headings vs Items based on columns across ALL sheets based on selected columns."""
+        """Auto detects Headings vs Items based on columns for selected sheets only."""
         desc_col = self.cb_desc.currentIndex() - 1
         qty_col = self.cb_qty.currentIndex() - 1
         
@@ -256,7 +271,14 @@ class BOQSetupWindow(QWidget):
             QMessageBox.warning(self, "Mapping Error", "You must at least select a Description column.")
             return
 
-        for sheet_name, data in self.sheet_data.items():
+        selected_sheets = [item.text() for item in self.sheet_selector.selectedItems()]
+        if not selected_sheets:
+            QMessageBox.warning(self, "Warning", "Please select at least one sheet to apply mapping to.")
+            return
+
+        for sheet_name in selected_sheets:
+            if sheet_name not in self.sheet_data: continue
+            data = self.sheet_data[sheet_name]
             df = data['df']
             table = data['table']
             
@@ -292,7 +314,11 @@ class BOQSetupWindow(QWidget):
         bold_font = QFont()
         bold_font.setBold(True)
         
-        for sheet_name, data in self.sheet_data.items():
+        selected_sheets = [item.text() for item in self.sheet_selector.selectedItems()]
+        
+        for sheet_name in selected_sheets:
+            if sheet_name not in self.sheet_data: continue
+            data = self.sheet_data[sheet_name]
             df = data['df']
             row_types = data['row_types']
             
@@ -342,8 +368,14 @@ class BOQSetupWindow(QWidget):
         from models import Task
         
         imported_count = 0
+        selected_sheets = [item.text() for item in self.sheet_selector.selectedItems()]
+        if not selected_sheets:
+            QMessageBox.warning(self, "Warning", "No sheets selected to import.")
+            return
         
-        for sheet_name, data in self.sheet_data.items():
+        for sheet_name in selected_sheets:
+            if sheet_name not in self.sheet_data: continue
+            data = self.sheet_data[sheet_name]
             df = data['df']
             row_types = data['row_types']
             current_category = ""
