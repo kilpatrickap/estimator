@@ -18,6 +18,7 @@ class BOQSetupWindow(QWidget):
         # Dictionary to store dataframe and row types per sheet name
         self.sheet_data = {} 
         self.active_sheet = None
+        self.concat_descriptions = False
         
         # Color codes for visual feedback
         self.COLOR_HEADING = QColor("#e8f5e9") # Light green
@@ -122,6 +123,11 @@ class BOQSetupWindow(QWidget):
         apply_map_btn.setMinimumHeight(40)
         apply_map_btn.clicked.connect(self._apply_mapping)
         action_layout.addWidget(apply_map_btn)
+        
+        self.concat_btn = QPushButton("Concatenate\nDescriptions")
+        self.concat_btn.setMinimumHeight(40)
+        self.concat_btn.clicked.connect(self._toggle_concatenate)
+        action_layout.addWidget(self.concat_btn)
         
         save_state_btn = QPushButton("Save State")
         save_state_btn.setMinimumHeight(40)
@@ -493,8 +499,21 @@ class BOQSetupWindow(QWidget):
 
         self._build_tree_preview()
 
+    def _toggle_concatenate(self):
+        self.concat_descriptions = not self.concat_descriptions
+        if self.concat_descriptions:
+            self.concat_btn.setText("Un-Catenate\nDescriptions")
+        else:
+            self.concat_btn.setText("Concatenate\nDescriptions")
+        self._build_tree_preview()
+
     def _build_tree_preview(self):
         self.tree.clear()
+        
+        is_concat = getattr(self, 'concat_descriptions', False)
+        # Toggle visibility of Level and Type columns based on concatenation state
+        self.tree.setColumnHidden(5, is_concat)
+        self.tree.setColumnHidden(6, is_concat)
         
         ref_col = self.cb_ref.currentIndex() - 1
         desc_col = self.cb_desc.currentIndex() - 1
@@ -536,6 +555,7 @@ class BOQSetupWindow(QWidget):
             sheet_node.setBackground(2, QColor("#bbdefb")) # light blue
 
             current_heading_item = sheet_node
+            current_category_val = ""
             
             for r in range(len(df)):
                 rtype = row_types[r]
@@ -556,14 +576,24 @@ class BOQSetupWindow(QWidget):
                 level_str = str(level) if level > 0 else ""
 
                 if rtype == 'heading':
-                    current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", level_str, "Heading"])
-                    for i in range(7): current_heading_item.setFont(i, bold_font)
-                    current_heading_item.setBackground(2, self.COLOR_HEADING)
+                    current_category_val = desc_val
+                    if not is_concat:
+                        current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", level_str, "Heading"])
+                        for i in range(7): current_heading_item.setFont(i, bold_font)
+                        current_heading_item.setBackground(2, self.COLOR_HEADING)
+                    else:
+                        current_heading_item = sheet_node
                 
                 elif rtype == 'item':
-                    # Only map as item if it actually has description and qty correctly extracted
-                    parent = current_heading_item if current_heading_item else sheet_node
-                    item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, level_str, "Item"])
+                    # Prepare concatenated description if requested
+                    item_desc = desc_val
+                    if is_concat and current_category_val:
+                        item_desc = f"{current_category_val} : {desc_val}"
+                        
+                    # Flatten hierarchy if concatenated
+                    parent = sheet_node if is_concat else (current_heading_item if current_heading_item else sheet_node)
+                    
+                    item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, item_desc, qty_val, unit_val, level_str, "Item"])
                     item_node.setBackground(2, self.COLOR_ITEM)
                     
         self.tree.expandAll()
