@@ -104,24 +104,45 @@ class BOQSetupWindow(QWidget):
         settings_layout.addWidget(sheet_group, stretch=3)
         settings_layout.addWidget(level_group, stretch=2)
         
-        right_layout.addLayout(settings_layout)
+        # Create a vertical splitter for the right pane (horizontal divider)
+        right_splitter = QSplitter(Qt.Orientation.Vertical)
+        
+        # Top half of right pane: Settings
+        top_right_widget = QWidget()
+        top_right_layout = QVBoxLayout(top_right_widget)
+        top_right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        top_right_layout.addLayout(settings_layout)
         
         apply_map_btn = QPushButton("Apply Mapping to Selected Sheets")
         apply_map_btn.clicked.connect(self._apply_mapping)
-        right_layout.addWidget(apply_map_btn)
+        top_right_layout.addWidget(apply_map_btn)
         
-        right_layout.addWidget(QLabel("Formatted Preview:"))
+        # Bottom half of right pane: Preview
+        bottom_right_widget = QWidget()
+        bottom_right_layout = QVBoxLayout(bottom_right_widget)
+        bottom_right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        bottom_right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Level", "Type"])
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
-        right_layout.addWidget(self.tree)
+        bottom_right_layout.addWidget(self.tree)
         
         import_btn = QPushButton("Import to Estimate Tasks")
         import_btn.setMinimumHeight(50)
         import_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
         import_btn.clicked.connect(self._import_to_estimate)
-        right_layout.addWidget(import_btn)
+        bottom_right_layout.addWidget(import_btn)
+        
+        right_splitter.addWidget(top_right_widget)
+        right_splitter.addWidget(bottom_right_widget)
+        # Allocate more space to the preview by default
+        right_splitter.setStretchFactor(0, 3)
+        right_splitter.setStretchFactor(1, 7)
+        
+        right_layout.addWidget(right_splitter)
         
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
