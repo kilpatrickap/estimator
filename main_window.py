@@ -344,7 +344,11 @@ class MainWindow(QMainWindow):
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
-            est_window = EstimateWindow(estimate_data=dialog.get_data(), main_window=self) 
+            est_window = EstimateWindow(estimate_data=dialog.get_data(), main_window=self)
+            
+            # Instantly persist this newly minted estimate into the project DB so it's not "empty"
+            est_window.db_manager.save_estimate(est_window.estimate)
+            
             self._add_estimate_window(est_window)
 
     def load_estimate(self):
@@ -640,12 +644,17 @@ class MainWindow(QMainWindow):
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()
-        if not active_est or type(active_est).__name__ != "EstimateWindow":
-            QMessageBox.warning(self, "No Active Project", "Please open a project estimate first to set up its BOQ.")
-            return
-            
+        
         import os
-        project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
+        project_dir = ""
+        if active_est and type(active_est).__name__ == "EstimateWindow":
+            db_path = active_est.db_path
+            project_dir = os.path.dirname(db_path) if db_path else ""
+        else:
+            from PyQt6.QtWidgets import QFileDialog
+            project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+            if not project_dir: return
+            
         if project_dir and os.path.basename(project_dir) == "Project Database":
             project_dir = os.path.dirname(project_dir)
             
@@ -678,7 +687,7 @@ class MainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(sub)
                 return
                 
-        dialog = BOQSetupWindow(full_path, active_est, self)
+        dialog = BOQSetupWindow(full_path, active_est, self, project_dir=project_dir)
         sub = self.mdi_area.addSubWindow(dialog)
         sub.resize(1000, 700)
         self._apply_zoom_to_subwindow(sub)
@@ -686,12 +695,17 @@ class MainWindow(QMainWindow):
 
     def open_sor_dialog(self):
         active_est = self._get_active_estimate_window()
-        if not active_est or type(active_est).__name__ != "EstimateWindow":
-            QMessageBox.warning(self, "No Active Project", "Please open a project estimate first to view its SOR.")
-            return
             
         import os
-        project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
+        project_dir = ""
+        if active_est and type(active_est).__name__ == "EstimateWindow":
+            db_path = active_est.db_path
+            project_dir = os.path.dirname(db_path) if db_path else ""
+        else:
+            from PyQt6.QtWidgets import QFileDialog
+            project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+            if not project_dir: return
+            
         if project_dir and os.path.basename(project_dir) == "Project Database":
             project_dir = os.path.dirname(project_dir)
             

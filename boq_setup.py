@@ -10,10 +10,11 @@ from PyQt6.QtGui import QColor, QFont
 
 class BOQSetupWindow(QWidget):
     """Parses Excel BOQs, allows mapping, and formats them into an Estimate struct."""
-    def __init__(self, boq_file_path, active_est_window, parent=None):
+    def __init__(self, boq_file_path, active_est_window=None, parent=None, project_dir=None):
         super().__init__(parent)
         self.boq_file_path = boq_file_path
         self.active_est_window = active_est_window
+        self.project_dir = project_dir
         
         # Dictionary to store dataframe and row types per sheet name
         self.sheet_data = {} 
@@ -613,7 +614,7 @@ class BOQSetupWindow(QWidget):
     def _import_to_estimate(self):
         """Creates Tasks in the active estimate based on the mapped items across all sheets."""
         if not self.active_est_window:
-            QMessageBox.warning(self, "Error", "No active estimate window found to import into.")
+            QMessageBox.warning(self, "No Active Estimate Workspace", "There is no open Estimate workspace to import into. Please load a project Estimate workspace first if you wish to inject these tasks!")
             return
             
         ref_col = self.cb_ref.currentIndex() - 1
@@ -699,9 +700,11 @@ class BOQSetupWindow(QWidget):
 
     def _save_state(self):
         import json, os
-        project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
-        if project_dir and os.path.basename(project_dir) == "Project Database":
-            project_dir = os.path.dirname(project_dir)
+        project_dir = getattr(self, 'project_dir', None)
+        if not project_dir:
+            project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_dir and os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
             
         states_folder = os.path.join(project_dir, "BOQ-Setup States")
         os.makedirs(states_folder, exist_ok=True)
@@ -736,9 +739,11 @@ class BOQSetupWindow(QWidget):
         import os
         from PyQt6.QtWidgets import QTreeWidgetItemIterator
         
-        project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
-        if project_folder and os.path.basename(project_folder) == "Project Database":
-            project_folder = os.path.dirname(project_folder)
+        project_folder = getattr(self, 'project_dir', None)
+        if not project_folder:
+            project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_folder and os.path.basename(project_folder) == "Project Database":
+                project_folder = os.path.dirname(project_folder)
             
         sor_folder = os.path.join(project_folder, "SOR")
         if not os.path.exists(sor_folder):
@@ -790,9 +795,11 @@ class BOQSetupWindow(QWidget):
 
     def _load_saved_state(self):
         import json, os
-        project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
-        if project_dir and os.path.basename(project_dir) == "Project Database":
-            project_dir = os.path.dirname(project_dir)
+        project_dir = getattr(self, 'project_dir', None)
+        if not project_dir:
+            project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_dir and os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
             
         states_folder = os.path.join(project_dir, "BOQ-Setup States")
         
