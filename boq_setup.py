@@ -750,7 +750,7 @@ class BOQSetupWindow(QWidget):
                 
         base_name = os.path.basename(self.boq_file_path)
         name, ext = os.path.splitext(base_name)
-        new_file_name = f"SOR_{name}.xlsx"
+        new_file_name = f"SOR_{name}.db"
         sor_file_path = os.path.join(sor_folder, new_file_name)
         
         data = []
@@ -779,11 +779,14 @@ class BOQSetupWindow(QWidget):
             return
             
         try:
+            import sqlite3
             df = pd.DataFrame(data)
-            df.to_excel(sor_file_path, index=False)
+            conn = sqlite3.connect(sor_file_path)
+            df.to_sql('sor_items', conn, if_exists='replace', index=False)
+            conn.close()
             QMessageBox.information(self, "Success", f"Successfully saved Formatted Preview to:\n{sor_file_path}")
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save SOR Excel file:\n{e}")
+            QMessageBox.critical(self, "Error", f"Failed to save SOR Database file:\n{e}")
 
     def _load_saved_state(self):
         import json, os
