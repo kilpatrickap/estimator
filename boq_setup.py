@@ -46,7 +46,7 @@ class BOQSetupWindow(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
-        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView, QSizePolicy
+        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView, QSizePolicy, QCheckBox
         
         # Top right layout for settings
         settings_layout = QHBoxLayout()
@@ -83,9 +83,26 @@ class BOQSetupWindow(QWidget):
         
         sheet_layout.addWidget(self.sheet_selector)
         
+        # 3. Level Filter Group
+        level_group = QGroupBox("Level Filter")
+        level_layout = QVBoxLayout(level_group)
+        level_layout.setContentsMargins(5, 5, 5, 5)
+        level_layout.setSpacing(5)
+        
+        self.level_checkboxes = {}
+        for i in range(1, 6):
+            cb = QCheckBox(f"Level {i}")
+            cb.setChecked(True if i <= 2 else False) # Check 1 and 2 by default
+            cb.stateChanged.connect(self._build_tree_preview)
+            level_layout.addWidget(cb)
+            self.level_checkboxes[i] = cb
+            
+        level_layout.addStretch()
+        
         # Add groups side-by-side without AlignTop so they stretch to equal heights
-        settings_layout.addWidget(col_group, stretch=5)
-        settings_layout.addWidget(sheet_group, stretch=4)
+        settings_layout.addWidget(col_group, stretch=4)
+        settings_layout.addWidget(sheet_group, stretch=3)
+        settings_layout.addWidget(level_group, stretch=2)
         
         right_layout.addLayout(settings_layout)
         
@@ -95,7 +112,7 @@ class BOQSetupWindow(QWidget):
         
         right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
-        self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Type"])
+        self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Level", "Type"])
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         right_layout.addWidget(self.tree)
@@ -340,22 +357,42 @@ class BOQSetupWindow(QWidget):
         
         selected_sheets = [item.text() for item in self.sheet_selector.selectedItems()]
         
+        selected_levels = [lvl for lvl, cb in self.level_checkboxes.items() if cb.isChecked()]
+
         for sheet_name in selected_sheets:
             if sheet_name not in self.sheet_data: continue
             data = self.sheet_data[sheet_name]
             df = data['df']
             row_types = data['row_types']
             
+            # Dynamically calculate levels based on current row_types
+            levels = [0] * len(df)
+            current_heading_level = 0
+            for r in range(len(df) - 1, -1, -1):
+                rtype = row_types[r]
+                if rtype == 'item':
+                    levels[r] = 1
+                    current_heading_level = 2
+                elif rtype == 'heading':
+                    if current_heading_level > 0:
+                        levels[r] = current_heading_level
+                        current_heading_level += 1
+                    else:
+                        levels[r] = 0
+            data['levels'] = levels
+            
             # Create a root node for the sheet
-            sheet_node = QTreeWidgetItem(self.tree, [sheet_name, "", "Sheet Root", "", "", "Heading"])
-            for i in range(6): sheet_node.setFont(i, bold_font)
+            sheet_node = QTreeWidgetItem(self.tree, [sheet_name, "", "Sheet Root", "", "", "", "Heading"])
+            for i in range(7): sheet_node.setFont(i, bold_font)
             sheet_node.setBackground(2, QColor("#bbdefb")) # light blue
 
             current_heading_item = sheet_node
             
             for r in range(len(df)):
                 rtype = row_types[r]
-                if rtype == 'ignore': continue
+                level = levels[r]
+                if rtype == 'ignore' or level not in selected_levels: 
+                    continue
                 
                 ref_val = str(df.iloc[r, ref_col]).strip() if 0 <= ref_col < len(df.columns) else ""
                 desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
@@ -367,15 +404,17 @@ class BOQSetupWindow(QWidget):
                 if qty_val.lower() in ('nan', '<na>'): qty_val = ""
                 if unit_val.lower() in ('nan', '<na>'): unit_val = ""
                 
+                level_str = str(level) if level > 0 else ""
+
                 if rtype == 'heading':
-                    current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", "Heading"])
-                    for i in range(6): current_heading_item.setFont(i, bold_font)
+                    current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", level_str, "Heading"])
+                    for i in range(7): current_heading_item.setFont(i, bold_font)
                     current_heading_item.setBackground(2, self.COLOR_HEADING)
                 
                 elif rtype == 'item':
                     # Only map as item if it actually has description and qty correctly extracted
                     parent = current_heading_item if current_heading_item else sheet_node
-                    item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, "Item"])
+                    item_node = QTreeWidgetItem(parent, [sheet_name, ref_val, desc_val, qty_val, unit_val, level_str, "Item"])
                     item_node.setBackground(2, self.COLOR_ITEM)
                     
         self.tree.expandAll()
@@ -404,15 +443,22 @@ class BOQSetupWindow(QWidget):
             QMessageBox.warning(self, "Warning", "No sheets selected to import.")
             return
         
+        selected_levels = [lvl for lvl, cb in self.level_checkboxes.items() if cb.isChecked()]
+
         for sheet_name in selected_sheets:
             if sheet_name not in self.sheet_data: continue
             data = self.sheet_data[sheet_name]
             df = data['df']
             row_types = data['row_types']
+            levels = data.get('levels', [0] * len(df))
             current_category = ""
             
             for r in range(len(df)):
                 rtype = row_types[r]
+                level = levels[r]
+                
+                if rtype == 'ignore' or level not in selected_levels:
+                    continue
                 
                 desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
                 if not desc_val: continue
