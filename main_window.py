@@ -11,7 +11,6 @@ from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
 from estimate_window import EstimateWindow
 from database import DatabaseManager
-from chart_widget import DashboardChart
 from settings_dialog import SettingsDialog
 from rate_manager_dialog import RateManagerDialog
 from rate_buildup_dialog import RateBuildUpDialog
@@ -21,101 +20,6 @@ import copy
 import os
 
 
-class DashboardWidget(QWidget):
-    """Dashboard content to be displayed in the MDI area."""
-    def __init__(self, main_window):
-        super().__init__()
-        self.main_window = main_window
-        self.db_manager = DatabaseManager()
-        self._setup_ui()
-        self.refresh_dashboard()
-
-    def _setup_ui(self):
-        self.setStyleSheet("background-color: #f5f7f9;")
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(30)
-
-        # Header
-        header = QLabel("Dashboard")
-        header.setStyleSheet("font-size: 28px; font-weight: bold; color: #424242;")
-        layout.addWidget(header)
-
-        # Metrics Row
-        self.metrics_container = QHBoxLayout()
-        self.metrics_container.setSpacing(20)
-        
-        self.total_estimates_card = self._create_metric_card("Total Estimates", "0")
-        self.total_value_card = self._create_metric_card("Total Value", "$0.00")
-        
-        self.metrics_container.addWidget(self.total_estimates_card)
-        self.metrics_container.addWidget(self.total_value_card)
-        self.metrics_container.addStretch(1) 
-        layout.addLayout(self.metrics_container)
-        
-        # Chart
-        self.chart = DashboardChart()
-        layout.addWidget(self.chart)
-
-        # Recent Estimates List
-        layout.addWidget(QLabel("Recent Estimates", objectName="SectionHeader"))
-        self.recent_list = QListWidget()
-        self.recent_list.setStyleSheet("""
-            QListWidget { border: 1px solid #e0e0e0; border-radius: 8px; background-color: white; padding: 10px; }
-            QListWidget::item { padding: 15px; border-bottom: 1px solid #f0f0f0; }
-            QListWidget::item:last { border-bottom: none; }
-            QListWidget::item:hover { background-color: #f5f7f9; }
-        """)
-        self.recent_list.itemDoubleClicked.connect(self.open_recent_estimate)
-        layout.addWidget(self.recent_list)
-
-    def _create_metric_card(self, label_text, value_text):
-        """Helper to create a stylized metric card."""
-        card = QFrame()
-        card.setObjectName("MetricCard")
-        card.setFixedSize(220, 120)
-        card_layout = QVBoxLayout(card)
-        
-        value = QLabel(value_text, objectName="MetricValue")
-        label = QLabel(label_text, objectName="MetricLabel")
-        
-        card_layout.addWidget(value)
-        card_layout.addWidget(label)
-        card.value_label = value 
-        return card
-
-    def refresh_dashboard(self):
-        """Updates metrics, chart, and recent estimates list."""
-        count = self.db_manager.get_total_estimates_count()
-        total_val = self.db_manager.get_total_estimates_value()
-        
-        self.total_estimates_card.value_label.setText(str(count))
-        self.total_value_card.value_label.setText(f"{total_val:,.2f}")
-
-        # Update List and Chart
-        self.recent_list.clear()
-        recents = self.db_manager.get_recent_estimates(5)
-        chart_data = []
-        
-        if not recents:
-            item = QListWidgetItem("No estimates found. Create one to get started.")
-            item.setFlags(Qt.ItemFlag.NoItemFlags)
-            self.recent_list.addItem(item)
-        else:
-            for est in recents:
-                val = est['grand_total'] or 0.0
-                chart_data.append((est['project_name'][:10], val))
-                
-                item = QListWidgetItem(f"{est['project_name']} (Client: {est['client_name']})\n{est['date_created']}")
-                item.setData(Qt.ItemDataRole.UserRole, est['id'])
-                self.recent_list.addItem(item)
-                
-        self.chart.set_data(list(reversed(chart_data)))
-
-    def open_recent_estimate(self, item):
-        est_id = item.data(Qt.ItemDataRole.UserRole)
-        if est_id:
-            self.main_window._load_and_show_estimate(est_id)
 
 
 class MainWindow(QMainWindow):
@@ -157,9 +61,6 @@ class MainWindow(QMainWindow):
         # 4. Project Pane
         self._setup_project_pane()
         
-        # Open Dashboard on launch
-        self.show_dashboard()
-
         # Connect active window change to update toolbar state
         self.mdi_area.subWindowActivated.connect(self._update_toolbar_state)
         
@@ -246,11 +147,6 @@ class MainWindow(QMainWindow):
         # Windows Menu
         window_menu = menubar.addMenu("Window")
         
-        dash_action = self._create_action("Dashboard", None, self.show_dashboard)
-        window_menu.addAction(dash_action)
-        
-        window_menu.addSeparator()
-        
         db_action = self._create_action("Cost Database", None, self.manage_database)
         window_menu.addAction(db_action)
         
@@ -328,7 +224,6 @@ class MainWindow(QMainWindow):
 
         # Navigation Buttons
         nav_items = [
-            ("Dashboard", self.show_dashboard),
             ("Create New Estimate", self.new_estimate),
             ("Load Estimate", self.load_estimate),
             ("Cost Database", self.manage_database),
@@ -371,21 +266,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.save_btn)
 
         self.main_layout.addWidget(self.navbar)
-
-    def show_dashboard(self):
-        """Shows or activates the dashboard."""
-        # Check if already exists
-        for sub in self.mdi_area.subWindowList():
-            if isinstance(sub.widget(), DashboardWidget):
-                self.mdi_area.setActiveSubWindow(sub)
-                sub.widget().refresh_dashboard()
-                return
-        
-        # Create new
-        dashboard = DashboardWidget(self)
-        sub = self.mdi_area.addSubWindow(dashboard)
-        sub.setWindowTitle("Dashboard")
-        sub.showMaximized()
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
