@@ -205,6 +205,16 @@ class BOQSetupWindow(QWidget):
 
     def _load_excel(self):
         try:
+            from PyQt6.QtWidgets import QProgressDialog, QApplication
+            from PyQt6.QtCore import Qt
+            
+            progress = QProgressDialog("Opening Excel file (this may take a moment)...", "Cancel", 0, 100, self)
+            progress.setWindowTitle("Loading BOQ")
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setMinimumDuration(0) # Show immediately
+            progress.setValue(5)
+            QApplication.processEvents()
+            
             # Clear existing data structures for a fresh load
             self.tabs.clear()
             self.sheet_selector.clear()
@@ -212,8 +222,13 @@ class BOQSetupWindow(QWidget):
             self.active_sheet = None
             self.tree.clear()
             
+            if progress.wasCanceled(): return
+            
             xl = pd.ExcelFile(self.boq_file_path)
             sheet_names = xl.sheet_names
+            
+            progress.setValue(15)
+            QApplication.processEvents()
             
             # Basic parsing of cell styles for bold detection (auto headings)
             is_xlsx = self.boq_file_path.lower().endswith('.xlsx')
@@ -230,7 +245,16 @@ class BOQSetupWindow(QWidget):
                     wb = xlrd.open_workbook(self.boq_file_path, formatting_info=True)
                 except: pass
                 
-            for sheet_name in sheet_names:
+            total_sheets = max(1, len(sheet_names))
+
+            for s_idx, sheet_name in enumerate(sheet_names):
+                if progress.wasCanceled(): break
+                
+                base_progress = 15 + (s_idx / total_sheets) * 85
+                progress.setLabelText(f"Parsing sheet {s_idx + 1} of {total_sheets}: {sheet_name}...")
+                progress.setValue(int(base_progress))
+                QApplication.processEvents()
+                
                 df = xl.parse(sheet_name, header=None)
                 df.fillna("", inplace=True)
                 row_types = ['ignore'] * len(df)
@@ -261,6 +285,13 @@ class BOQSetupWindow(QWidget):
                 bold_font.setBold(True)
                 
                 for r in range(len(df)):
+                    # Update progress every 50 rows to keep it smooth but performant
+                    if r % 50 == 0:
+                        if progress.wasCanceled(): break
+                        current_progress = base_progress + ((r / len(df)) * (85 / total_sheets))
+                        progress.setValue(int(current_progress))
+                        QApplication.processEvents()
+                        
                     row_is_bold = False
                     for c in range(len(df.columns)):
                         val = str(df.iloc[r, c])
@@ -323,9 +354,11 @@ class BOQSetupWindow(QWidget):
                 self.sheet_selector.addItem(item)
                 item.setSelected(True) # Select all by default
 
-            if sheet_names:
+            if sheet_names and not progress.wasCanceled():
                 self.active_sheet = sheet_names[0]
                 self._populate_comboboxes(self.sheet_data[self.active_sheet]['columns'])
+                
+            progress.setValue(100)
 
         except Exception as e:
             QMessageBox.critical(self, "Excel Error", f"Failed to load BOQ Excel file.\nError: {e}")
