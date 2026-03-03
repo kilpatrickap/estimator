@@ -555,7 +555,7 @@ class BOQSetupWindow(QWidget):
             sheet_node.setBackground(2, QColor("#bbdefb")) # light blue
 
             current_heading_item = sheet_node
-            current_category_val = ""
+            current_headings = {} # Map to track active headings keyed by their level
             
             for r in range(len(df)):
                 rtype = row_types[r]
@@ -576,7 +576,12 @@ class BOQSetupWindow(QWidget):
                 level_str = str(level) if level > 0 else ""
 
                 if rtype == 'heading':
-                    current_category_val = desc_val
+                    # Update the active headings dictionary and flush any lower-level headings
+                    current_headings[level] = desc_val
+                    keys_to_delete = [k for k in current_headings.keys() if k < level]
+                    for k in keys_to_delete:
+                        del current_headings[k]
+                    
                     if not is_concat:
                         current_heading_item = QTreeWidgetItem(sheet_node, [sheet_name, ref_val, desc_val, "", "", level_str, "Heading"])
                         for i in range(7): current_heading_item.setFont(i, bold_font)
@@ -585,10 +590,12 @@ class BOQSetupWindow(QWidget):
                         current_heading_item = sheet_node
                 
                 elif rtype == 'item':
-                    # Prepare concatenated description if requested
+                    # Prepare concatenated description dynamically capturing all active filtered headings
                     item_desc = desc_val
-                    if is_concat and current_category_val:
-                        item_desc = f"{current_category_val} : {desc_val}"
+                    if is_concat:
+                        active_heading_texts = [current_headings[lvl] for lvl in sorted(current_headings.keys(), reverse=True) if lvl in selected_levels]
+                        if active_heading_texts:
+                            item_desc = " : ".join(active_heading_texts) + f" : {desc_val}"
                         
                     # Flatten hierarchy if concatenated
                     parent = sheet_node if is_concat else (current_heading_item if current_heading_item else sheet_node)
@@ -623,6 +630,7 @@ class BOQSetupWindow(QWidget):
             return
         
         selected_levels = [lvl for lvl, cb in self.level_checkboxes.items() if cb.isChecked()]
+        is_concat = getattr(self, 'concat_descriptions', False)
 
         for sheet_name in selected_sheets:
             if sheet_name not in self.sheet_data: continue
@@ -630,7 +638,7 @@ class BOQSetupWindow(QWidget):
             df = data['df']
             row_types = data['row_types']
             levels = data.get('levels', [0] * len(df))
-            current_category = ""
+            current_headings = {}
             
             for r in range(len(df)):
                 rtype = row_types[r]
@@ -643,7 +651,12 @@ class BOQSetupWindow(QWidget):
                 if not desc_val: continue
                 
                 if rtype == 'heading':
-                    current_category = desc_val
+                    # Track headings and clear nested descendants
+                    current_headings[level] = desc_val
+                    keys_to_delete = [k for k in current_headings.keys() if k < level]
+                    for k in keys_to_delete:
+                        del current_headings[k]
+                        
                 elif rtype == 'item':
                     ref_val = str(df.iloc[r, ref_col]).strip() if 0 <= ref_col < len(df.columns) else ""
                     qty_str = str(df.iloc[r, qty_col]).strip() if 0 <= qty_col < len(df.columns) else "0"
@@ -655,11 +668,19 @@ class BOQSetupWindow(QWidget):
                         qty = 1.0 # fallback
                         
                     full_desc = f"[{ref_val}] {desc_val}" if ref_val else desc_val
-                    # Structure: [Sheet Name] -> [Heading Category] -> Description
+                    
+                    # Compute concatenation based on active heading filters
+                    active_heading_texts = [current_headings[lvl] for lvl in sorted(current_headings.keys(), reverse=True) if lvl in selected_levels]
                     prefix = f"[{sheet_name}]"
-                    if current_category:
-                        prefix += f" {current_category} -"
-                        
+                    
+                    if is_concat:
+                        if active_heading_texts:
+                            prefix += " " + " : ".join(active_heading_texts) + " :"
+                    else:
+                        # Standard default prefix uses just the immediate parent category (if exists)
+                        if active_heading_texts:
+                            prefix += f" {active_heading_texts[-1]} -" # Gets the lowest level heading active
+                            
                     full_desc = f"{prefix} {full_desc}"
                         
                     new_task = Task(description=full_desc, quantity=qty, unit=unit_val)
