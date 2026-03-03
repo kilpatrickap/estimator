@@ -32,6 +32,8 @@ class BOQSetupWindow(QWidget):
         main_layout = QVBoxLayout(self)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(4)
+        splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
         
         # LEFT PANE: Raw Excel View with Tabs
         left_widget = QWidget()
@@ -106,6 +108,8 @@ class BOQSetupWindow(QWidget):
         
         # Create a vertical splitter for the right pane (horizontal divider)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
+        right_splitter.setHandleWidth(4)
+        right_splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
         
         # Top half of right pane: Settings
         top_right_widget = QWidget()
