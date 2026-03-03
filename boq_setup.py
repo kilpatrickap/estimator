@@ -334,8 +334,16 @@ class BOQSetupWindow(QWidget):
                     self._update_row_color(table, r, self.COLOR_IGNORE)
                     continue
                     
-                # If it has a description but no quantity, and it wasn't already mapped, assume Heading
-                if desc_val and not qty_val:
+                # Check for table header row
+                is_table_header = False
+                desc_lower = desc_val.lower()
+                qty_lower = qty_val.lower()
+                if desc_lower in ['description', 'item description', 'item', 'description of work'] or \
+                   qty_lower in ['qty', 'quantity', 'unit', 'rate', 'amount', 'bill amount']:
+                    is_table_header = True
+                    
+                # If it has a description but no quantity, or it's a table header, assume Heading
+                if is_table_header or (desc_val and not qty_val):
                     data['row_types'][r] = 'heading'
                     self._update_row_color(table, r, self.COLOR_HEADING)
                 elif desc_val and qty_val:
