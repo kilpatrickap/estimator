@@ -534,10 +534,20 @@ class MainWindow(QMainWindow):
     def open_settings(self):
         active_est = self._get_active_estimate_window()
         options = ["Application Settings"]
+        import os
+        
+        project_dir_fallback = self.db_manager.get_setting('last_project_dir', '')
+        has_project = False
+        
         if active_est and type(active_est).__name__ == "EstimateWindow":
+            has_project = True
+        elif project_dir_fallback and os.path.exists(project_dir_fallback):
+            has_project = True
+            
+        if has_project:
             options.append("Project Settings")
         
-        from PyQt6.QtWidgets import QInputDialog
+        from PyQt6.QtWidgets import QInputDialog, QMessageBox
         if len(options) > 1:
             choice, ok = QInputDialog.getItem(self, "Settings", "Select settings to open:", options, 0, False)
             if not ok:
@@ -550,33 +560,70 @@ class MainWindow(QMainWindow):
                 if isinstance(sub.widget(), SettingsDialog):
                     self.mdi_area.setActiveSubWindow(sub)
                     return
-                    
             dialog = SettingsDialog(self)
             sub = self.mdi_area.addSubWindow(dialog)
             sub.adjustSize()
             self._apply_zoom_to_subwindow(sub)
             sub.show()
+                    
         elif choice == "Project Settings":
-            dialog = ProjectSettingsDialog(active_est, self)
+            db_path = None
+            estimate_obj = None
+            library_path = ""
+            project_dir = ""
+
+            if active_est and type(active_est).__name__ == "EstimateWindow":
+                db_path = active_est.db_path
+                estimate_obj = active_est.estimate
+                library_path = active_est.library_path
+                project_dir = os.path.dirname(db_path) if db_path else ""
+                if project_dir and os.path.basename(project_dir) == "Project Database":
+                    project_dir = os.path.dirname(project_dir)
+            else:
+                project_dir = project_dir_fallback
+                if project_dir and os.path.exists(project_dir):
+                    db_dir = os.path.join(project_dir, "Project Database")
+                    if os.path.exists(db_dir):
+                        dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
+                        if dbs:
+                            db_path = os.path.join(db_dir, dbs[0])
+                            from database import DatabaseManager
+                            temp_db = DatabaseManager(db_path)
+                            summaries = temp_db.get_saved_estimates_summary()
+                            if summaries:
+                                estimate_obj = temp_db.load_estimate_details(summaries[0]['id'])
+                                library_path = temp_db.get_setting('library_path', '')
+
+            if not estimate_obj:
+                QMessageBox.warning(self, "Error", "Could not load project settings. No active project data found.")
+                return
+
+            dialog = ProjectSettingsDialog(estimate_obj, project_dir, library_path, self)
             if dialog.exec():
                 data = dialog.get_data()
-                active_est.save_state()
                 import re
                 
-                active_est.estimate.project_name = data['name']
-                active_est.estimate.client_name = data['client']
-                active_est.estimate.date = data['date']
-                active_est.estimate.overhead_percent = data['overhead']
-                active_est.estimate.profit_margin_percent = data['profit']
-                active_est.estimate.currency = data['currency']
-                active_est.library_path = data['library_path']
+                estimate_obj.project_name = data['name']
+                estimate_obj.client_name = data['client']
+                estimate_obj.date = data['date']
+                estimate_obj.overhead_percent = data['overhead']
+                estimate_obj.profit_margin_percent = data['profit']
+                estimate_obj.currency = data['currency']
                 
-                match = re.search(r'\((.*?)\)', active_est.estimate.currency)
-                active_est.currency_symbol = match.group(1) if match else "$"
-                
-                active_est.db_manager.save_estimate(active_est.estimate)
-                active_est.refresh_view()
-                active_est.setWindowTitle(f"Estimate: {data['name']}")
+                if active_est and type(active_est).__name__ == "EstimateWindow":
+                    active_est.save_state()
+                    active_est.library_path = data['library_path']
+                    match = re.search(r'\((.*?)\)', estimate_obj.currency)
+                    active_est.currency_symbol = match.group(1) if match else "$"
+                    active_est.db_manager.save_estimate(estimate_obj)
+                    active_est.db_manager.set_setting('library_path', data['library_path'])
+                    active_est.refresh_view()
+                    active_est.setWindowTitle(f"Estimate: {data['name']}")
+                else:
+                    from database import DatabaseManager
+                    temp_db = DatabaseManager(db_path)
+                    temp_db.save_estimate(estimate_obj)
+                    temp_db.set_setting('library_path', data['library_path'])
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()
@@ -1072,14 +1119,10 @@ class NewEstimateDialog(QDialog):
 
 class ProjectSettingsDialog(QDialog):
     """Dialog for project-specific settings."""
-    def __init__(self, active_est_window, parent=None):
+    def __init__(self, estimate, project_dir, library_path, parent=None):
         super().__init__(parent)
         import os
-        self.active_est_window = active_est_window
-        pdir = os.path.dirname(active_est_window.db_path) if active_est_window.db_path else ""
-        if pdir and os.path.basename(pdir) == "Project Database":
-            pdir = os.path.dirname(pdir)
-        self.project_dir = pdir
+        self.project_dir = project_dir
         
         self.setWindowTitle("Project Settings")
         self.setMinimumWidth(500)
@@ -1087,8 +1130,6 @@ class ProjectSettingsDialog(QDialog):
         layout = QFormLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(5)
-
-        estimate = active_est_window.estimate
         self.project_name = QLineEdit(estimate.project_name)
         self.location = QLineEdit(estimate.client_name)
         
@@ -1111,7 +1152,7 @@ class ProjectSettingsDialog(QDialog):
         self.currency.setCurrentText(estimate.currency)
 
         self.library_layout = QHBoxLayout()
-        self.library_path = QLineEdit(active_est_window.library_path)
+        self.library_path = QLineEdit(library_path)
         self.library_path.setReadOnly(True)
         self.library_btn = QPushButton("Browse...")
         self.library_btn.clicked.connect(self._browse_library)
