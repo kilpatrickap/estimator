@@ -176,8 +176,17 @@ class MainWindow(QMainWindow):
         
         self.project_tree = QTreeView()
         self.project_model = QFileSystemModel()
-        self.project_model.setRootPath("") 
+        
+        last_dir = self.db_manager.get_setting('last_project_dir', '')
+        if last_dir and os.path.exists(last_dir):
+            self.project_model.setRootPath(last_dir)
+        else:
+            self.project_model.setRootPath("")
+            
         self.project_tree.setModel(self.project_model)
+        
+        if last_dir and os.path.exists(last_dir):
+            self.project_tree.setRootIndex(self.project_model.index(last_dir))
         
         # Hide unneeded columns (Size, Type, Date Modified)
         self.project_tree.setColumnHidden(1, True)
@@ -187,7 +196,6 @@ class MainWindow(QMainWindow):
         
         self.project_dock.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
-        self.project_dock.hide()  # Hide empty on launch by default
 
     def _setup_menubar(self):
         """Creates the standard top application menu bar."""
@@ -1005,6 +1013,7 @@ class MainWindow(QMainWindow):
             if pdir and os.path.basename(pdir) == "Project Database":
                 pdir = os.path.dirname(pdir)
             if pdir and os.path.exists(pdir):
+                self.db_manager.set_setting('last_project_dir', pdir)
                 self.project_model.setRootPath(pdir)
                 self.project_tree.setRootIndex(self.project_model.index(pdir))
                 
