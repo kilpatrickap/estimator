@@ -574,21 +574,23 @@ class MainWindow(QMainWindow):
         dialog = SettingsDialog(estimate_obj, project_dir, library_path, self)
         if dialog.exec():
             data = dialog.get_project_data()
-            if data and estimate_obj:
+            if data:
                 import re
-                estimate_obj.project_name = data['name']
-                estimate_obj.client_name = data['client']
-                estimate_obj.date = data['date']
-                estimate_obj.overhead_percent = data['overhead']
-                estimate_obj.profit_margin_percent = data['profit']
-                estimate_obj.currency = data['currency']
+                if estimate_obj:
+                    estimate_obj.project_name = data['name']
+                    estimate_obj.client_name = data['client']
+                    estimate_obj.date = data['date']
+                    estimate_obj.overhead_percent = data['overhead']
+                    estimate_obj.profit_margin_percent = data['profit']
+                    estimate_obj.currency = data['currency']
                 
                 if active_est and type(active_est).__name__ == "EstimateWindow":
                     active_est.save_state()
                     active_est.library_path = data['library_path']
-                    match = re.search(r'\((.*?)\)', estimate_obj.currency)
-                    active_est.currency_symbol = match.group(1) if match else "$"
-                    active_est.db_manager.save_estimate(estimate_obj)
+                    if estimate_obj:
+                        match = re.search(r'\((.*?)\)', estimate_obj.currency)
+                        active_est.currency_symbol = match.group(1) if match else "$"
+                        active_est.db_manager.save_estimate(estimate_obj)
                     active_est.db_manager.set_setting('library_path', data['library_path'])
                     active_est.refresh_view()
                     active_est.setWindowTitle(f"Estimate: {data['name']}")
@@ -596,8 +598,12 @@ class MainWindow(QMainWindow):
                     if db_path:
                         from database import DatabaseManager
                         temp_db = DatabaseManager(db_path)
-                        temp_db.save_estimate(estimate_obj)
+                        if estimate_obj:
+                            temp_db.save_estimate(estimate_obj)
                         temp_db.set_setting('library_path', data['library_path'])
+                        temp_db.set_setting('overhead', str(data['overhead']))
+                        temp_db.set_setting('profit', str(data['profit']))
+                        temp_db.set_setting('currency', data['currency'])
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()

@@ -256,7 +256,8 @@ class SettingsDialog(QDialog):
         columns_layout.addWidget(app_group)
 
         # ====== RIGHT: Project Settings ======
-        if self.estimate:
+        import os
+        if self.estimate or (self.project_dir and os.path.exists(self.project_dir)):
             proj_group = QGroupBox("Project Settings")
             proj_layout = QVBoxLayout(proj_group)
             proj_form = QFormLayout()
@@ -264,26 +265,6 @@ class SettingsDialog(QDialog):
             from PyQt6.QtWidgets import QDateEdit, QListWidget, QAbstractItemView
             from PyQt6.QtCore import QDate
             
-            self.proj_name = QLineEdit(self.estimate.project_name)
-            self.proj_location = QLineEdit(self.estimate.client_name)
-            
-            self.proj_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
-            if self.estimate.date:
-                qdate = QDate.fromString(self.estimate.date[:10], "yyyy-MM-dd")
-                self.proj_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
-            else:
-                self.proj_date.setDate(QDate.currentDate())
-                
-            self.proj_overhead = QLineEdit(str(self.estimate.overhead_percent))
-            self.proj_overhead.setValidator(pct_validator)
-            self.proj_profit = QLineEdit(str(self.estimate.profit_margin_percent))
-            self.proj_profit.setValidator(pct_validator)
-            
-            self.proj_currency = QComboBox()
-            self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-            self.proj_currency.setCurrentText(self.estimate.currency)
-            
-            import os
             # Auto-detect DB Path
             db_path = ""
             if self.project_dir and os.path.exists(self.project_dir):
@@ -292,7 +273,12 @@ class SettingsDialog(QDialog):
                     dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
                     if dbs:
                         db_path = os.path.join(db_dir, dbs[0])
-                        
+
+            proj_db_manager = None
+            if db_path:
+                from database import DatabaseManager
+                proj_db_manager = DatabaseManager(db_path)
+            
             # Auto-detect Library Path
             actual_lib_path = library_path
             if self.project_dir and os.path.exists(self.project_dir):
@@ -301,6 +287,38 @@ class SettingsDialog(QDialog):
                     libs = [f for f in os.listdir(lib_dir) if f.endswith('.db')]
                     if libs:
                         actual_lib_path = os.path.join(lib_dir, libs[0])
+            
+            # Resolve properties
+            def_name = self.estimate.project_name if self.estimate else os.path.basename(self.project_dir)
+            def_client = self.estimate.client_name if self.estimate else ""
+            def_date = self.estimate.date if self.estimate else ""
+            def_overhead = str(self.estimate.overhead_percent) if self.estimate else "15.0"
+            def_profit = str(self.estimate.profit_margin_percent) if self.estimate else "10.0"
+            def_currency = self.estimate.currency if self.estimate else "GHS (₵)"
+
+            if not self.estimate and proj_db_manager:
+                def_overhead = proj_db_manager.get_setting('overhead', def_overhead)
+                def_profit = proj_db_manager.get_setting('profit', def_profit)
+                def_currency = proj_db_manager.get_setting('currency', def_currency)
+
+            self.proj_name = QLineEdit(def_name)
+            self.proj_location = QLineEdit(def_client)
+            
+            self.proj_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
+            if def_date:
+                qdate = QDate.fromString(def_date[:10], "yyyy-MM-dd")
+                self.proj_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
+            else:
+                self.proj_date.setDate(QDate.currentDate())
+                
+            self.proj_overhead = QLineEdit(def_overhead)
+            self.proj_overhead.setValidator(pct_validator)
+            self.proj_profit = QLineEdit(def_profit)
+            self.proj_profit.setValidator(pct_validator)
+            
+            self.proj_currency = QComboBox()
+            self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
+            self.proj_currency.setCurrentText(def_currency)
             
             self.proj_dir_input = QLineEdit(self.project_dir)
             self.proj_dir_input.setReadOnly(True)
