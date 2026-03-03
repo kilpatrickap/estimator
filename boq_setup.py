@@ -45,7 +45,7 @@ class BOQSetupWindow(QWidget):
         self.boq_file_selector = QComboBox()
         self.boq_file_selector.addItem(os.path.basename(self.boq_file_path), self.boq_file_path)
         self.boq_file_selector.addItem("Browse for another BOQ...")
-        self.boq_file_selector.currentIndexChanged.connect(self._on_boq_file_changed)
+        self.boq_file_selector.activated.connect(self._on_boq_file_changed) # Only triggers on user click, avoiding programmatic loops
         file_layout.addWidget(self.boq_file_selector, stretch=1)
         
         left_layout.addLayout(file_layout)
@@ -177,12 +177,14 @@ class BOQSetupWindow(QWidget):
                 self, "Select BOQ Excel File", "", "Excel Files (*.xls *.xlsx)"
             )
             if file_path:
+                # Temporarily block signals to prevent double-loading and recursive dialogs
+                self.boq_file_selector.blockSignals(True)
+                
                 # Add new file to combo box before 'Browse' and set it as active
                 count = self.boq_file_selector.count()
                 self.boq_file_selector.insertItem(count - 1, os.path.basename(file_path), file_path)
-                # Temporarily block signals to prevent double-loading
-                self.boq_file_selector.blockSignals(True)
                 self.boq_file_selector.setCurrentIndex(count - 1)
+                
                 self.boq_file_selector.blockSignals(False)
                 
                 self.boq_file_path = file_path
