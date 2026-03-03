@@ -288,9 +288,9 @@ class SettingsDialog(QDialog):
                         actual_lib_path = os.path.join(lib_dir, libs[0])
             
             # Resolve properties
-            def_name = self.estimate.project_name if self.estimate else os.path.basename(self.project_dir)
-            def_client = self.estimate.client_name if self.estimate else ""
-            def_date = self.estimate.date if self.estimate else ""
+            self._def_name = self.estimate.project_name if self.estimate else os.path.basename(self.project_dir)
+            self._def_client = self.estimate.client_name if self.estimate else ""
+            self._def_date = self.estimate.date if self.estimate else ""
             def_overhead = str(self.estimate.overhead_percent) if self.estimate else "15.0"
             def_profit = str(self.estimate.profit_margin_percent) if self.estimate else "10.0"
             def_currency = self.estimate.currency if self.estimate else "GHS (₵)"
@@ -299,16 +299,6 @@ class SettingsDialog(QDialog):
                 def_overhead = proj_db_manager.get_setting('overhead', def_overhead)
                 def_profit = proj_db_manager.get_setting('profit', def_profit)
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
-
-            self.proj_name = QLineEdit(def_name)
-            self.proj_location = QLineEdit(def_client)
-            
-            self.proj_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
-            if def_date:
-                qdate = QDate.fromString(def_date[:10], "yyyy-MM-dd")
-                self.proj_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
-            else:
-                self.proj_date.setDate(QDate.currentDate())
                 
             self.proj_overhead = QLineEdit(def_overhead)
             self.proj_overhead.setValidator(pct_validator)
@@ -318,14 +308,6 @@ class SettingsDialog(QDialog):
             self.proj_currency = QComboBox()
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
             self.proj_currency.setCurrentText(def_currency)
-            
-            self.proj_dir_input = QLineEdit(self.project_dir)
-            self.proj_dir_input.setReadOnly(True)
-            self.proj_dir_input.setPlaceholderText("No project directory")
-            
-            self.proj_db_input = QLineEdit(db_path)
-            self.proj_db_input.setReadOnly(True)
-            self.proj_db_input.setPlaceholderText("No project database found")
             
             self.proj_library = QLineEdit(actual_lib_path)
             self.proj_library.setReadOnly(True)
@@ -353,14 +335,9 @@ class SettingsDialog(QDialog):
             boq_main_layout.addWidget(self.boq_list)
             boq_main_layout.addLayout(boq_btn_layout)
 
-            proj_form.addRow("Project Name:", self.proj_name)
-            proj_form.addRow("Location:", self.proj_location)
-            proj_form.addRow("Project Date:", self.proj_date)
             proj_form.addRow("Overhead (%):", self.proj_overhead)
             proj_form.addRow("Profit (%):", self.proj_profit)
             proj_form.addRow("Currency:", self.proj_currency)
-            proj_form.addRow("Project Dir:", self.proj_dir_input)
-            proj_form.addRow("Project DB:", self.proj_db_input)
             proj_form.addRow("Library:", proj_lib_layout)
             proj_form.addRow("Imported BOQs:", boq_main_layout)
             
@@ -438,9 +415,9 @@ class SettingsDialog(QDialog):
         if not self.estimate:
             return None
         return {
-            "name": self.proj_name.text().strip(),
-            "client": self.proj_location.text().strip(),
-            "date": self.proj_date.date().toString("yyyy-MM-dd"),
+            "name": getattr(self, '_def_name', ""),
+            "client": getattr(self, '_def_client', ""),
+            "date": getattr(self, '_def_date', ""),
             "overhead": float(self.proj_overhead.text() or 0),
             "profit": float(self.proj_profit.text() or 0),
             "currency": self.proj_currency.currentText(),
