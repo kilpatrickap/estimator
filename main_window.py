@@ -153,6 +153,9 @@ class MainWindow(QMainWindow):
         # 3. Status Bar (Zoom Controls)
         self._setup_statusbar()
         
+        # 4. Project Pane
+        self._setup_project_pane()
+        
         # Open Dashboard on launch
         self.show_dashboard()
 
@@ -161,6 +164,30 @@ class MainWindow(QMainWindow):
         
         # Track zoom scale for relative window resizing
         self.last_zoom_scale = 1.0
+
+    def _setup_project_pane(self):
+        from PyQt6.QtWidgets import QDockWidget, QTreeView
+        from PyQt6.QtGui import QFileSystemModel
+        from PyQt6.QtCore import Qt
+        
+        self.project_dock = QDockWidget("Project", self)
+        self.project_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.project_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetFloatable | QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        
+        self.project_tree = QTreeView()
+        self.project_model = QFileSystemModel()
+        self.project_model.setRootPath("") 
+        self.project_tree.setModel(self.project_model)
+        
+        # Hide unneeded columns (Size, Type, Date Modified)
+        self.project_tree.setColumnHidden(1, True)
+        self.project_tree.setColumnHidden(2, True)
+        self.project_tree.setColumnHidden(3, True)
+        self.project_tree.setHeaderHidden(True)
+        
+        self.project_dock.setWidget(self.project_tree)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+        self.project_dock.hide()  # Hide empty on launch by default
 
     def _setup_menubar(self):
         """Creates the standard top application menu bar."""
@@ -970,6 +997,19 @@ class MainWindow(QMainWindow):
             self.undo_btn.setEnabled(False)
             self.redo_btn.setEnabled(False)
             self.save_btn.setEnabled(False)
+            
+        # Update Project Pane
+        import os
+        if win and getattr(win, 'db_path', None):
+            pdir = os.path.dirname(win.db_path)
+            if pdir and os.path.basename(pdir) == "Project Database":
+                pdir = os.path.dirname(pdir)
+            if pdir and os.path.exists(pdir):
+                self.project_model.setRootPath(pdir)
+                self.project_tree.setRootIndex(self.project_model.index(pdir))
+                
+                if self.project_dock.isHidden():
+                    self.project_dock.show()
 
 
 class NewEstimateDialog(QDialog):
