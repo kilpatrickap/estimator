@@ -587,9 +587,11 @@ class MainWindow(QMainWindow):
             db_path = active_est.db_path
             project_dir = os.path.dirname(db_path) if db_path else ""
         else:
-            from PyQt6.QtWidgets import QFileDialog
-            project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
-            if not project_dir: return
+            project_dir = self.db_manager.get_setting('last_project_dir', '')
+            if not project_dir or not os.path.exists(project_dir):
+                from PyQt6.QtWidgets import QFileDialog
+                project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+                if not project_dir: return
             
         if project_dir and os.path.basename(project_dir) == "Project Database":
             project_dir = os.path.dirname(project_dir)
@@ -638,9 +640,11 @@ class MainWindow(QMainWindow):
             db_path = active_est.db_path
             project_dir = os.path.dirname(db_path) if db_path else ""
         else:
-            from PyQt6.QtWidgets import QFileDialog
-            project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
-            if not project_dir: return
+            project_dir = self.db_manager.get_setting('last_project_dir', '')
+            if not project_dir or not os.path.exists(project_dir):
+                from PyQt6.QtWidgets import QFileDialog
+                project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+                if not project_dir: return
             
         if project_dir and os.path.basename(project_dir) == "Project Database":
             project_dir = os.path.dirname(project_dir)
