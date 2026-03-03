@@ -134,6 +134,11 @@ class BOQSetupWindow(QWidget):
         save_state_btn.clicked.connect(self._save_state)
         action_layout.addWidget(save_state_btn)
         
+        save_sor_btn = QPushButton("Save to SOR")
+        save_sor_btn.setMinimumHeight(40)
+        save_sor_btn.clicked.connect(self._save_to_sor)
+        action_layout.addWidget(save_sor_btn)
+        
         import_btn = QPushButton("Import to\nEstimate Tasks")
         import_btn.setMinimumHeight(50)
         import_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
@@ -718,6 +723,56 @@ class BOQSetupWindow(QWidget):
             QMessageBox.information(self, "Success", "State saved successfully.")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save state:\n{e}")
+
+    def _save_to_sor(self):
+        import os
+        from PyQt6.QtWidgets import QTreeWidgetItemIterator
+        
+        project_folder = os.path.dirname(self.boq_file_path)
+        sor_folder = os.path.join(project_folder, "SOR")
+        if not os.path.exists(sor_folder):
+            try:
+                os.makedirs(sor_folder)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to create SOR folder:\n{e}")
+                return
+                
+        base_name = os.path.basename(self.boq_file_path)
+        name, ext = os.path.splitext(base_name)
+        new_file_name = f"SOR_{name}.xlsx"
+        sor_file_path = os.path.join(sor_folder, new_file_name)
+        
+        data = []
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            desc = item.text(2)
+            item_type = item.text(6)
+            
+            # Skip the artificial Sheet Root nodes
+            if item_type == "Heading" and desc == "Sheet Root":
+                iterator += 1
+                continue
+                
+            data.append({
+                "Sheet": item.text(0),
+                "Ref": item.text(1),
+                "Description": desc,
+                "Quantity": item.text(3),
+                "Unit": item.text(4)
+            })
+            iterator += 1
+            
+        if not data:
+            QMessageBox.warning(self, "Warning", "No data to save to SOR. Please apply mapping first.")
+            return
+            
+        try:
+            df = pd.DataFrame(data)
+            df.to_excel(sor_file_path, index=False)
+            QMessageBox.information(self, "Success", f"Successfully saved Formatted Preview to:\n{sor_file_path}")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save SOR Excel file:\n{e}")
 
     def _load_saved_state(self):
         import json
