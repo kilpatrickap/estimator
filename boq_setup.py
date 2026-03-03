@@ -38,9 +38,21 @@ class BOQSetupWindow(QWidget):
         # LEFT PANE: Raw Excel View with Tabs
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
+        
+        # File selector setup
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("Select BOQ File:"))
+        self.boq_file_selector = QComboBox()
+        self.boq_file_selector.addItem(os.path.basename(self.boq_file_path), self.boq_file_path)
+        self.boq_file_selector.addItem("Browse for another BOQ...")
+        self.boq_file_selector.currentIndexChanged.connect(self._on_boq_file_changed)
+        file_layout.addWidget(self.boq_file_selector, stretch=1)
+        
+        left_layout.addLayout(file_layout)
         left_layout.addWidget(QLabel("Raw BOQ Data (from Excel):"))
         
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.TabPosition.South)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         left_layout.addWidget(self.tabs)
         
@@ -156,8 +168,48 @@ class BOQSetupWindow(QWidget):
         
         main_layout.addWidget(splitter)
 
+    def _on_boq_file_changed(self, index):
+        if index < 0: return
+        
+        if self.boq_file_selector.itemText(index) == "Browse for another BOQ...":
+            from PyQt6.QtWidgets import QFileDialog
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select BOQ Excel File", "", "Excel Files (*.xls *.xlsx)"
+            )
+            if file_path:
+                # Add new file to combo box before 'Browse' and set it as active
+                count = self.boq_file_selector.count()
+                self.boq_file_selector.insertItem(count - 1, os.path.basename(file_path), file_path)
+                # Temporarily block signals to prevent double-loading
+                self.boq_file_selector.blockSignals(True)
+                self.boq_file_selector.setCurrentIndex(count - 1)
+                self.boq_file_selector.blockSignals(False)
+                
+                self.boq_file_path = file_path
+                self.setWindowTitle(f"BOQ Setup - {os.path.basename(file_path)}")
+                self._load_excel()
+            else:
+                # User cancelled, revert combo box to previous valid selection
+                self.boq_file_selector.blockSignals(True)
+                self.boq_file_selector.setCurrentIndex(0) # Simple fallback
+                self.boq_file_selector.blockSignals(False)
+        else:
+            # Selected an already loaded file path from the combo box data
+            new_path = self.boq_file_selector.itemData(index)
+            if new_path and new_path != self.boq_file_path:
+                self.boq_file_path = new_path
+                self.setWindowTitle(f"BOQ Setup - {os.path.basename(new_path)}")
+                self._load_excel()
+
     def _load_excel(self):
         try:
+            # Clear existing data structures for a fresh load
+            self.tabs.clear()
+            self.sheet_selector.clear()
+            self.sheet_data = {}
+            self.active_sheet = None
+            self.tree.clear()
+            
             xl = pd.ExcelFile(self.boq_file_path)
             sheet_names = xl.sheet_names
             
