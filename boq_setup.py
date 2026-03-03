@@ -256,15 +256,21 @@ class BOQSetupWindow(QWidget):
         self.active_sheet = sheet_name
         
     def _populate_comboboxes(self, columns):
+        # Determine the maximum number of columns across all sheets to provide a stable list (e.g., 0-10 or 0-max)
+        max_cols = max([len(data['columns']) for data in self.sheet_data.values()]) if self.sheet_data else 20
+        
+        explicit_columns = [f"Column {i}" for i in range(max_cols)]
+        
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate]:
             cb.clear()
             cb.addItem("-- Select Column --")
-            cb.addItems(columns)
+            cb.addItems(explicit_columns)
         
-        if len(columns) > 1: self.cb_ref.setCurrentIndex(1)
-        if len(columns) > 2: self.cb_desc.setCurrentIndex(2)
-        if len(columns) > 3: self.cb_qty.setCurrentIndex(3)
-        if len(columns) > 4: self.cb_unit.setCurrentIndex(4)
+        # Set some reasonable defaults based on common BOQ layouts if possible
+        if max_cols > 0: self.cb_ref.setCurrentIndex(1)
+        if max_cols > 1: self.cb_desc.setCurrentIndex(2)
+        if max_cols > 2: self.cb_qty.setCurrentIndex(3)
+        if max_cols > 3: self.cb_unit.setCurrentIndex(4)
 
     def _show_context_menu(self, pos):
         if not self.active_sheet: return
