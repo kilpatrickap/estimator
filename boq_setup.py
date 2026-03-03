@@ -700,6 +700,9 @@ class BOQSetupWindow(QWidget):
     def _save_state(self):
         import json, os
         project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
+        if project_dir and os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+            
         states_folder = os.path.join(project_dir, "BOQ-Setup States")
         os.makedirs(states_folder, exist_ok=True)
         
@@ -734,6 +737,9 @@ class BOQSetupWindow(QWidget):
         from PyQt6.QtWidgets import QTreeWidgetItemIterator
         
         project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
+        if project_folder and os.path.basename(project_folder) == "Project Database":
+            project_folder = os.path.dirname(project_folder)
+            
         sor_folder = os.path.join(project_folder, "SOR")
         if not os.path.exists(sor_folder):
             try:
@@ -782,6 +788,9 @@ class BOQSetupWindow(QWidget):
     def _load_saved_state(self):
         import json, os
         project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
+        if project_dir and os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+            
         states_folder = os.path.join(project_dir, "BOQ-Setup States")
         
         base_name = os.path.basename(self.boq_file_path)

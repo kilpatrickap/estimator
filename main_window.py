@@ -645,6 +645,9 @@ class MainWindow(QMainWindow):
             
         import os
         project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
+        if project_dir and os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+            
         if not project_dir or not os.path.exists(project_dir):
             QMessageBox.warning(self, "Error", "Project directory is invalid.")
             return
@@ -1027,7 +1030,7 @@ class NewEstimateDialog(QDialog):
                 # Copy library if selected
                 lib_path = self.library_path.text().strip()
                 if lib_path and os.path.exists(lib_path):
-                    lib_dir = os.path.join(new_project_path, "Library")
+                    lib_dir = os.path.join(new_project_path, "Imported Library")
                     os.makedirs(lib_dir, exist_ok=True)
                     lib_filename = os.path.basename(lib_path)
                     new_lib_path = os.path.join(lib_dir, lib_filename)
@@ -1053,7 +1056,9 @@ class NewEstimateDialog(QDialog):
         project_name = self.project_name.text().strip()
         db_path = None
         if project_dir and project_name:
-            db_path = os.path.join(project_dir, project_name, f"{project_name}.db")
+            db_dir = os.path.join(project_dir, project_name, "Project Database")
+            os.makedirs(db_dir, exist_ok=True)
+            db_path = os.path.join(db_dir, f"{project_name}.db")
 
         return {
             "name": project_name,
@@ -1075,7 +1080,10 @@ class ProjectSettingsDialog(QDialog):
         super().__init__(parent)
         import os
         self.active_est_window = active_est_window
-        self.project_dir = os.path.dirname(active_est_window.db_path) if active_est_window.db_path else ""
+        pdir = os.path.dirname(active_est_window.db_path) if active_est_window.db_path else ""
+        if pdir and os.path.basename(pdir) == "Project Database":
+            pdir = os.path.dirname(pdir)
+        self.project_dir = pdir
         
         self.setWindowTitle("Project Settings")
         self.setMinimumWidth(500)
@@ -1154,7 +1162,7 @@ class ProjectSettingsDialog(QDialog):
         
         # Determine if the chosen library is outside our project's designated Library folder
         if lib_path and os.path.exists(lib_path):
-            expected_lib_dir = os.path.join(self.project_dir, "Library")
+            expected_lib_dir = os.path.join(self.project_dir, "Imported Library")
             if not lib_path.startswith(expected_lib_dir):
                 os.makedirs(expected_lib_dir, exist_ok=True)
                 lib_filename = os.path.basename(lib_path)
