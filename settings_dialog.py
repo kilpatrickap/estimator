@@ -195,76 +195,137 @@ class ResourceColorsDialog(QDialog):
         self.accept()
 
 class SettingsDialog(QDialog):
-    def __init__(self, parent=None):
+    def __init__(self, estimate=None, project_dir="", library_path="", parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Application Settings")
+        self.setWindowTitle("Settings")
         self.db_manager = DatabaseManager()
+        self.estimate = estimate
+        self.project_dir = project_dir
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
-        layout.setSizeConstraint(QVBoxLayout.SizeConstraint.SetFixedSize)
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setSpacing(10)
 
-        form_layout = QFormLayout()
-        form_layout.setSpacing(4)
-        form_layout.setContentsMargins(0, 0, 0, 0)
+        columns_layout = QHBoxLayout()
+        main_layout.addLayout(columns_layout)
 
-        # Default Currency
+        # ====== LEFT: Application Settings ======
+        app_group = QGroupBox("Application Settings")
+        app_layout = QVBoxLayout(app_group)
+        app_form = QFormLayout()
+        
         self.currency_combo = QComboBox()
         self.currency_combo.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-        current_currency = self.db_manager.get_setting('currency', 'GHS (₵)')
-        self.currency_combo.setCurrentText(current_currency)
+        self.currency_combo.setCurrentText(self.db_manager.get_setting('currency', 'GHS (₵)'))
         
-        # Default Overhead
-        self.overhead_input = QLineEdit()
         pct_validator = QDoubleValidator(0.0, 100.0, 2)
+        self.overhead_input = QLineEdit(self.db_manager.get_setting('overhead', '15.00'))
         self.overhead_input.setValidator(pct_validator)
-        self.overhead_input.setText(self.db_manager.get_setting('overhead', '15.00'))
-
-        # Default Profit
-        self.profit_input = QLineEdit()
+        self.profit_input = QLineEdit(self.db_manager.get_setting('profit', '10.00'))
         self.profit_input.setValidator(pct_validator)
-        self.profit_input.setText(self.db_manager.get_setting('profit', '10.00'))
-
-        # Company Name (for reports)
-        self.company_name = QLineEdit()
-        self.company_name.setText(self.db_manager.get_setting('company_name', ''))
+        
+        self.company_name = QLineEdit(self.db_manager.get_setting('company_name', ''))
         self.company_name.setPlaceholderText("Your Company Name")
-
-        # Company Logo
-        self.logo_path = QLineEdit()
+        
+        self.logo_path = QLineEdit(self.db_manager.get_setting('company_logo', ''))
         self.logo_path.setReadOnly(True)
-        self.logo_path.setText(self.db_manager.get_setting('company_logo', ''))
         self.logo_path.setPlaceholderText("No logo selected")
         
         logo_layout = QHBoxLayout()
-        logo_layout.setContentsMargins(0, 0, 0, 0)
-        logo_layout.setSpacing(4)
         logo_layout.addWidget(self.logo_path)
         browse_btn = QPushButton("Browse...")
         browse_btn.clicked.connect(self.browse_logo)
         logo_layout.addWidget(browse_btn)
 
-        form_layout.addRow("Default Currency:", self.currency_combo)
-        form_layout.addRow("Default Overhead (%):", self.overhead_input)
-        form_layout.addRow("Default Profit (%):", self.profit_input)
-        form_layout.addRow("Company Name:", self.company_name)
-        form_layout.addRow("Company Logo:", logo_layout)
+        app_form.addRow("Default Currency:", self.currency_combo)
+        app_form.addRow("Default Overhead (%):", self.overhead_input)
+        app_form.addRow("Default Profit (%):", self.profit_input)
+        app_form.addRow("Company Name:", self.company_name)
+        app_form.addRow("Company Logo:", logo_layout)
 
         self.resource_colors_btn = QPushButton("Resource Colors...")
         self.resource_colors_btn.clicked.connect(self.open_resource_colors)
-        form_layout.addRow("Visuals:", self.resource_colors_btn)
+        app_form.addRow("Visuals:", self.resource_colors_btn)
 
         self.categories_btn = QPushButton("Categories and Codes...")
         self.categories_btn.clicked.connect(self.open_categories_dialog)
-        form_layout.addRow("Categories and Codes:", self.categories_btn)
+        app_form.addRow("Categories and Codes:", self.categories_btn)
+        
+        app_layout.addLayout(app_form)
+        app_layout.addStretch()
+        columns_layout.addWidget(app_group)
 
-        layout.addLayout(form_layout)
+        # ====== RIGHT: Project Settings ======
+        if self.estimate:
+            proj_group = QGroupBox("Project Settings")
+            proj_layout = QVBoxLayout(proj_group)
+            proj_form = QFormLayout()
+            
+            from PyQt6.QtWidgets import QDateEdit, QListWidget, QAbstractItemView
+            from PyQt6.QtCore import QDate
+            
+            self.proj_name = QLineEdit(self.estimate.project_name)
+            self.proj_location = QLineEdit(self.estimate.client_name)
+            
+            self.proj_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
+            if self.estimate.date:
+                qdate = QDate.fromString(self.estimate.date[:10], "yyyy-MM-dd")
+                self.proj_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
+            else:
+                self.proj_date.setDate(QDate.currentDate())
+                
+            self.proj_overhead = QLineEdit(str(self.estimate.overhead_percent))
+            self.proj_overhead.setValidator(pct_validator)
+            self.proj_profit = QLineEdit(str(self.estimate.profit_margin_percent))
+            self.proj_profit.setValidator(pct_validator)
+            
+            self.proj_currency = QComboBox()
+            self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
+            self.proj_currency.setCurrentText(self.estimate.currency)
+            
+            self.proj_library = QLineEdit(library_path)
+            self.proj_library.setReadOnly(True)
+            proj_lib_btn = QPushButton("Browse...")
+            proj_lib_btn.clicked.connect(self._browse_library)
+            proj_lib_layout = QHBoxLayout()
+            proj_lib_layout.addWidget(self.proj_library)
+            proj_lib_layout.addWidget(proj_lib_btn)
+            
+            # BOQ
+            self.boq_list = QListWidget()
+            self.boq_list.setMaximumHeight(100)
+            self.boq_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+            self._load_boqs()
+            
+            boq_btn_layout = QHBoxLayout()
+            self.add_boq_btn = QPushButton("Add/Import BOQs...")
+            self.add_boq_btn.clicked.connect(self._add_boq)
+            self.del_boq_btn = QPushButton("Delete Selected")
+            self.del_boq_btn.clicked.connect(self._delete_boq)
+            boq_btn_layout.addWidget(self.add_boq_btn)
+            boq_btn_layout.addWidget(self.del_boq_btn)
+            
+            boq_main_layout = QVBoxLayout()
+            boq_main_layout.addWidget(self.boq_list)
+            boq_main_layout.addLayout(boq_btn_layout)
 
+            proj_form.addRow("Project Name:", self.proj_name)
+            proj_form.addRow("Location:", self.proj_location)
+            proj_form.addRow("Project Date:", self.proj_date)
+            proj_form.addRow("Overhead (%):", self.proj_overhead)
+            proj_form.addRow("Profit (%):", self.proj_profit)
+            proj_form.addRow("Currency:", self.proj_currency)
+            proj_form.addRow("Library:", proj_lib_layout)
+            proj_form.addRow("Imported BOQs:", boq_main_layout)
+            
+            proj_layout.addLayout(proj_form)
+            columns_layout.addWidget(proj_group)
+
+        # Buttons
         self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
         self.button_box.accepted.connect(self.save_settings)
         self.button_box.rejected.connect(self.reject)
-        layout.addWidget(self.button_box)
+        main_layout.addWidget(self.button_box)
 
     def browse_logo(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Logo", "", "Images (*.png *.jpg *.jpeg)")
@@ -272,12 +333,73 @@ class SettingsDialog(QDialog):
             self.logo_path.setText(file_path)
 
     def open_resource_colors(self):
-        dialog = ResourceColorsDialog(self.db_manager, self)
-        dialog.exec()
+        ResourceColorsDialog(self.db_manager, self).exec()
 
     def open_categories_dialog(self):
-        dialog = CategoriesCodesDialog(self.db_manager, self)
-        dialog.exec()
+        CategoriesCodesDialog(self.db_manager, self).exec()
+
+    def _browse_library(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
+        if file_path:
+            self.proj_library.setText(file_path)
+
+    def _load_boqs(self):
+        self.boq_list.clear()
+        import os
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            return
+        boq_dir = os.path.join(self.project_dir, "Imported BOQs")
+        if not os.path.exists(boq_dir):
+            return
+        for f in os.listdir(boq_dir):
+            if f.lower().endswith(('.xlsx', '.xls')):
+                self.boq_list.addItem(f)
+
+    def _add_boq(self):
+        import os, shutil
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            QMessageBox.warning(self, "Error", "Project directory is not valid.")
+            return
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Excel BOQ(s)", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
+        if file_paths:
+            boq_dir = os.path.join(self.project_dir, "Imported BOQs")
+            os.makedirs(boq_dir, exist_ok=True)
+            for file_path in file_paths:
+                filename = os.path.basename(file_path)
+                target = os.path.join(boq_dir, filename)
+                try:
+                    shutil.copy2(file_path, target)
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Failed to copy BOQ: {e}")
+            self._load_boqs()
+
+    def _delete_boq(self):
+        import os
+        curr = self.boq_list.currentItem()
+        if not curr: return
+        filename = curr.text()
+        reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete '{filename}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            fpath = os.path.join(self.project_dir, "Imported BOQs", filename)
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                    self._load_boqs()
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
+
+    def get_project_data(self):
+        if not self.estimate:
+            return None
+        return {
+            "name": self.proj_name.text().strip(),
+            "client": self.proj_location.text().strip(),
+            "date": self.proj_date.date().toString("yyyy-MM-dd"),
+            "overhead": float(self.proj_overhead.text() or 0),
+            "profit": float(self.proj_profit.text() or 0),
+            "currency": self.proj_currency.currentText(),
+            "library_path": self.proj_library.text().strip()
+        }
 
     def save_settings(self):
         try:
@@ -287,7 +409,24 @@ class SettingsDialog(QDialog):
             self.db_manager.set_setting('company_name', self.company_name.text())
             self.db_manager.set_setting('company_logo', self.logo_path.text())
             
+            if self.estimate:
+                import os, shutil
+                lib_path = self.proj_library.text().strip()
+                if lib_path and os.path.exists(lib_path):
+                    expected = os.path.join(self.project_dir, "Imported Library")
+                    if expected not in lib_path:
+                        os.makedirs(expected, exist_ok=True)
+                        new_lib = os.path.join(expected, os.path.basename(lib_path))
+                        if not os.path.exists(new_lib):
+                            try:
+                                shutil.copy2(lib_path, new_lib)
+                                self.proj_library.setText(new_lib)
+                            except Exception as e:
+                                QMessageBox.warning(self, "Error", f"Failed to copy Library:\n{e}")
+                                return
+                                
             QMessageBox.information(self, "Success", "Settings saved successfully.")
             self.accept()
         except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid numeric values for Overhead or Profit.")
+            QMessageBox.warning(self, "Error", "Invalid numeric values for settings.")
+

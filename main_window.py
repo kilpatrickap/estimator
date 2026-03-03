@@ -533,76 +533,49 @@ class MainWindow(QMainWindow):
 
     def open_settings(self):
         active_est = self._get_active_estimate_window()
-        options = ["Application Settings"]
         import os
+        from PyQt6.QtWidgets import QMessageBox
+        
+        db_path = None
+        estimate_obj = None
+        library_path = ""
+        project_dir = ""
         
         project_dir_fallback = self.db_manager.get_setting('last_project_dir', '')
-        has_project = False
         
         if active_est and type(active_est).__name__ == "EstimateWindow":
-            has_project = True
-        elif project_dir_fallback and os.path.exists(project_dir_fallback):
-            has_project = True
-            
-        if has_project:
-            options.append("Project Settings")
-        
-        from PyQt6.QtWidgets import QInputDialog, QMessageBox
-        if len(options) > 1:
-            choice, ok = QInputDialog.getItem(self, "Settings", "Select settings to open:", options, 0, False)
-            if not ok:
-                return
+            db_path = active_est.db_path
+            estimate_obj = active_est.estimate
+            library_path = active_est.library_path
+            project_dir = os.path.dirname(db_path) if db_path else ""
+            if project_dir and os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
         else:
-            choice = options[0]
-            
-        if choice == "Application Settings":
-            for sub in self.mdi_area.subWindowList():
-                if isinstance(sub.widget(), SettingsDialog):
-                    self.mdi_area.setActiveSubWindow(sub)
-                    return
-            dialog = SettingsDialog(self)
-            sub = self.mdi_area.addSubWindow(dialog)
-            sub.adjustSize()
-            self._apply_zoom_to_subwindow(sub)
-            sub.show()
-                    
-        elif choice == "Project Settings":
-            db_path = None
-            estimate_obj = None
-            library_path = ""
-            project_dir = ""
+            project_dir = project_dir_fallback
+            if project_dir and os.path.exists(project_dir):
+                db_dir = os.path.join(project_dir, "Project Database")
+                if os.path.exists(db_dir):
+                    dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
+                    if dbs:
+                        db_path = os.path.join(db_dir, dbs[0])
+                        from database import DatabaseManager
+                        temp_db = DatabaseManager(db_path)
+                        summaries = temp_db.get_saved_estimates_summary()
+                        if summaries:
+                            estimate_obj = temp_db.load_estimate_details(summaries[0]['id'])
+                            library_path = temp_db.get_setting('library_path', '')
 
-            if active_est and type(active_est).__name__ == "EstimateWindow":
-                db_path = active_est.db_path
-                estimate_obj = active_est.estimate
-                library_path = active_est.library_path
-                project_dir = os.path.dirname(db_path) if db_path else ""
-                if project_dir and os.path.basename(project_dir) == "Project Database":
-                    project_dir = os.path.dirname(project_dir)
-            else:
-                project_dir = project_dir_fallback
-                if project_dir and os.path.exists(project_dir):
-                    db_dir = os.path.join(project_dir, "Project Database")
-                    if os.path.exists(db_dir):
-                        dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
-                        if dbs:
-                            db_path = os.path.join(db_dir, dbs[0])
-                            from database import DatabaseManager
-                            temp_db = DatabaseManager(db_path)
-                            summaries = temp_db.get_saved_estimates_summary()
-                            if summaries:
-                                estimate_obj = temp_db.load_estimate_details(summaries[0]['id'])
-                                library_path = temp_db.get_setting('library_path', '')
-
-            if not estimate_obj:
-                QMessageBox.warning(self, "Error", "Could not load project settings. No active project data found.")
+        # Check if settings window already open
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), SettingsDialog):
+                self.mdi_area.setActiveSubWindow(sub)
                 return
 
-            dialog = ProjectSettingsDialog(estimate_obj, project_dir, library_path, self)
-            if dialog.exec():
-                data = dialog.get_data()
+        dialog = SettingsDialog(estimate_obj, project_dir, library_path, self)
+        if dialog.exec():
+            data = dialog.get_project_data()
+            if data and estimate_obj:
                 import re
-                
                 estimate_obj.project_name = data['name']
                 estimate_obj.client_name = data['client']
                 estimate_obj.date = data['date']
@@ -620,10 +593,11 @@ class MainWindow(QMainWindow):
                     active_est.refresh_view()
                     active_est.setWindowTitle(f"Estimate: {data['name']}")
                 else:
-                    from database import DatabaseManager
-                    temp_db = DatabaseManager(db_path)
-                    temp_db.save_estimate(estimate_obj)
-                    temp_db.set_setting('library_path', data['library_path'])
+                    if db_path:
+                        from database import DatabaseManager
+                        temp_db = DatabaseManager(db_path)
+                        temp_db.save_estimate(estimate_obj)
+                        temp_db.set_setting('library_path', data['library_path'])
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()
@@ -1116,184 +1090,6 @@ class NewEstimateDialog(QDialog):
             "db_path": db_path
         }
 
-
-class ProjectSettingsDialog(QDialog):
-    """Dialog for project-specific settings."""
-    def __init__(self, estimate, project_dir, library_path, parent=None):
-        super().__init__(parent)
-        import os
-        self.project_dir = project_dir
-        
-        self.setWindowTitle("Project Settings")
-        self.setMinimumWidth(500)
-        
-        layout = QFormLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-        self.project_name = QLineEdit(estimate.project_name)
-        self.location = QLineEdit(estimate.client_name)
-        
-        self.project_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
-        if estimate.date:
-            qdate = QDate.fromString(estimate.date[:10], "yyyy-MM-dd")
-            self.project_date.setDate(qdate if qdate.isValid() else QDate.currentDate())
-        else:
-            self.project_date.setDate(QDate.currentDate())
-            
-        validator = QDoubleValidator(0.0, 100.0, 2, notation=QDoubleValidator.Notation.StandardNotation)
-        
-        self.overhead = QLineEdit(str(estimate.overhead_percent))
-        self.overhead.setValidator(validator)
-        self.profit = QLineEdit(str(estimate.profit_margin_percent))
-        self.profit.setValidator(validator)
-        
-        self.currency = QComboBox()
-        self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-        self.currency.setCurrentText(estimate.currency)
-
-        self.library_layout = QHBoxLayout()
-        self.library_path = QLineEdit(library_path)
-        self.library_path.setReadOnly(True)
-        self.library_btn = QPushButton("Browse...")
-        self.library_btn.clicked.connect(self._browse_library)
-        self.library_layout.addWidget(self.library_path)
-        self.library_layout.addWidget(self.library_btn)
-
-        # BOQ List Component
-        from PyQt6.QtWidgets import QListWidget, QAbstractItemView, QVBoxLayout, QMessageBox
-        
-        self.boq_list = QListWidget()
-        self.boq_list.setMaximumHeight(100)
-        self.boq_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
-        self._load_boqs()
-
-        boq_btn_layout = QHBoxLayout()
-        self.add_boq_btn = QPushButton("Add/Import BOQs...")
-        self.add_boq_btn.clicked.connect(self._add_boq)
-        self.del_boq_btn = QPushButton("Delete Selected")
-        self.del_boq_btn.clicked.connect(self._delete_boq)
-        boq_btn_layout.addWidget(self.add_boq_btn)
-        boq_btn_layout.addWidget(self.del_boq_btn)
-
-        boq_main_layout = QVBoxLayout()
-        boq_main_layout.addWidget(self.boq_list)
-        boq_main_layout.addLayout(boq_btn_layout)
-
-        layout.addRow("Project Name:", self.project_name)
-        layout.addRow("Location:", self.location)
-        layout.addRow("Project Date:", self.project_date)
-        layout.addRow("Overhead (%):", self.overhead)
-        layout.addRow("Profit (%):", self.profit)
-        layout.addRow("Currency:", self.currency)
-        layout.addRow("Library:", self.library_layout)
-        layout.addRow("Imported BOQs:", boq_main_layout)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-    def accept(self):
-        import os, shutil
-        lib_path = self.library_path.text().strip()
-        
-        # Determine if the chosen library is outside our project's designated Library folder
-        if lib_path and os.path.exists(lib_path):
-            expected_lib_dir = os.path.join(self.project_dir, "Imported Library")
-            if not lib_path.startswith(expected_lib_dir):
-                os.makedirs(expected_lib_dir, exist_ok=True)
-                lib_filename = os.path.basename(lib_path)
-                new_lib_path = os.path.join(expected_lib_dir, lib_filename)
-                try:
-                    shutil.copy2(lib_path, new_lib_path)
-                    self.library_path.setText(new_lib_path)
-                except Exception as e:
-                    from PyQt6.QtWidgets import QMessageBox
-                    QMessageBox.warning(self, "Error", f"Failed to copy Library to project:\n{e}")
-                    return
-        super().accept()
-
-    def _load_boqs(self):
-        self.boq_list.clear()
-        import os
-        if not self.project_dir or not os.path.exists(self.project_dir):
-            return
-            
-        boq_dir = os.path.join(self.project_dir, "Imported BOQs")
-        if not os.path.exists(boq_dir):
-            return
-        
-        for f in os.listdir(boq_dir):
-            if f.lower().endswith(('.xlsx', '.xls')):
-                self.boq_list.addItem(f)
-
-    def _add_boq(self):
-        from PyQt6.QtWidgets import QFileDialog, QMessageBox
-        import os, shutil
-        if not self.project_dir or not os.path.exists(self.project_dir):
-            QMessageBox.warning(self, "Error", "Project directory is not uniquely identified or valid.")
-            return
-
-        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Excel BOQ(s)", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
-        if file_paths:
-            boq_dir = os.path.join(self.project_dir, "Imported BOQs")
-            os.makedirs(boq_dir, exist_ok=True)
-            for boq_file in file_paths:
-                if os.path.exists(boq_file):
-                    boq_filename = os.path.basename(boq_file)
-                    target_path = os.path.join(boq_dir, boq_filename)
-                    if os.path.exists(target_path):
-                        reply = QMessageBox.question(self, 'Overwrite BOQ?', 
-                                         f"'{boq_filename}' already exists in the project. Do you want to overwrite it?",
-                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-                        if reply == QMessageBox.StandardButton.No:
-                            continue
-                    try:
-                        shutil.copy2(boq_file, target_path)
-                    except Exception as e:
-                        QMessageBox.warning(self, "Error", f"Failed to copy '{boq_filename}':\n{e}")
-            self._load_boqs()
-
-    def _delete_boq(self):
-        from PyQt6.QtWidgets import QMessageBox
-        import os
-        selected = self.boq_list.currentItem()
-        if not selected:
-            return
-        
-        filename = selected.text()
-        boq_dir = os.path.join(self.project_dir, "Imported BOQs")
-        file_path = os.path.join(boq_dir, filename)
-        
-        reply = QMessageBox.warning(self, 'Confirm Deletion', 
-                                     f"Are you sure you want to PERMANENTLY delete '{filename}' from the project folder?\nThis action cannot be undone.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
-                                     QMessageBox.StandardButton.No)
-        
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                if os.path.exists(file_path):
-                    os.remove(file_path)
-                self._load_boqs()
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
-
-    def _browse_library(self):
-        from PyQt6.QtWidgets import QFileDialog
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
-        if file_path:
-            self.library_path.setText(file_path)
-
-    def get_data(self):
-        return {
-            "name": self.project_name.text().strip(),
-            "client": self.location.text().strip(),
-            "date": self.project_date.date().toString("yyyy-MM-dd"),
-            "overhead": float(self.overhead.text() or 0),
-            "profit": float(self.profit.text() or 0),
-            "currency": self.currency.currentText(),
-            "library_path": self.library_path.text().strip()
-        }
 
 
 
