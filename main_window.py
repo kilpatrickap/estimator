@@ -18,6 +18,7 @@ from rate_buildup_dialog import RateBuildUpDialog
 from edit_item_dialog import EditItemDialog
 from currency_conversion_dialog import CurrencyConversionDialog
 import copy
+import os
 
 
 class DashboardWidget(QWidget):
@@ -168,7 +169,8 @@ class MainWindow(QMainWindow):
     def _setup_project_pane(self):
         from PyQt6.QtWidgets import QDockWidget, QTreeView
         from PyQt6.QtGui import QFileSystemModel
-        from PyQt6.QtCore import Qt
+        from PyQt6.QtCore import Qt, QDir
+        import os
         
         self.project_dock = QDockWidget("Project", self)
         self.project_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -176,10 +178,12 @@ class MainWindow(QMainWindow):
         
         self.project_tree = QTreeView()
         self.project_model = QFileSystemModel()
+        self.project_model.setFilter(QDir.Filter.AllDirs | QDir.Filter.Files | QDir.Filter.NoDotAndDotDot)
         
         last_dir = self.db_manager.get_setting('last_project_dir', '')
         if last_dir and os.path.exists(last_dir):
             self.project_model.setRootPath(last_dir)
+            self.project_dock.setWindowTitle(f"Project: {os.path.basename(last_dir)}")
         else:
             self.project_model.setRootPath("")
             
@@ -196,6 +200,13 @@ class MainWindow(QMainWindow):
         
         self.project_dock.setWidget(self.project_tree)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+
+    def _update_project_pane_directory(self, project_dir):
+        import os
+        self.project_model.setRootPath(project_dir)
+        self.project_tree.setRootIndex(self.project_model.index(project_dir))
+        self.db_manager.set_setting('last_project_dir', project_dir)
+        self.project_dock.setWindowTitle(f"Project: {os.path.basename(project_dir)}")
 
     def _setup_menubar(self):
         """Creates the standard top application menu bar."""
@@ -379,17 +390,28 @@ class MainWindow(QMainWindow):
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
-            est_window = EstimateWindow(estimate_data=dialog.get_data(), main_window=self)
+            data = dialog.get_data()
+            est_window = EstimateWindow(estimate_data=data, main_window=self)
             
             # Instantly persist this newly minted estimate into the project DB so it's not "empty"
             est_window.db_manager.save_estimate(est_window.estimate)
             
+            import os
+            if data.get('db_path'):
+                new_project_dir = os.path.dirname(os.path.dirname(data['db_path']))
+                self._update_project_pane_directory(new_project_dir)
+
             self._add_estimate_window(est_window)
 
     def load_estimate(self):
         from PyQt6.QtWidgets import QFileDialog
+        import os
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "Project Files (*.db);;All Files (*)")
         if file_path:
+            # Update the project pane whenever a project is loaded
+            project_dir = os.path.dirname(os.path.dirname(file_path)) if os.path.basename(os.path.dirname(file_path)) == "Project Database" else os.path.dirname(file_path)
+            self._update_project_pane_directory(project_dir)
+
             from database import DatabaseManager
             temp_db = DatabaseManager(file_path)
             summaries = temp_db.get_saved_estimates_summary()
@@ -397,8 +419,7 @@ class MainWindow(QMainWindow):
             if summaries:
                 # We assume a project DB holds one main estimate
                 self._load_and_show_estimate(summaries[0]['id'], db_path=file_path)
-            else:
-                QMessageBox.warning(self, "Empty Project", "No estimates found in this project file.")
+            # Removed the "Empty Project" warning to satisfy prior request of updating pane instead.
 
     def _load_and_show_estimate(self, est_id, db_path=None):
         db_path = db_path or "construction_costs.db"
