@@ -113,10 +113,33 @@ class BOQSetupWindow(QWidget):
             
         level_layout.addStretch()
         
+        # 4. Action Buttons Group (Right Side)
+        action_layout = QVBoxLayout()
+        action_layout.setContentsMargins(5, 5, 5, 5)
+        action_layout.setSpacing(10)
+        
+        apply_map_btn = QPushButton("Apply Mapping\nto Selected Sheets")
+        apply_map_btn.setMinimumHeight(40)
+        apply_map_btn.clicked.connect(self._apply_mapping)
+        action_layout.addWidget(apply_map_btn)
+        
+        save_state_btn = QPushButton("Save State")
+        save_state_btn.setMinimumHeight(40)
+        save_state_btn.clicked.connect(self._save_state)
+        action_layout.addWidget(save_state_btn)
+        
+        import_btn = QPushButton("Import to\nEstimate Tasks")
+        import_btn.setMinimumHeight(50)
+        import_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
+        import_btn.clicked.connect(self._import_to_estimate)
+        action_layout.addWidget(import_btn)
+        action_layout.addStretch()
+        
         # Add groups side-by-side without AlignTop so they stretch to equal heights
         settings_layout.addWidget(col_group, stretch=4)
         settings_layout.addWidget(sheet_group, stretch=3)
         settings_layout.addWidget(level_group, stretch=2)
+        settings_layout.addLayout(action_layout, stretch=2)
         
         # Create a vertical splitter for the right pane (horizontal divider)
         right_splitter = QSplitter(Qt.Orientation.Vertical)
@@ -130,10 +153,6 @@ class BOQSetupWindow(QWidget):
         
         top_right_layout.addLayout(settings_layout)
         
-        apply_map_btn = QPushButton("Apply Mapping to Selected Sheets")
-        apply_map_btn.clicked.connect(self._apply_mapping)
-        top_right_layout.addWidget(apply_map_btn)
-        
         # Bottom half of right pane: Preview
         bottom_right_widget = QWidget()
         bottom_right_layout = QVBoxLayout(bottom_right_widget)
@@ -145,12 +164,6 @@ class BOQSetupWindow(QWidget):
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         self.tree.header().setStretchLastSection(True)
         bottom_right_layout.addWidget(self.tree)
-        
-        import_btn = QPushButton("Import to Estimate Tasks")
-        import_btn.setMinimumHeight(50)
-        import_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
-        import_btn.clicked.connect(self._import_to_estimate)
-        bottom_right_layout.addWidget(import_btn)
         
         right_splitter.addWidget(top_right_widget)
         right_splitter.addWidget(bottom_right_widget)
@@ -357,6 +370,8 @@ class BOQSetupWindow(QWidget):
             if sheet_names and not progress.wasCanceled():
                 self.active_sheet = sheet_names[0]
                 self._populate_comboboxes(self.sheet_data[self.active_sheet]['columns'])
+                
+                self._load_saved_state()
                 
             progress.setValue(100)
 
@@ -617,3 +632,80 @@ class BOQSetupWindow(QWidget):
         self.active_est_window.refresh_view()
         QMessageBox.information(self, "Success", f"Successfully imported {imported_count} items from all sheets into the estimate.")
         self.close()
+
+    def _save_state(self):
+        import json
+        state_file = self.boq_file_path + ".state.json"
+        
+        state = {
+            'cb_ref': self.cb_ref.currentIndex(),
+            'cb_desc': self.cb_desc.currentIndex(),
+            'cb_qty': self.cb_qty.currentIndex(),
+            'cb_unit': self.cb_unit.currentIndex(),
+            'cb_rate': self.cb_rate.currentIndex(),
+            'selected_sheets': [item.text() for item in self.sheet_selector.selectedItems()],
+            'level_checkboxes': {lvl: cb.isChecked() for lvl, cb in self.level_checkboxes.items()}
+        }
+        
+        row_types_dict = {}
+        for sheet, data in self.sheet_data.items():
+            row_types_dict[sheet] = data['row_types']
+            
+        state['row_types'] = row_types_dict
+        
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(state, f)
+            QMessageBox.information(self, "Success", "State saved successfully.")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save state:\n{e}")
+
+    def _load_saved_state(self):
+        import json
+        state_file = self.boq_file_path + ".state.json"
+        if not os.path.exists(state_file):
+            return False
+            
+        try:
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                
+            if 'cb_ref' in state: self.cb_ref.setCurrentIndex(state['cb_ref'])
+            if 'cb_desc' in state: self.cb_desc.setCurrentIndex(state['cb_desc'])
+            if 'cb_qty' in state: self.cb_qty.setCurrentIndex(state['cb_qty'])
+            if 'cb_unit' in state: self.cb_unit.setCurrentIndex(state['cb_unit'])
+            if 'cb_rate' in state: self.cb_rate.setCurrentIndex(state['cb_rate'])
+            
+            if 'level_checkboxes' in state:
+                for lvl_str, is_checked in state['level_checkboxes'].items():
+                    lvl = int(lvl_str)
+                    if lvl in self.level_checkboxes:
+                        self.level_checkboxes[lvl].setChecked(is_checked)
+                        
+            if 'selected_sheets' in state:
+                for i in range(self.sheet_selector.count()):
+                    item = self.sheet_selector.item(i)
+                    if item.text() in state['selected_sheets']:
+                        item.setSelected(True)
+                    else:
+                        item.setSelected(False)
+                        
+            if 'row_types' in state:
+                for sheet, row_types in state['row_types'].items():
+                    if sheet in self.sheet_data:
+                        self.sheet_data[sheet]['row_types'] = row_types
+                        table = self.sheet_data[sheet]['table']
+                        for r, rtype in enumerate(row_types):
+                            color = self.COLOR_IGNORE
+                            if rtype == 'heading': color = self.COLOR_HEADING
+                            elif rtype == 'item': color = self.COLOR_ITEM
+                            
+                            for c in range(table.columnCount()):
+                                item = table.item(r, c)
+                                if item: item.setBackground(color)
+                                
+            self._build_tree_preview()
+            return True
+        except Exception as e:
+            print(f"Error loading state: {e}")
+            return False
