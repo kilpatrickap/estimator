@@ -283,7 +283,34 @@ class SettingsDialog(QDialog):
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
             self.proj_currency.setCurrentText(self.estimate.currency)
             
-            self.proj_library = QLineEdit(library_path)
+            import os
+            # Auto-detect DB Path
+            db_path = ""
+            if self.project_dir and os.path.exists(self.project_dir):
+                db_dir = os.path.join(self.project_dir, "Project Database")
+                if os.path.exists(db_dir):
+                    dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
+                    if dbs:
+                        db_path = os.path.join(db_dir, dbs[0])
+                        
+            # Auto-detect Library Path
+            actual_lib_path = library_path
+            if self.project_dir and os.path.exists(self.project_dir):
+                lib_dir = os.path.join(self.project_dir, "Imported Library")
+                if os.path.exists(lib_dir):
+                    libs = [f for f in os.listdir(lib_dir) if f.endswith('.db')]
+                    if libs:
+                        actual_lib_path = os.path.join(lib_dir, libs[0])
+            
+            self.proj_dir_input = QLineEdit(self.project_dir)
+            self.proj_dir_input.setReadOnly(True)
+            self.proj_dir_input.setPlaceholderText("No project directory")
+            
+            self.proj_db_input = QLineEdit(db_path)
+            self.proj_db_input.setReadOnly(True)
+            self.proj_db_input.setPlaceholderText("No project database found")
+            
+            self.proj_library = QLineEdit(actual_lib_path)
             self.proj_library.setReadOnly(True)
             proj_lib_btn = QPushButton("Browse...")
             proj_lib_btn.clicked.connect(self._browse_library)
@@ -315,6 +342,8 @@ class SettingsDialog(QDialog):
             proj_form.addRow("Overhead (%):", self.proj_overhead)
             proj_form.addRow("Profit (%):", self.proj_profit)
             proj_form.addRow("Currency:", self.proj_currency)
+            proj_form.addRow("Project Dir:", self.proj_dir_input)
+            proj_form.addRow("Project DB:", self.proj_db_input)
             proj_form.addRow("Library:", proj_lib_layout)
             proj_form.addRow("Imported BOQs:", boq_main_layout)
             
