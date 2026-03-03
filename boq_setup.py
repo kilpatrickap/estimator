@@ -161,8 +161,14 @@ class BOQSetupWindow(QWidget):
         bottom_right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Level", "Type"])
-        self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        self.tree.header().setStretchLastSection(True)
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Sheet
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents) # Ref
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)          # Description gets remaining width
+        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) # Quantity
+        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents) # Unit
+        self.tree.header().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents) # Level
+        self.tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents) # Type
+        self.tree.header().setStretchLastSection(False)
         bottom_right_layout.addWidget(self.tree)
         
         right_splitter.addWidget(top_right_widget)
