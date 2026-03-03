@@ -276,7 +276,6 @@ class SettingsDialog(QDialog):
 
             proj_db_manager = None
             if db_path:
-                from database import DatabaseManager
                 proj_db_manager = DatabaseManager(db_path)
             
             # Auto-detect Library Path
