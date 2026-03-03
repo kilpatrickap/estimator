@@ -275,6 +275,8 @@ class BOQSetupWindow(QWidget):
                 QApplication.processEvents()
                 
                 df = xl.parse(sheet_name, header=None)
+                # Cast to object type before filling to prevent pandas ValueError when replacing float NaNs with strings
+                df = df.astype(object)
                 df.fillna("", inplace=True)
                 row_types = ['ignore'] * len(df)
                 
