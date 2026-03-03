@@ -46,7 +46,7 @@ class BOQSetupWindow(QWidget):
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         
-        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView
+        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView, QSizePolicy
         
         # Top right layout for settings
         settings_layout = QHBoxLayout()
@@ -76,16 +76,16 @@ class BOQSetupWindow(QWidget):
         sheet_layout.setSpacing(5)
         
         self.sheet_selector = QListWidget()
-        self.sheet_selector.setMaximumHeight(130) # Compact height
+        # Ensure the sheet_selector matches the height of col_group perfectly
+        self.sheet_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
         self.sheet_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
         self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
         
         sheet_layout.addWidget(self.sheet_selector)
-        sheet_layout.addStretch() # Push selector to the top
         
-        # Add groups side-by-side
-        settings_layout.addWidget(col_group, stretch=5, alignment=Qt.AlignmentFlag.AlignTop)
-        settings_layout.addWidget(sheet_group, stretch=4, alignment=Qt.AlignmentFlag.AlignTop)
+        # Add groups side-by-side without AlignTop so they stretch to equal heights
+        settings_layout.addWidget(col_group, stretch=5)
+        settings_layout.addWidget(sheet_group, stretch=4)
         
         right_layout.addLayout(settings_layout)
         
