@@ -649,9 +649,13 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Error", "Project directory is invalid.")
             return
             
-        boq_files = [f for f in os.listdir(project_dir) if f.lower().endswith(('.xlsx', '.xls'))]
+        boq_dir = os.path.join(project_dir, "Imported BOQs")
+        boq_files = []
+        if os.path.exists(boq_dir):
+            boq_files = [f for f in os.listdir(boq_dir) if f.lower().endswith(('.xlsx', '.xls'))]
+            
         if not boq_files:
-            QMessageBox.information(self, "No BOQs", "No Excel BOQ files found in this project directory.\nPlease import them via Project Settings or New Project Dialog.")
+            QMessageBox.information(self, "No BOQs", "No Excel BOQ files found in this project 'Imported BOQs' directory.\nPlease import them via Project Settings or New Project Dialog.")
             return
             
         from PyQt6.QtWidgets import QInputDialog
@@ -661,7 +665,7 @@ class MainWindow(QMainWindow):
             if not ok: return
             target_boq = choice
             
-        full_path = os.path.join(project_dir, target_boq)
+        full_path = os.path.join(boq_dir, target_boq)
         
         from boq_setup import BOQSetupWindow
         # Check if already open
@@ -1020,11 +1024,23 @@ class NewEstimateDialog(QDialog):
             new_project_path = os.path.join(selected_dir, project_name)
             try:
                 os.makedirs(new_project_path, exist_ok=True)
+                # Copy library if selected
+                lib_path = self.library_path.text().strip()
+                if lib_path and os.path.exists(lib_path):
+                    lib_dir = os.path.join(new_project_path, "Library")
+                    os.makedirs(lib_dir, exist_ok=True)
+                    lib_filename = os.path.basename(lib_path)
+                    new_lib_path = os.path.join(lib_dir, lib_filename)
+                    shutil.copy2(lib_path, new_lib_path)
+                    self.library_path.setText(new_lib_path)
+                
                 if hasattr(self, 'boq_files') and self.boq_files:
+                    boq_dir = os.path.join(new_project_path, "Imported BOQs")
+                    os.makedirs(boq_dir, exist_ok=True)
                     for boq_file in self.boq_files:
                         if os.path.exists(boq_file):
                             boq_filename = os.path.basename(boq_file)
-                            shutil.copy2(boq_file, os.path.join(new_project_path, boq_filename))
+                            shutil.copy2(boq_file, os.path.join(boq_dir, boq_filename))
             except Exception as e:
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.warning(self, "Error", f"Failed to initialize project directory:\n{e}")
@@ -1132,13 +1148,37 @@ class ProjectSettingsDialog(QDialog):
         buttons.rejected.connect(self.reject)
         layout.addRow(buttons)
 
+    def accept(self):
+        import os, shutil
+        lib_path = self.library_path.text().strip()
+        
+        # Determine if the chosen library is outside our project's designated Library folder
+        if lib_path and os.path.exists(lib_path):
+            expected_lib_dir = os.path.join(self.project_dir, "Library")
+            if not lib_path.startswith(expected_lib_dir):
+                os.makedirs(expected_lib_dir, exist_ok=True)
+                lib_filename = os.path.basename(lib_path)
+                new_lib_path = os.path.join(expected_lib_dir, lib_filename)
+                try:
+                    shutil.copy2(lib_path, new_lib_path)
+                    self.library_path.setText(new_lib_path)
+                except Exception as e:
+                    from PyQt6.QtWidgets import QMessageBox
+                    QMessageBox.warning(self, "Error", f"Failed to copy Library to project:\n{e}")
+                    return
+        super().accept()
+
     def _load_boqs(self):
         self.boq_list.clear()
         import os
         if not self.project_dir or not os.path.exists(self.project_dir):
             return
+            
+        boq_dir = os.path.join(self.project_dir, "Imported BOQs")
+        if not os.path.exists(boq_dir):
+            return
         
-        for f in os.listdir(self.project_dir):
+        for f in os.listdir(boq_dir):
             if f.lower().endswith(('.xlsx', '.xls')):
                 self.boq_list.addItem(f)
 
@@ -1151,10 +1191,12 @@ class ProjectSettingsDialog(QDialog):
 
         file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Excel BOQ(s)", "", "Excel Files (*.xlsx *.xls);;All Files (*)")
         if file_paths:
+            boq_dir = os.path.join(self.project_dir, "Imported BOQs")
+            os.makedirs(boq_dir, exist_ok=True)
             for boq_file in file_paths:
                 if os.path.exists(boq_file):
                     boq_filename = os.path.basename(boq_file)
-                    target_path = os.path.join(self.project_dir, boq_filename)
+                    target_path = os.path.join(boq_dir, boq_filename)
                     if os.path.exists(target_path):
                         reply = QMessageBox.question(self, 'Overwrite BOQ?', 
                                          f"'{boq_filename}' already exists in the project. Do you want to overwrite it?",
@@ -1175,7 +1217,8 @@ class ProjectSettingsDialog(QDialog):
             return
         
         filename = selected.text()
-        file_path = os.path.join(self.project_dir, filename)
+        boq_dir = os.path.join(self.project_dir, "Imported BOQs")
+        file_path = os.path.join(boq_dir, filename)
         
         reply = QMessageBox.warning(self, 'Confirm Deletion', 
                                      f"Are you sure you want to PERMANENTLY delete '{filename}' from the project folder?\nThis action cannot be undone.",

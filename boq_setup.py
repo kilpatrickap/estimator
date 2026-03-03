@@ -698,8 +698,13 @@ class BOQSetupWindow(QWidget):
         self.close()
 
     def _save_state(self):
-        import json
-        state_file = self.boq_file_path + ".state.json"
+        import json, os
+        project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
+        states_folder = os.path.join(project_dir, "BOQ-Setup States")
+        os.makedirs(states_folder, exist_ok=True)
+        
+        base_name = os.path.basename(self.boq_file_path)
+        state_file = os.path.join(states_folder, base_name + ".state.json")
         
         state = {
             'cb_ref': self.cb_ref.currentIndex(),
@@ -728,7 +733,7 @@ class BOQSetupWindow(QWidget):
         import os
         from PyQt6.QtWidgets import QTreeWidgetItemIterator
         
-        project_folder = os.path.dirname(self.boq_file_path)
+        project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
         sor_folder = os.path.join(project_folder, "SOR")
         if not os.path.exists(sor_folder):
             try:
@@ -775,8 +780,12 @@ class BOQSetupWindow(QWidget):
             QMessageBox.critical(self, "Error", f"Failed to save SOR Excel file:\n{e}")
 
     def _load_saved_state(self):
-        import json
-        state_file = self.boq_file_path + ".state.json"
+        import json, os
+        project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and self.active_est_window.db_path else os.path.dirname(self.boq_file_path)
+        states_folder = os.path.join(project_dir, "BOQ-Setup States")
+        
+        base_name = os.path.basename(self.boq_file_path)
+        state_file = os.path.join(states_folder, base_name + ".state.json")
         if not os.path.exists(state_file):
             return False
             
