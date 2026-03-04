@@ -416,7 +416,7 @@ class RateManagerDialog(QDialog):
             if estimate_obj and self.main_window:
                 self.main_window.open_rate_buildup_window(estimate_obj)
             else:
-                dialog = RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self)
+                dialog = RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self, db_path=db_path)
                 if table == self.project_table:
                     dialog.dataCommitted.connect(self.load_project_rates)
                 else:
@@ -540,28 +540,20 @@ class RateManagerDialog(QDialog):
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
         
-        # Standard Categories and Units
-        categories = list(self.db_manager.get_category_prefixes_dict().keys())
-        units = ["m", "m2", "m3", "kg", "t", "Item", "nr", "sum"]
+        db = self.project_db_manager if table == self.project_table else self.db_manager
         
-        details_dialog = NewRateDialog(categories, units, self)
-        if details_dialog.exec():
-            data = details_dialog.get_data()
-            if not data["description"]:
-                QMessageBox.warning(self, "Invalid Input", "Description is required.")
-                return
-                
-            new_est = Estimate(data["description"], data["unit"], 15.0, 10.0)
-            new_est.category = data["category"]
-            new_est.rate_code = self.db_manager.generate_next_rate_code(new_est.category)
-            
-            # Save it to database immediately as requested (or upon closing/Global Save?)-
-            # The request says: "ask the user ... and window is closed or Global Save button is clicked, Save it"
-            # This implies the RateBuildUpDialog will handle the saving.
-            
-            dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self)
+        # Determine category and generate initial code
+        cat = "Miscellaneous"
+        new_est = Estimate("New Rate", "m", 15.0, 10.0)
+        new_est.category = cat
+        new_est.rate_code = db.generate_next_rate_code(cat)
+        
+        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db.db_file)
+        if table == self.project_table:
+            dialog.dataCommitted.connect(self.load_project_rates)
+        else:
             dialog.dataCommitted.connect(self.load_rates)
-            dialog.exec()
+        dialog.exec()
 
     def duplicate_rate(self):
         """Duplicates the selected rate."""

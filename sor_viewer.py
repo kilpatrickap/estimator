@@ -9,6 +9,7 @@ from PyQt6.QtCore import Qt
 class SORDialog(QDialog):
     def __init__(self, project_dir, parent=None):
         super().__init__(parent)
+        self.main_window = parent
         self.project_dir = project_dir
         self.sor_folder = os.path.join(self.project_dir, "SOR")
         
@@ -79,6 +80,9 @@ class SORDialog(QDialog):
         
         header = self.table_widget.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        
+        self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table_widget.customContextMenuRequested.connect(self._show_context_menu)
         
         right_layout.addWidget(self.table_widget)
         self.splitter.addWidget(right_widget)
@@ -212,3 +216,51 @@ class SORDialog(QDialog):
             self.found_rates_label.setText("Found Rates : 0")
         else:
             self.found_rates_label.setText(f"Found Rates : {found_count}")
+
+    def _show_context_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        
+        selected_indexes = self.table_widget.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        menu = QMenu(self)
+        build_rate_action = QAction("Build Rate", self)
+        build_rate_action.triggered.connect(lambda: self._build_rate(selected_indexes[0]))
+        menu.addAction(build_rate_action)
+        
+        menu.exec(self.table_widget.viewport().mapToGlobal(pos))
+        
+    def _build_rate(self, index):
+        row = index.row()
+        item = self.table_widget.item(row, 3) # Description column
+        unit_item = self.table_widget.item(row, 5) # Unit column
+        
+        desc = item.text().strip() if item and item.text().strip() else "New Rate"
+        unit = unit_item.text().strip() if unit_item and unit_item.text().strip() else "m"
+        
+        from models import Estimate
+        from rate_buildup_dialog import RateBuildUpDialog
+        from database import DatabaseManager
+        
+        project_db_dir = os.path.join(self.project_dir, "Project Database")
+        db_path = None
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.endswith('.db'):
+                    db_path = os.path.join(project_db_dir, f)
+                    break
+        
+        if not db_path:
+            QMessageBox.warning(self, "No Project Database", "No Project Database found to build rate into.")
+            return
+
+        db = DatabaseManager(db_path)
+        cat = "Miscellaneous"
+        new_est = Estimate(desc, unit, 15.0, 10.0)
+        new_est.category = cat
+        new_est.rate_code = db.generate_next_rate_code(cat)
+        
+        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
+        dialog.exec()

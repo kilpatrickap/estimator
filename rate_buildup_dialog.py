@@ -21,11 +21,11 @@ class RateBuildUpDialog(QDialog):
     stateChanged = pyqtSignal()
     dataCommitted = pyqtSignal()
     
-    def __init__(self, estimate_object, main_window=None, parent=None):
+    def __init__(self, estimate_object, main_window=None, parent=None, db_path=None):
         super().__init__(parent)
         self.estimate = estimate_object
         self.main_window = main_window
-        self.db_manager = DatabaseManager("construction_rates.db")
+        self.db_manager = DatabaseManager(db_path if db_path else "construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code}")
         self.setMinimumSize(726, 533)
         
@@ -206,7 +206,7 @@ class RateBuildUpDialog(QDialog):
         # 2. Re-load from DB
         db_id = getattr(sub_obj, 'id', None)
         from database import DatabaseManager
-        rates_db = DatabaseManager("construction_rates.db")
+        rates_db = DatabaseManager(self.db_manager.db_file)
         
         if not db_id:
             for r in rates_db.get_rates_data():
@@ -368,7 +368,7 @@ class RateBuildUpDialog(QDialog):
 
         if auto_update and hasattr(self.estimate, 'sub_rates') and self.estimate.sub_rates:
             from database import DatabaseManager
-            rates_db = DatabaseManager("construction_rates.db")
+            rates_db = DatabaseManager(self.db_manager.db_file)
             
             sub_rates_affected = False
             for sub_idx, sub_obj in enumerate(self.estimate.sub_rates):
