@@ -12,6 +12,7 @@ class SORDialog(QDialog):
         self.main_window = parent
         self.project_dir = project_dir
         self.sor_folder = os.path.join(self.project_dir, "SOR")
+        self.clipboard_data = None  # Store copied rate data
         
         self.setWindowTitle("Schedules of Rate (SOR)")
         self.setMinimumSize(900, 600)
@@ -143,12 +144,23 @@ class SORDialog(QDialog):
                     conn.close()
                     continue
                     
-                cursor.execute("SELECT Sheet, Ref, Description, Quantity, Unit FROM sor_items")
+                sor_name = filename[:-3] if filename.lower().endswith('.db') else filename
+                # Fetch including Gross Rate and Rate Code if they exist
+                cursor.execute("PRAGMA table_info(sor_items)")
+                columns = [info[1] for info in cursor.fetchall()]
+                
+                query = "SELECT Sheet, Ref, Description, Quantity, Unit"
+                if "GrossRate" in columns: query += ", GrossRate"
+                else: query += ", NULL"
+                if "RateCode" in columns: query += ", RateCode"
+                else: query += ", NULL"
+                query += " FROM sor_items"
+                
+                cursor.execute(query)
                 rows = cursor.fetchall()
                 
-                sor_name = filename[:-3] if filename.lower().endswith('.db') else filename
                 for r in rows:
-                    all_rows.append((sor_name,) + r + ("", ""))
+                    all_rows.append((sor_name,) + r)
                     
                 conn.close()
                 
@@ -225,12 +237,168 @@ class SORDialog(QDialog):
         if not selected_indexes:
             return
             
+        index = selected_indexes[0]
+        row = index.row()
+        
         menu = QMenu(self)
-        build_rate_action = QAction("Build Rate", self)
-        build_rate_action.triggered.connect(lambda: self._build_rate(selected_indexes[0]))
+        
+        # Build/Edit Rate
+        rate_code = self.table_widget.item(row, 7).text().strip()
+        action_text = "Edit Rate" if rate_code else "Build Rate"
+        build_rate_action = QAction(action_text, self)
+        build_rate_action.triggered.connect(lambda: self._build_rate(index))
         menu.addAction(build_rate_action)
         
+        # Clear Rate
+        clear_rate_action = QAction("Clear Rate", self)
+        clear_rate_action.triggered.connect(lambda: self._clear_rate(index))
+        menu.addAction(clear_rate_action)
+        
+        menu.addSeparator()
+        
+        # Copy Rate
+        copy_action = QAction("Copy Rate", self)
+        copy_action.triggered.connect(lambda: self._copy_rate(index))
+        menu.addAction(copy_action)
+        
+        # Multi-Copy Rates
+        if len(selected_indexes) > 1:
+            multi_copy_action = QAction(f"Multi-Copy Rates ({len(selected_indexes)})", self)
+            multi_copy_action.triggered.connect(self._multi_copy_rates)
+            menu.addAction(multi_copy_action)
+            
+        # Paste Rate
+        paste_action = QAction("Paste Rate", self)
+        # Check if clipboard has data and unit matches
+        if self.clipboard_data:
+            paste_action.setEnabled(True)
+        else:
+            paste_action.setEnabled(False)
+        paste_action.triggered.connect(lambda: self._paste_rate(index))
+        menu.addAction(paste_action)
+        
+        menu.addSeparator()
+        
+        # Go-to Project Rates
+        goto_project_action = QAction("Go-to Project Rates", self)
+        goto_project_action.triggered.connect(self._goto_project_rates)
+        menu.addAction(goto_project_action)
+        
         menu.exec(self.table_widget.viewport().mapToGlobal(pos))
+
+    def _copy_rate(self, index):
+        row = index.row()
+        self.clipboard_data = {
+            'gross_rate': self.table_widget.item(row, 6).text(),
+            'rate_code': self.table_widget.item(row, 7).text(),
+            'unit': self.table_widget.item(row, 5).text()
+        }
+        if self.main_window:
+            self.main_window.statusBar().showMessage(f"Rate {self.clipboard_data['rate_code']} copied to clipboard.", 3000)
+
+    def _multi_copy_rates(self):
+        # Implementation for multiple rates could be a list in clipboard_data
+        selected_indexes = self.table_widget.selectionModel().selectedRows()
+        self.clipboard_data = []
+        for idx in selected_indexes:
+            row = idx.row()
+            self.clipboard_data.append({
+                'gross_rate': self.table_widget.item(row, 6).text(),
+                'rate_code': self.table_widget.item(row, 7).text(),
+                'unit': self.table_widget.item(row, 5).text()
+            })
+        if self.main_window:
+            self.main_window.statusBar().showMessage(f"{len(self.clipboard_data)} rates copied to clipboard.", 3000)
+
+    def _paste_rate(self, index):
+        if not self.clipboard_data:
+            return
+            
+        row = index.row()
+        target_unit = self.table_widget.item(row, 5).text().strip()
+        
+        # Support both single and multi paste (using first item for simplicity if single paste triggered)
+        data = self.clipboard_data if isinstance(self.clipboard_data, dict) else self.clipboard_data[0]
+        
+        if data['unit'].strip().lower() != target_unit.lower():
+            QMessageBox.warning(self, "Unit Mismatch", 
+                                f"Cannot paste rate. Units do not match!\n\n"
+                                f"Source: {data['unit']}\nTarget: {target_unit}")
+            return
+            
+        # Update Table UI
+        gross_item = QTableWidgetItem(data['gross_rate'])
+        gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        rate_code_item = QTableWidgetItem(data['rate_code'])
+        
+        self.table_widget.setItem(row, 6, gross_item)
+        self.table_widget.setItem(row, 7, rate_code_item)
+        
+        # Persist to SOR DB
+        self._persist_to_sor_db(row, data['gross_rate'], data['rate_code'])
+        
+        if self.main_window:
+            self.main_window.statusBar().showMessage("Rate pasted and persisted to SOR database.", 3000)
+
+    def _clear_rate(self, index):
+        row = index.row()
+        desc = self.table_widget.item(row, 3).text()
+        
+        reply = QMessageBox.question(self, "Clear Rate", 
+                                   f"Are you sure you want to clear the Gross Rate and Rate Code for:\n\n{desc}?",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                   QMessageBox.StandardButton.No)
+                                   
+        if reply == QMessageBox.StandardButton.Yes:
+            # Update Table UI
+            self.table_widget.setItem(row, 6, QTableWidgetItem("")) # Gross Rate
+            self.table_widget.setItem(row, 7, QTableWidgetItem("")) # Rate Code
+            
+            # Persist to SOR DB
+            self._persist_to_sor_db(row, "", "")
+            
+            if self.main_window:
+                self.main_window.statusBar().showMessage("Rate cleared and persisted to SOR database.", 3000)
+
+    def _goto_project_rates(self):
+        if self.main_window:
+            self.main_window.manage_rate_database()
+
+    def _persist_to_sor_db(self, row, gross_rate, rate_code):
+        """Persists the Gross Rate and Rate Code back to the original SOR SQLite database."""
+        sor_name = self.table_widget.item(row, 0).text()
+        sheet = self.table_widget.item(row, 1).text()
+        ref = self.table_widget.item(row, 2).text()
+        desc = self.table_widget.item(row, 3).text()
+        
+        file_path = os.path.join(self.sor_folder, f"{sor_name}.db")
+        if not os.path.exists(file_path):
+            return
+            
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            # Ensure columns exist
+            cursor.execute("PRAGMA table_info(sor_items)")
+            cols = [info[1] for info in cursor.fetchall()]
+            
+            if "GrossRate" not in cols:
+                cursor.execute("ALTER TABLE sor_items ADD COLUMN GrossRate TEXT")
+            if "RateCode" not in cols:
+                cursor.execute("ALTER TABLE sor_items ADD COLUMN RateCode TEXT")
+                
+            # Update the specific row. We use Sheet, Ref, and Description as unique identifiers
+            cursor.execute("""
+                UPDATE sor_items 
+                SET GrossRate = ?, RateCode = ? 
+                WHERE Sheet = ? AND Ref = ? AND Description = ?
+            """, (gross_rate, rate_code, sheet, ref, desc))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"Failed to persist SOR data:\n{e}")
         
     def _build_rate(self, index):
         row = index.row()
@@ -286,6 +454,9 @@ class SORDialog(QDialog):
             
             self.table_widget.setItem(row, 6, gross_item)
             self.table_widget.setItem(row, 7, rate_code_item)
+            
+            # Persist to SOR DB
+            self._persist_to_sor_db(row, formatted_gross, str(dialog.estimate.rate_code))
             
             self.table_widget.resizeColumnToContents(6)
             self.table_widget.resizeColumnToContents(7)
