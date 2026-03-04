@@ -76,7 +76,7 @@ class RateManagerDialog(QDialog):
         
         import os
         
-        main_label = QLabel("Library :")
+        main_label = QLabel("Library(ies) :")
         header_layout.addWidget(main_label)
         
         self.library_combo = QComboBox()

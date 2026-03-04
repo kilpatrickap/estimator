@@ -987,6 +987,7 @@ class NewEstimateDialog(QDialog):
         self.library_btn.clicked.connect(self._browse_library)
         self.library_layout.addWidget(self.library_path)
         self.library_layout.addWidget(self.library_btn)
+        self.library_files = []
 
         self.project_dir_layout = QHBoxLayout()
         self.project_dir_path = QLineEdit()
@@ -1011,7 +1012,7 @@ class NewEstimateDialog(QDialog):
         layout.addRow("Overhead (%):", self.overhead)
         layout.addRow("Profit (%):", self.profit)
         layout.addRow("Currency:", self.currency)
-        layout.addRow("Library:", self.library_layout)
+        layout.addRow("Library(ies):", self.library_layout)
         layout.addRow("Project Directory:", self.project_dir_layout)
         layout.addRow("Import Excel BOQs:", self.boq_layout)
 
@@ -1022,9 +1023,12 @@ class NewEstimateDialog(QDialog):
 
     def _browse_library(self):
         from PyQt6.QtWidgets import QFileDialog
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
-        if file_path:
-            self.library_path.setText(file_path)
+        import os
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Library(ies)", "", "Database Files (*.db);;All Files (*)")
+        if file_paths:
+            self.library_files = file_paths
+            names = [os.path.basename(f) for f in file_paths]
+            self.library_path.setText(", ".join(names))
 
     def _browse_project_dir(self):
         from PyQt6.QtWidgets import QFileDialog
@@ -1050,15 +1054,15 @@ class NewEstimateDialog(QDialog):
             new_project_path = os.path.join(selected_dir, project_name)
             try:
                 os.makedirs(new_project_path, exist_ok=True)
-                # Copy library if selected
-                lib_path = self.library_path.text().strip()
-                if lib_path and os.path.exists(lib_path):
+                # Copy libraries if selected
+                if hasattr(self, 'library_files') and self.library_files:
                     lib_dir = os.path.join(new_project_path, "Imported Library")
                     os.makedirs(lib_dir, exist_ok=True)
-                    lib_filename = os.path.basename(lib_path)
-                    new_lib_path = os.path.join(lib_dir, lib_filename)
-                    shutil.copy2(lib_path, new_lib_path)
-                    self.library_path.setText(new_lib_path)
+                    for lib_file in self.library_files:
+                        if os.path.exists(lib_file):
+                            lib_filename = os.path.basename(lib_file)
+                            new_lib_path = os.path.join(lib_dir, lib_filename)
+                            shutil.copy2(lib_file, new_lib_path)
                 
                 if hasattr(self, 'boq_files') and self.boq_files:
                     boq_dir = os.path.join(new_project_path, "Imported BOQs")

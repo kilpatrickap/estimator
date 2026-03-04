@@ -306,13 +306,23 @@ class SettingsDialog(QDialog):
             self.proj_currency = QComboBox()
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
             self.proj_currency.setCurrentText(def_currency)
-            self.proj_library = QLineEdit(actual_lib_path)
-            self.proj_library.setReadOnly(True)
-            proj_lib_btn = QPushButton("Browse...")
-            proj_lib_btn.clicked.connect(self._browse_library)
-            proj_lib_layout = QHBoxLayout()
-            proj_lib_layout.addWidget(self.proj_library)
-            proj_lib_layout.addWidget(proj_lib_btn)
+            # Library (List)
+            self.library_list = QListWidget()
+            self.library_list.setMaximumHeight(100)
+            self.library_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+            self._load_libraries()
+            
+            lib_btn_layout = QHBoxLayout()
+            self.add_lib_btn = QPushButton("Add/Import Libraries...")
+            self.add_lib_btn.clicked.connect(self._add_library)
+            self.del_lib_btn = QPushButton("Delete Selected")
+            self.del_lib_btn.clicked.connect(self._delete_library)
+            lib_btn_layout.addWidget(self.add_lib_btn)
+            lib_btn_layout.addWidget(self.del_lib_btn)
+            
+            lib_main_layout = QVBoxLayout()
+            lib_main_layout.addWidget(self.library_list)
+            lib_main_layout.addLayout(lib_btn_layout)
             
             # BOQ
             self.boq_list = QListWidget()
@@ -335,7 +345,7 @@ class SettingsDialog(QDialog):
             proj_form.addRow("Overhead (%):", self.proj_overhead)
             proj_form.addRow("Profit (%):", self.proj_profit)
             proj_form.addRow("Currency:", self.proj_currency)
-            proj_form.addRow("Library:", proj_lib_layout)
+            proj_form.addRow("Library(ies):", lib_main_layout)
             proj_form.addRow("Imported BOQs:", boq_main_layout)
             
             proj_layout.addLayout(proj_form)
@@ -358,10 +368,50 @@ class SettingsDialog(QDialog):
     def open_categories_dialog(self):
         CategoriesCodesDialog(self.db_manager, self).exec()
 
-    def _browse_library(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select Library", "", "All Files (*);;Database Files (*.db)")
-        if file_path:
-            self.proj_library.setText(file_path)
+    def _load_libraries(self):
+        self.library_list.clear()
+        import os
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            return
+        lib_dir = os.path.join(self.project_dir, "Imported Library")
+        if not os.path.exists(lib_dir):
+            return
+        for f in os.listdir(lib_dir):
+            if f.endswith('.db'):
+                self.library_list.addItem(f)
+
+    def _add_library(self):
+        import os, shutil
+        if not self.project_dir or not os.path.exists(self.project_dir):
+            QMessageBox.warning(self, "Error", "Project directory is not valid.")
+            return
+        file_paths, _ = QFileDialog.getOpenFileNames(self, "Select Library(ies)", "", "Database Files (*.db);;All Files (*)")
+        if file_paths:
+            lib_dir = os.path.join(self.project_dir, "Imported Library")
+            os.makedirs(lib_dir, exist_ok=True)
+            for file_path in file_paths:
+                filename = os.path.basename(file_path)
+                target = os.path.join(lib_dir, filename)
+                try:
+                    shutil.copy2(file_path, target)
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Failed to copy Library:\n{e}")
+            self._load_libraries()
+
+    def _delete_library(self):
+        import os
+        curr = self.library_list.currentItem()
+        if not curr: return
+        filename = curr.text()
+        reply = QMessageBox.question(self, "Confirm Delete", f"Are you sure you want to delete '{filename}'?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.Yes:
+            fpath = os.path.join(self.project_dir, "Imported Library", filename)
+            if os.path.exists(fpath):
+                try:
+                    os.remove(fpath)
+                    self._load_libraries()
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
 
     def _load_boqs(self):
         self.boq_list.clear()
@@ -418,7 +468,7 @@ class SettingsDialog(QDialog):
             "overhead": float(self.proj_overhead.text() or 0),
             "profit": float(self.proj_profit.text() or 0),
             "currency": self.proj_currency.currentText(),
-            "library_path": self.proj_library.text().strip()
+            "library_path": ""
         }
 
     def save_settings(self):
@@ -426,22 +476,7 @@ class SettingsDialog(QDialog):
             self.db_manager.set_setting('company_name', self.company_name.text())
             self.db_manager.set_setting('company_logo', self.logo_path.text())
             
-            if hasattr(self, 'proj_library') and self.project_dir:
-                import os, shutil
-                lib_path = self.proj_library.text().strip()
-                if lib_path and os.path.exists(lib_path):
-                    expected = os.path.join(self.project_dir, "Imported Library")
-                    if expected not in lib_path:
-                        os.makedirs(expected, exist_ok=True)
-                        new_lib = os.path.join(expected, os.path.basename(lib_path))
-                        if not os.path.exists(new_lib):
-                            try:
-                                shutil.copy2(lib_path, new_lib)
-                                self.proj_library.setText(new_lib)
-                            except Exception as e:
-                                QMessageBox.warning(self, "Error", f"Failed to copy Library:\n{e}")
-                                return
-                                
+
             QMessageBox.information(self, "Success", "Settings saved successfully.")
             self.accept()
         except ValueError:
