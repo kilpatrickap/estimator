@@ -71,9 +71,38 @@ class RateManagerDialog(QDialog):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(0, 0, 0, 0)
         
-        main_label = QLabel("Historical Rates")
+        import os
+        
+        main_label = QLabel("Library : ")
         main_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2e7d32;")
         header_layout.addWidget(main_label)
+        
+        self.library_combo = QComboBox()
+        self.library_combo.setStyleSheet("font-size: 16px; padding: 4px;")
+        self.library_combo.addItem("Global Historical Rates", "construction_rates.db")
+        
+        project_dir = ""
+        if self.main_window:
+            active_est = self.main_window._get_active_estimate_window()
+            if active_est and type(active_est).__name__ == "EstimateWindow":
+                project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
+                if project_dir and os.path.basename(project_dir) == "Project Database":
+                    project_dir = os.path.dirname(project_dir)
+            if not project_dir:
+                project_dir = self.main_window.db_manager.get_setting('last_project_dir', '')
+                if project_dir and os.path.basename(project_dir) == "Project Database":
+                    project_dir = os.path.dirname(project_dir)
+                    
+        if project_dir and os.path.exists(project_dir):
+            lib_dir = os.path.join(project_dir, "Imported Library")
+            if os.path.exists(lib_dir):
+                for f in os.listdir(lib_dir):
+                    if f.endswith('.db'):
+                        self.library_combo.addItem(f, os.path.join(lib_dir, f))
+
+        self.library_combo.currentIndexChanged.connect(self._change_library)
+        header_layout.addWidget(self.library_combo)
+        
         header_layout.addStretch()
 
         self.search_input = QLineEdit()
@@ -112,6 +141,12 @@ class RateManagerDialog(QDialog):
         self.table.customContextMenuRequested.connect(self.show_context_menu)
         
         layout.addWidget(self.table)
+
+    def _change_library(self):
+        db_path = self.library_combo.currentData()
+        if db_path:
+            self.db_manager = DatabaseManager(db_path)
+            self.load_rates()
 
 
 

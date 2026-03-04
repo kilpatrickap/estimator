@@ -528,8 +528,7 @@ class DatabaseManager:
         return f"{prefix}{next_num}{next_letter}"
 
     def get_rates_data(self):
-        rates_db = DatabaseManager("construction_rates.db")
-        with rates_db.Session() as session:
+        with self.Session() as session:
             ests = session.query(DBEstimate).order_by(DBEstimate.rate_code.asc()).all()
             return [{'id': e.id, 'rate_code': e.rate_code, 'project_name': e.project_name, 'unit': e.unit, 'currency': e.currency, 'net_total': e.net_total, 'grand_total': e.grand_total, 'adjustment_factor': e.adjustment_factor, 'date_created': e.date_created, 'notes': e.notes, 'rate_type': e.rate_type} for e in ests]
 
