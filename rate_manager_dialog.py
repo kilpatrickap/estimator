@@ -55,11 +55,14 @@ class RateManagerDialog(QDialog):
         self.main_window = main_window
         self.setWindowTitle("Rate Database")
         self.setMinimumSize(850, 500)
-        self.db_manager = DatabaseManager("construction_rates.db")
+        self.db_manager = None
         self.is_loading = False
         
         self._init_ui()
-        self.load_rates()
+        
+        if self.library_combo.count() > 0:
+            self.db_manager = DatabaseManager(self.library_combo.currentData())
+            self.load_rates()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -73,13 +76,10 @@ class RateManagerDialog(QDialog):
         
         import os
         
-        main_label = QLabel("Library : ")
-        main_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2e7d32;")
+        main_label = QLabel("Library :")
         header_layout.addWidget(main_label)
         
         self.library_combo = QComboBox()
-        self.library_combo.setStyleSheet("font-size: 16px; padding: 4px;")
-        self.library_combo.addItem("Global Historical Rates", "construction_rates.db")
         
         project_dir = ""
         if self.main_window:
@@ -152,6 +152,9 @@ class RateManagerDialog(QDialog):
 
     def load_rates(self):
         """Loads data from construction_rates.db into the table."""
+        if not self.db_manager:
+            return
+            
         self.is_loading = True
         rates = self.db_manager.get_rates_data()
         self.table.setRowCount(0)
@@ -255,7 +258,7 @@ class RateManagerDialog(QDialog):
 
     def on_item_changed(self, item):
         """Handles inline editing of Rate Code and Description."""
-        if self.is_loading:
+        if self.is_loading or not self.db_manager:
             return
             
         row = item.row()
@@ -315,6 +318,10 @@ class RateManagerDialog(QDialog):
 
     def new_rate(self):
         """Creates a new rate and opens the build-up dialog."""
+        if not self.db_manager:
+            QMessageBox.warning(self, "No Library", "Please select a library first.")
+            return
+            
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
         
@@ -343,6 +350,8 @@ class RateManagerDialog(QDialog):
 
     def duplicate_rate(self):
         """Duplicates the selected rate."""
+        if not self.db_manager:
+            return
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
             return
@@ -365,6 +374,8 @@ class RateManagerDialog(QDialog):
 
     def delete_rate(self):
         """Deletes the selected rate after confirmation."""
+        if not self.db_manager:
+            return
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
             return
