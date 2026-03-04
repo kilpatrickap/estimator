@@ -333,6 +333,71 @@ class RateManagerDialog(QDialog):
         
         self.is_loading = False
 
+    def load_project_rates(self):
+        """Loads data from the Project Database into the table."""
+        if not self.project_db_manager:
+            return
+            
+        self.is_loading = True
+        self.project_table.setRowCount(0)
+        rates = self.project_db_manager.get_rates_data()
+        db_name_str = getattr(self, 'project_db_name', "Project Database")
+        db_path_str = self.project_db_manager.db_path
+        
+        for row_idx, row_data in enumerate(rates):
+            self.project_table.insertRow(row_idx)
+            columns = [
+                db_name_str,
+                row_data.get('rate_code'),
+                row_data.get('project_name'),
+                row_data.get('unit'),
+                row_data.get('currency'),
+                row_data.get('net_total'),
+                row_data.get('grand_total'),
+                row_data.get('adjustment_factor'),
+                row_data.get('date_created'),
+                row_data.get('notes')
+            ]
+            
+            for col_idx, data in enumerate(columns):
+                if col_idx in [5, 6]:
+                    display_text = f"{float(data):,.2f}" if data is not None else "0.00"
+                elif col_idx == 7:
+                    try:
+                        val = float(data)
+                        display_text = f"{val:.2f}" if val != 1.0 else "N/A"
+                    except:
+                        display_text = "N/A"
+                else:
+                    display_text = str(data) if data is not None else ""
+                
+                item = QTableWidgetItem(display_text)
+                if col_idx == 0:
+                    val_str = f"{row_data.get('id')}|{db_path_str}"
+                    item.setData(Qt.ItemDataRole.UserRole, val_str)
+                    
+                if col_idx == 1:
+                    font = item.font()
+                    font.setBold(True)
+                    item.setFont(font)
+                
+                if col_idx in [5, 6, 7]:
+                    font = item.font()
+                    font.setBold(True) if col_idx in [5, 6] else None
+                    item.setFont(font)
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                
+                if col_idx not in [1, 2]:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                
+                self.project_table.setItem(row_idx, col_idx, item)
+        
+        for i in range(self.project_table.columnCount()):
+            self.project_table.resizeColumnToContents(i)
+        current_desc_w = self.project_table.columnWidth(2)
+        self.project_table.setColumnWidth(2, max(current_desc_w, 250))
+        
+        self.is_loading = False
 
     def open_rate_buildup(self, table, index):
         """Loads and shows the build-up for the selected rate."""
