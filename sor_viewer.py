@@ -71,8 +71,8 @@ class SORDialog(QDialog):
         right_layout.addLayout(stats_layout)
         
         self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(6)
-        self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit"])
+        self.table_widget.setColumnCount(8)
+        self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit", "Gross Rate", "Rate Code"])
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setAlternatingRowColors(True)
         self.table_widget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -148,7 +148,7 @@ class SORDialog(QDialog):
                 
                 sor_name = filename[:-3] if filename.lower().endswith('.db') else filename
                 for r in rows:
-                    all_rows.append((sor_name,) + r)
+                    all_rows.append((sor_name,) + r + ("", ""))
                     
                 conn.close()
                 
@@ -264,3 +264,19 @@ class SORDialog(QDialog):
         
         dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
         dialog.exec()
+        
+        if hasattr(dialog, 'estimate') and dialog.estimate.id:
+            totals = dialog.estimate.calculate_totals()
+            gross_rate = totals.get('grand_total', 0.0)
+            formatted_gross = f"{gross_rate:,.2f}"
+            
+            gross_item = QTableWidgetItem(formatted_gross)
+            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
+            
+            self.table_widget.setItem(row, 6, gross_item)
+            self.table_widget.setItem(row, 7, rate_code_item)
+            
+            self.table_widget.resizeColumnToContents(6)
+            self.table_widget.resizeColumnToContents(7)
