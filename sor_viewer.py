@@ -66,11 +66,12 @@ class SORDialog(QDialog):
         self.priced_rates_label = QLabel("Priced Rates : 0")
         self.outstanding_rates_label = QLabel("Outstanding Rates : 0")
         
-        # Style labels with specific colors
-        self.total_rates_label.setStyleSheet("font-weight: bold; color: blue;")
-        self.found_rates_label.setStyleSheet("font-weight: bold; color: green; margin-left: 20px;")
-        self.priced_rates_label.setStyleSheet("font-weight: bold; color: orange; margin-left: 20px;")
-        self.outstanding_rates_label.setStyleSheet("font-weight: bold; color: red; margin-left: 10px;")
+        # Style labels with smaller font for compact look
+        label_style = "font-weight: bold; font-size: 8pt;"
+        self.total_rates_label.setStyleSheet(f"{label_style} color: blue;")
+        self.found_rates_label.setStyleSheet(f"{label_style} color: green; margin-left: 15px;")
+        self.priced_rates_label.setStyleSheet(f"{label_style} color: orange; margin-left: 15px;")
+        self.outstanding_rates_label.setStyleSheet(f"{label_style} color: red; margin-left: 10px;")
         
         stats_row.addWidget(self.total_rates_label)
         stats_row.addWidget(self.found_rates_label)
@@ -84,12 +85,14 @@ class SORDialog(QDialog):
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(8)
         self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit", "Gross Rate", "Rate Code"])
-        self.table_widget.verticalHeader().setVisible(False)
-        self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table_widget.verticalHeader().setDefaultSectionSize(22)
+        self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.setShowGrid(False)
         
         header = self.table_widget.horizontalHeader()
+        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
+        header.setMinimumSectionSize(20)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -183,6 +186,8 @@ class SORDialog(QDialog):
         for row_idx, row_data in enumerate(all_rows):
             for col_idx, col_val in enumerate(row_data):
                 t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                if col_idx == 6: # Gross Rate
+                    t_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table_widget.setItem(row_idx, col_idx, t_item)
                 
         self.total_rates_label.setText(f"Total Rates : {len(all_rows)}")
