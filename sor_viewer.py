@@ -258,7 +258,7 @@ class SORDialog(QDialog):
 
         db = DatabaseManager(db_path)
         cat = "Miscellaneous"
-        new_est = Estimate(desc, unit, 15.0, 10.0)
+        new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
         new_est.category = cat
         new_est.rate_code = db.generate_next_rate_code(cat)
         

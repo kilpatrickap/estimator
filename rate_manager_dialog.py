@@ -414,7 +414,7 @@ class RateManagerDialog(QDialog):
             rates_db = DatabaseManager(db_path)
             estimate_obj = rates_db.load_estimate_details(db_id)
             if estimate_obj and self.main_window:
-                self.main_window.open_rate_buildup_window(estimate_obj)
+                self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
             else:
                 dialog = RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self, db_path=db_path)
                 if table == self.project_table:
@@ -499,23 +499,23 @@ class RateManagerDialog(QDialog):
         menu = QMenu(self)
         
         new_action = QAction("New Rate", self)
-        new_action.triggered.connect(lambda: self.new_rate(table))
+        new_action.triggered.connect(lambda checked=False, t=table: self.new_rate(t))
         menu.addAction(new_action)
         
         selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
             edit_action = QAction("Edit Rate", self)
-            edit_action.triggered.connect(lambda: self.edit_rate(table))
+            edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
             menu.addAction(edit_action)
             
             menu.addSeparator()
             
             duplicate_action = QAction("Duplicate Rate", self)
-            duplicate_action.triggered.connect(lambda: self.duplicate_rate(table))
+            duplicate_action.triggered.connect(lambda checked=False, t=table: self.duplicate_rate(t))
             menu.addAction(duplicate_action)
             
             delete_action = QAction("Delete Rate", self)
-            delete_action.triggered.connect(lambda: self.delete_rate(table))
+            delete_action.triggered.connect(lambda checked=False, t=table: self.delete_rate(t))
             menu.addAction(delete_action)
             
         menu.exec(table.viewport().mapToGlobal(pos))
@@ -544,7 +544,7 @@ class RateManagerDialog(QDialog):
         
         # Determine category and generate initial code
         cat = "Miscellaneous"
-        new_est = Estimate("New Rate", "m", 15.0, 10.0)
+        new_est = Estimate(project_name="New Rate", client_name="", overhead=15.0, profit=10.0, unit="m")
         new_est.category = cat
         new_est.rate_code = db.generate_next_rate_code(cat)
         

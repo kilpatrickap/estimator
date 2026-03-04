@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.critical(self, "Error", "Failed to load estimate from the file.")
 
-    def open_rate_buildup_window(self, estimate_obj):
+    def open_rate_buildup_window(self, estimate_obj, db_path=None):
         """Opens a rate build-up in an MDI window."""
         # Check if already open
         for sub in self.mdi_area.subWindowList():
@@ -331,10 +331,13 @@ class MainWindow(QMainWindow):
 
         def refresh_manager():
             for s in self.mdi_area.subWindowList():
-                if isinstance(s.widget(), RateManagerDialog):
-                    s.widget().load_rates()
+                if getattr(s.widget(), '__class__', None).__name__ == 'RateManagerDialog':
+                    if hasattr(s.widget(), 'load_rates'):
+                        s.widget().load_rates()
+                    if hasattr(s.widget(), 'load_project_rates'):
+                        s.widget().load_project_rates()
 
-        buildup_win = RateBuildUpDialog(estimate_obj, main_window=self)
+        buildup_win = RateBuildUpDialog(estimate_obj, main_window=self, db_path=db_path)
         sub = self.mdi_area.addSubWindow(buildup_win)
         
         # Color code border
