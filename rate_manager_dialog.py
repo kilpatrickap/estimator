@@ -57,6 +57,7 @@ class RateManagerDialog(QDialog):
         self.setMinimumSize(850, 500)
         self.db_manager = None
         self.is_loading = False
+        self.is_combined = False
         
         self._init_ui()
         
@@ -103,6 +104,11 @@ class RateManagerDialog(QDialog):
         self.library_combo.currentIndexChanged.connect(self._change_library)
         header_layout.addWidget(self.library_combo)
         
+        self.combine_btn = QPushButton("Combine Libraries")
+        self.combine_btn.setStyleSheet("padding: 4px 10px; font-weight: bold; background-color: #2e7d32; color: white;")
+        self.combine_btn.clicked.connect(self._combine_libraries)
+        header_layout.addWidget(self.combine_btn)
+        
         header_layout.addStretch()
 
         self.search_input = QLineEdit()
@@ -114,7 +120,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -143,26 +149,53 @@ class RateManagerDialog(QDialog):
         layout.addWidget(self.table)
 
     def _change_library(self):
+        self.is_combined = False
         db_path = self.library_combo.currentData()
         if db_path:
             self.db_manager = DatabaseManager(db_path)
             self.load_rates()
 
+    def _combine_libraries(self):
+        self.is_combined = True
+        self.load_rates()
+
 
 
     def load_rates(self):
         """Loads data from construction_rates.db into the table."""
-        if not self.db_manager:
+        if not self.db_manager and not self.is_combined:
             return
             
         self.is_loading = True
-        rates = self.db_manager.get_rates_data()
         self.table.setRowCount(0)
         
-        for row_idx, row_data in enumerate(rates):
+        all_rates = []
+        if self.is_combined:
+            for i in range(self.library_combo.count()):
+                lib_name = self.library_combo.itemText(i)
+                lib_path = self.library_combo.itemData(i)
+                if lib_path:
+                    db = DatabaseManager(lib_path)
+                    rates = db.get_rates_data()
+                    for r in rates:
+                        r['_library_name'] = lib_name
+                        r['_library_path'] = lib_path
+                    all_rates.extend(rates)
+        else:
+            if self.db_manager:
+                rates = self.db_manager.get_rates_data()
+                lib_name = self.library_combo.currentText()
+                lib_path = self.library_combo.currentData()
+                for r in rates:
+                    r['_library_name'] = lib_name
+                    r['_library_path'] = lib_path
+                all_rates.extend(rates)
+        
+        for row_idx, row_data in enumerate(all_rates):
             self.table.insertRow(row_idx)
             
             columns = [
+                row_data.get('_library_name'),
                 row_data.get('rate_code'),
                 row_data.get('project_name'),
                 row_data.get('unit'),
@@ -175,9 +208,9 @@ class RateManagerDialog(QDialog):
             ]
             
             for col_idx, data in enumerate(columns):
-                if col_idx in [4, 5]: # net_total or grand_total
+                if col_idx in [5, 6]: # net_total or grand_total
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
-                elif col_idx == 6: # adjustment_factor
+                elif col_idx == 7: # adjustment_factor
                     try:
                         val = float(data)
                         display_text = f"{val:.2f}" if val != 1.0 else "N/A"
@@ -187,21 +220,24 @@ class RateManagerDialog(QDialog):
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
-                # Store the internal DB ID from row_data['id'] in the first visible column's UserRole
+                # Store the internal DB ID and path in the first visible column's UserRole
                 if col_idx == 0:
-                    item.setData(Qt.ItemDataRole.UserRole, row_data.get('id'))
+                    val_str = f"{row_data.get('id')}|{row_data.get('_library_path')}"
+                    item.setData(Qt.ItemDataRole.UserRole, val_str)
+                    
+                if col_idx == 1:
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
                 
-                if col_idx in [4, 5, 6]: # Net Rate, Gross Rate, and Adj Factor
+                if col_idx in [5, 6, 7]: # Net Rate, Gross Rate, and Adj Factor
                     font = item.font()
-                    font.setBold(True) if col_idx in [4, 5] else None
+                    font.setBold(True) if col_idx in [5, 6] else None
                     item.setFont(font)
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
                 # Freeze all columns except Rate Code and Description
-                if col_idx >= 2:
+                if col_idx not in [1, 2]:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 
                 self.table.setItem(row_idx, col_idx, item)
@@ -211,19 +247,21 @@ class RateManagerDialog(QDialog):
             self.table.resizeColumnToContents(i)
             
         # Ensure description and notes had a bit of extra space to start
-        current_desc_w = self.table.columnWidth(1)
-        self.table.setColumnWidth(1, max(current_desc_w, 250))
+        current_desc_w = self.table.columnWidth(2)
+        self.table.setColumnWidth(2, max(current_desc_w, 250))
         
         self.is_loading = False
 
     def open_rate_buildup(self, index):
         """Loads and shows the build-up for the selected rate."""
         row = index.row()
-        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         
-        if db_id:
+        if val_str:
+            db_id = int(val_str.split('|')[0])
+            db_path = val_str.split('|')[1]
             from database import DatabaseManager
-            rates_db = DatabaseManager("construction_rates.db")
+            rates_db = DatabaseManager(db_path)
             estimate_obj = rates_db.load_estimate_details(db_id)
             if estimate_obj and self.main_window:
                 self.main_window.open_rate_buildup_window(estimate_obj)
@@ -239,7 +277,7 @@ class RateManagerDialog(QDialog):
         
         from PyQt6.QtWidgets import QTableWidget
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
+            item = self.table.item(row, 1)
             if item and item.text() == rate_code:
                 self.table.clearSelection()
                 self.table.selectRow(row)
@@ -251,37 +289,40 @@ class RateManagerDialog(QDialog):
         for row in range(self.table.rowCount()):
             item0 = self.table.item(row, 0)
             item1 = self.table.item(row, 1)
-            if item0 and item1:
-                id_match = query in item0.text().lower()
-                desc_match = query in item1.text().lower()
-                self.table.setRowHidden(row, not (id_match or desc_match))
+            item2 = self.table.item(row, 2)
+            if item1 and item2:
+                lib_match = query in item0.text().lower() if item0 else False
+                id_match = query in item1.text().lower()
+                desc_match = query in item2.text().lower()
+                self.table.setRowHidden(row, not (lib_match or id_match or desc_match))
 
     def on_item_changed(self, item):
         """Handles inline editing of Rate Code and Description."""
-        if self.is_loading or not self.db_manager:
+        if self.is_loading:
             return
             
         row = item.row()
         col = item.column()
         
-        # Only handle Rate Code (0) and Description (1)
-        if col not in [0, 1]:
+        # Only handle Rate Code (1) and Description (2)
+        if col not in [1, 2]:
             return
             
-        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not db_id:
+        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        if not val_str:
             return
+            
+        db_id = int(val_str.split('|')[0])
+        db_path = val_str.split('|')[1]
             
         new_val = item.text().strip()
-        field = "rate_code" if col == 0 else "project_name"
+        field = "rate_code" if col == 1 else "project_name"
         
-        if self.db_manager.update_estimate_field(db_id, field, new_val):
-            # If Rate Code was changed, we might need to update the UserRole storage if it was the first column, 
-            # but UserRole is on the item itself, so it's fine.
+        db = DatabaseManager(db_path)
+        if db.update_estimate_field(db_id, field, new_val):
             pass
         else:
             QMessageBox.warning(self, "Error", f"Failed to update {field} in database.")
-            # Revert UI? Better to just load_rates to be sure
             self.load_rates()
 
     def show_context_menu(self, pos):
@@ -318,8 +359,8 @@ class RateManagerDialog(QDialog):
 
     def new_rate(self):
         """Creates a new rate and opens the build-up dialog."""
-        if not self.db_manager:
-            QMessageBox.warning(self, "No Library", "Please select a library first.")
+        if self.is_combined or not self.db_manager:
+            QMessageBox.warning(self, "Select Library", "Please select a specific single library from the drop-down to add a new rate.")
             return
             
         from models import Estimate
@@ -350,46 +391,50 @@ class RateManagerDialog(QDialog):
 
     def duplicate_rate(self):
         """Duplicates the selected rate."""
-        if not self.db_manager:
-            return
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
             return
             
         row = selected_indexes[0].row()
-        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         
-        if db_id:
+        if val_str:
+            db_id = int(val_str.split('|')[0])
+            db_path = val_str.split('|')[1]
+            db = DatabaseManager(db_path)
+            
             # Load full details to ensure we duplicate everything (tasks, items, etc.)
-            original_estimate = self.db_manager.load_estimate_details(db_id)
+            original_estimate = db.load_estimate_details(db_id)
             if original_estimate:
                 original_estimate.id = None
                 original_estimate.project_name = f"Copy of {original_estimate.project_name}"
                 # Generate a new unique rate code
                 category = getattr(original_estimate, 'category', "Miscellaneous")
-                original_estimate.rate_code = self.db_manager.generate_next_rate_code(category)
+                original_estimate.rate_code = db.generate_next_rate_code(category)
                 
-                if self.db_manager.save_estimate(original_estimate):
+                if db.save_estimate(original_estimate):
                     self.load_rates()
 
     def delete_rate(self):
         """Deletes the selected rate after confirmation."""
-        if not self.db_manager:
-            return
         selected_indexes = self.table.selectionModel().selectedRows()
         if not selected_indexes:
             return
             
         row = selected_indexes[0].row()
-        db_id = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        rate_code = self.table.item(row, 0).text()
+        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        rate_code = self.table.item(row, 1).text()
         
-        if db_id:
+        if val_str:
+            db_id = int(val_str.split('|')[0])
+            db_path = val_str.split('|')[1]
+            db = DatabaseManager(db_path)
+            
             reply = QMessageBox.question(self, 'Delete Rate',
                                        f"Are you sure you want to delete Rate {rate_code}?",
                                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                                        QMessageBox.StandardButton.No)
             
             if reply == QMessageBox.StandardButton.Yes:
-                if self.db_manager.delete_estimate(db_id):
+                if db.delete_estimate(db_id):
                     self.load_rates()
