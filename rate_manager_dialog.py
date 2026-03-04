@@ -555,14 +555,15 @@ class RateManagerDialog(QDialog):
             dialog.dataCommitted.connect(self.load_rates)
         dialog.exec()
 
-    def duplicate_rate(self):
+    def duplicate_rate(self, table=None):
+        if table is None: table = self.table
         """Duplicates the selected rate."""
-        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_indexes = table.selectionModel().selectedRows()
         if not selected_indexes:
             return
             
         row = selected_indexes[0].row()
-        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         
         if val_str:
             db_id = int(val_str.split('|')[0])
@@ -579,17 +580,21 @@ class RateManagerDialog(QDialog):
                 original_estimate.rate_code = db.generate_next_rate_code(category)
                 
                 if db.save_estimate(original_estimate):
-                    self.load_rates()
+                    if table == self.project_table:
+                        self.load_project_rates()
+                    else:
+                        self.load_rates()
 
-    def delete_rate(self):
+    def delete_rate(self, table=None):
+        if table is None: table = self.table
         """Deletes the selected rate after confirmation."""
-        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_indexes = table.selectionModel().selectedRows()
         if not selected_indexes:
             return
             
         row = selected_indexes[0].row()
-        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        rate_code = self.table.item(row, 1).text()
+        val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        rate_code = table.item(row, 1).text()
         
         if val_str:
             db_id = int(val_str.split('|')[0])
@@ -603,4 +608,7 @@ class RateManagerDialog(QDialog):
             
             if reply == QMessageBox.StandardButton.Yes:
                 if db.delete_estimate(db_id):
-                    self.load_rates()
+                    if table == self.project_table:
+                        self.load_project_rates()
+                    else:
+                        self.load_rates()
