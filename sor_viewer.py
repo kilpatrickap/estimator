@@ -60,14 +60,24 @@ class SORDialog(QDialog):
         # Stats layout
         stats_layout = QVBoxLayout()
         stats_layout.setSpacing(2)
+        stats_row = QHBoxLayout()
         self.total_rates_label = QLabel("Total Rates : 0")
         self.found_rates_label = QLabel("Found Rates : 0")
+        self.priced_rates_label = QLabel("Priced Rates : 0")
+        self.outstanding_rates_label = QLabel("Outstanding Rates : 0")
         
         # Style labels with specific colors
         self.total_rates_label.setStyleSheet("font-weight: bold; color: blue;")
         self.found_rates_label.setStyleSheet("font-weight: bold; color: green;")
+        self.priced_rates_label.setStyleSheet("font-weight: bold; color: orange; margin-left: 20px;")
+        self.outstanding_rates_label.setStyleSheet("font-weight: bold; color: red; margin-left: 10px;")
         
-        stats_layout.addWidget(self.total_rates_label)
+        stats_row.addWidget(self.total_rates_label)
+        stats_row.addWidget(self.priced_rates_label)
+        stats_row.addWidget(self.outstanding_rates_label)
+        stats_row.addStretch()
+        
+        stats_layout.addLayout(stats_row)
         stats_layout.addWidget(self.found_rates_label)
         right_layout.addLayout(stats_layout)
         
@@ -224,10 +234,23 @@ class SORDialog(QDialog):
             if row_visible:
                 found_count += 1
                 
-        if not search_text and not keywords:
-            self.found_rates_label.setText("Found Rates : 0")
         else:
             self.found_rates_label.setText(f"Found Rates : {found_count}")
+        
+        self._update_priced_stats()
+
+    def _update_priced_stats(self):
+        """Calculates and updates labels for priced vs outstanding rates."""
+        total = self.table_widget.rowCount()
+        priced = 0
+        for row in range(total):
+            item = self.table_widget.item(row, 6) # Gross Rate column
+            if item and item.text().strip():
+                priced += 1
+        
+        outstanding = total - priced
+        self.priced_rates_label.setText(f"Priced Rates : {priced}")
+        self.outstanding_rates_label.setText(f"Outstanding Rates : {outstanding}")
 
     def _show_context_menu(self, pos):
         from PyQt6.QtWidgets import QMenu
