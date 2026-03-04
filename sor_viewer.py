@@ -3,7 +3,7 @@ import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
-                             QLineEdit, QWidget)
+                             QLineEdit, QWidget, QCheckBox)
 from PyQt6.QtCore import Qt
 
 class SORDialog(QDialog):
@@ -33,10 +33,27 @@ class SORDialog(QDialog):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
+        # Search controls layout
+        search_layout = QHBoxLayout()
+        
         self.search_bar = QLineEdit()
         self.search_bar.setPlaceholderText("Search...")
         self.search_bar.textChanged.connect(self._filter_table)
-        right_layout.addWidget(self.search_bar)
+        search_layout.addWidget(self.search_bar)
+        
+        self.similar_checkbox = QCheckBox("Similar rates")
+        self.similar_checkbox.stateChanged.connect(self._filter_table)
+        search_layout.addWidget(self.similar_checkbox)
+        
+        self.keywords_label = QLabel("Keywords:")
+        search_layout.addWidget(self.keywords_label)
+        
+        self.keywords_input = QLineEdit()
+        self.keywords_input.setPlaceholderText("e.g. wall, brick, 150mm")
+        self.keywords_input.textChanged.connect(self._filter_table)
+        search_layout.addWidget(self.keywords_input)
+        
+        right_layout.addLayout(search_layout)
         
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(6)
@@ -131,16 +148,37 @@ class SORDialog(QDialog):
                 t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
                 self.table_widget.setItem(row_idx, col_idx, t_item)
 
-        if self.search_bar.text():
-            self._filter_table(self.search_bar.text())
+        self._filter_table()
 
-    def _filter_table(self, text):
-        search_text = text.lower()
+    def _filter_table(self, *args):
+        search_text = self.search_bar.text().lower()
+        keywords_text = self.keywords_input.text().lower()
+        similar_checked = self.similar_checkbox.isChecked()
+        
+        keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
+
         for row in range(self.table_widget.rowCount()):
-            row_visible = False
+            row_visible = True
+            
+            row_texts = []
             for col in range(self.table_widget.columnCount()):
                 item = self.table_widget.item(row, col)
-                if item and search_text in item.text().lower():
-                    row_visible = True
-                    break
+                if item:
+                    row_texts.append(item.text().lower())
+            
+            full_row_text = " ".join(row_texts)
+            
+            if search_text and search_text not in full_row_text:
+                row_visible = False
+                
+            if row_visible and keywords:
+                if similar_checked:
+                    # OR logic: at least one keyword must be present
+                    if not any(kw in full_row_text for kw in keywords):
+                        row_visible = False
+                else:
+                    # AND logic: all keywords must be present
+                    if not all(kw in full_row_text for kw in keywords):
+                        row_visible = False
+                        
             self.table_widget.setRowHidden(row, not row_visible)
