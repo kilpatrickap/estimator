@@ -27,6 +27,7 @@ class SORDialog(QDialog):
         
         # Left Panel (List of SORs)
         self.list_widget = QListWidget()
+        self.list_widget.setStyleSheet("QListWidget::item { height: 20px; font-size: 8pt; padding: 0px; }")
         self.list_widget.itemChanged.connect(self._load_selected_sor)
         self.splitter.addWidget(self.list_widget)
         
@@ -86,6 +87,7 @@ class SORDialog(QDialog):
         self.table_widget.setColumnCount(8)
         self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit", "Gross Rate", "Rate Code"])
         self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table_widget.setAlternatingRowColors(True)
         self.table_widget.verticalHeader().setDefaultSectionSize(22)
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setShowGrid(False)
