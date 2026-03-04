@@ -287,6 +287,16 @@ class SettingsDialog(QDialog):
                 def_profit = proj_db_manager.get_setting('profit', def_profit)
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
                 
+            try:
+                def_overhead = f"{float(def_overhead):.2f}"
+            except (ValueError, TypeError):
+                def_overhead = "15.00"
+                
+            try:
+                def_profit = f"{float(def_profit):.2f}"
+            except (ValueError, TypeError):
+                def_profit = "10.00"
+                
             pct_validator = QDoubleValidator(0.0, 100.0, 2)
             self.proj_overhead = QLineEdit(def_overhead)
             self.proj_overhead.setValidator(pct_validator)
