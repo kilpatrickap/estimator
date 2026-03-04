@@ -2,7 +2,8 @@ import os
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
-                             QLabel, QMessageBox, QHeaderView, QListWidgetItem)
+                             QLabel, QMessageBox, QHeaderView, QListWidgetItem,
+                             QLineEdit, QWidget)
 from PyQt6.QtCore import Qt
 
 class SORDialog(QDialog):
@@ -27,7 +28,16 @@ class SORDialog(QDialog):
         self.list_widget.itemChanged.connect(self._load_selected_sor)
         self.splitter.addWidget(self.list_widget)
         
-        # Right Panel (Table view of SOR)
+        # Right Panel (Layout containing Search Bar and Table)
+        right_widget = QWidget()
+        right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search...")
+        self.search_bar.textChanged.connect(self._filter_table)
+        right_layout.addWidget(self.search_bar)
+        
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(6)
         self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit"])
@@ -44,7 +54,8 @@ class SORDialog(QDialog):
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
         
-        self.splitter.addWidget(self.table_widget)
+        right_layout.addWidget(self.table_widget)
+        self.splitter.addWidget(right_widget)
         
         # Set initial splitter sizes
         self.splitter.setSizes([200, 700])
@@ -119,3 +130,17 @@ class SORDialog(QDialog):
             for col_idx, col_val in enumerate(row_data):
                 t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
                 self.table_widget.setItem(row_idx, col_idx, t_item)
+
+        if self.search_bar.text():
+            self._filter_table(self.search_bar.text())
+
+    def _filter_table(self, text):
+        search_text = text.lower()
+        for row in range(self.table_widget.rowCount()):
+            row_visible = False
+            for col in range(self.table_widget.columnCount()):
+                item = self.table_widget.item(row, col)
+                if item and search_text in item.text().lower():
+                    row_visible = True
+                    break
+            self.table_widget.setRowHidden(row, not row_visible)
