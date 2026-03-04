@@ -56,17 +56,17 @@ class SORDialog(QDialog):
         right_layout.addLayout(search_layout)
         
         # Stats layout
-        stats_layout = QHBoxLayout()
+        stats_layout = QVBoxLayout()
+        stats_layout.setSpacing(2)
         self.total_rates_label = QLabel("Total Rates : 0")
         self.found_rates_label = QLabel("Found Rates : 0")
         
-        # Style labels for slight emphasis
-        self.total_rates_label.setStyleSheet("font-weight: bold; color: #555;")
-        self.found_rates_label.setStyleSheet("font-weight: bold; color: #555;")
+        # Style labels with specific colors
+        self.total_rates_label.setStyleSheet("font-weight: bold; color: blue;")
+        self.found_rates_label.setStyleSheet("font-weight: bold; color: green;")
         
         stats_layout.addWidget(self.total_rates_label)
         stats_layout.addWidget(self.found_rates_label)
-        stats_layout.addStretch()
         right_layout.addLayout(stats_layout)
         
         self.table_widget = QTableWidget()
@@ -205,4 +205,7 @@ class SORDialog(QDialog):
             if row_visible:
                 found_count += 1
                 
-        self.found_rates_label.setText(f"Found Rates : {found_count}")
+        if not search_text and not keywords:
+            self.found_rates_label.setText("Found Rates : 0")
+        else:
+            self.found_rates_label.setText(f"Found Rates : {found_count}")
