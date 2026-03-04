@@ -78,12 +78,7 @@ class SORDialog(QDialog):
         self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         
         header = self.table_widget.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(3, QHeaderView.ResizeMode.Stretch)
-        header.setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
-        header.setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         
         right_layout.addWidget(self.table_widget)
         self.splitter.addWidget(right_widget)
@@ -165,6 +160,14 @@ class SORDialog(QDialog):
                 self.table_widget.setItem(row_idx, col_idx, t_item)
                 
         self.total_rates_label.setText(f"Total Rates : {len(all_rows)}")
+        
+        for i in range(self.table_widget.columnCount()):
+            if i != 3:
+                self.table_widget.resizeColumnToContents(i)
+        
+        total_w = self.table_widget.viewport().width()
+        used_w = sum(self.table_widget.columnWidth(i) for i in range(self.table_widget.columnCount()) if i != 3)
+        self.table_widget.setColumnWidth(3, max(250, total_w - used_w))
 
         self._filter_table()
 
