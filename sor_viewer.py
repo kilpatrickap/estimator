@@ -241,6 +241,8 @@ class SORDialog(QDialog):
             if row_visible:
                 found_count += 1
                 
+        if not search_text and not keywords:
+            self.found_rates_label.setText("Found Rates : 0")
         else:
             self.found_rates_label.setText(f"Found Rates : {found_count}")
         
