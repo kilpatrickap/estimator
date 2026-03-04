@@ -504,13 +504,18 @@ class RateManagerDialog(QDialog):
         
         selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
+            edit_action = QAction("Edit Rate", self)
             edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
             menu.addAction(edit_action)
             
             if table == self.project_table:
-                price_sor_action = QAction("Price SOR", self)
-                price_sor_action.triggered.connect(self.price_sor_from_rate)
-                menu.addAction(price_sor_action)
+                price_desc_action = QAction("Price SOR with Description", self)
+                price_desc_action.triggered.connect(self.price_sor_from_rate)
+                menu.addAction(price_desc_action)
+                
+                price_kw_action = QAction("Price SOR with Keywords", self)
+                price_kw_action.triggered.connect(self.price_sor_from_keywords)
+                menu.addAction(price_kw_action)
             
             menu.addSeparator()
             
@@ -648,7 +653,46 @@ class RateManagerDialog(QDialog):
             QMessageBox.warning(self, "SOR Not Open", "Please open the SOR window first to use 'Price SOR'.")
             return
             
-        if sor_dialog._price_sor_with_rate(rate_desc, gross_rate, rate_code):
-            QMessageBox.information(self, "Success", f"SOR items matching '{rate_desc}' have been updated.")
+        count = sor_dialog._price_sor_with_rate(rate_desc, gross_rate, rate_code)
+        if count > 0:
+            QMessageBox.information(self, "Success", f"Successfully found and priced {count} SOR item(s) matching '{rate_desc}'.")
         else:
             QMessageBox.information(self, "No Match", f"No items matching '{rate_desc}' were found in the current SOR view.")
+
+    def price_sor_from_keywords(self):
+        """Prices SOR items using the keywords active in the SOR window."""
+        selected_indexes = self.project_table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        row = selected_indexes[0].row()
+        rate_code = self.project_table.item(row, 1).text()
+        
+        try:
+            gross_str = self.project_table.item(row, 6).text().replace(',', '')
+            gross_rate = float(gross_str)
+        except:
+            gross_rate = 0.0
+            
+        # Find SORDialog
+        sor_dialog = None
+        if self.main_window:
+            from sor_viewer import SORDialog
+            for sub in self.main_window.mdi_area.subWindowList():
+                widget = sub.widget()
+                if isinstance(widget, SORDialog):
+                    sor_dialog = widget
+                    break
+        
+        if not sor_dialog:
+            QMessageBox.warning(self, "SOR Not Open", "Please open the SOR window first to use 'Price SOR with Keywords'.")
+            return
+            
+        count = sor_dialog._price_sor_with_keywords(gross_rate, rate_code)
+        
+        if count == -1:
+            QMessageBox.warning(self, "No Keywords", "Please enter keywords in the SOR window first.")
+        elif count > 0:
+            QMessageBox.information(self, "Success", f"Successfully found and priced {count} SOR item(s) using current keywords.")
+        else:
+            QMessageBox.information(self, "No Match", "No items matching the current keywords were found in the SOR view.")

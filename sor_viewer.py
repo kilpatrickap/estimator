@@ -463,7 +463,7 @@ class SORDialog(QDialog):
 
     def _price_sor_with_rate(self, rate_desc, gross_rate, rate_code):
         """Searches the SOR table for a matching description and updates it."""
-        found = False
+        found_count = 0
         for row in range(self.table_widget.rowCount()):
             sor_desc_item = self.table_widget.item(row, 3)
             if sor_desc_item and sor_desc_item.text().strip().lower() == rate_desc.strip().lower():
@@ -475,9 +475,57 @@ class SORDialog(QDialog):
                 
                 # Persist to DB
                 self._persist_to_sor_db(row, f"{gross_rate:,.2f}", rate_code)
-                found = True
+                found_count += 1
         
-        if found:
+        if found_count > 0:
             self.table_widget.resizeColumnToContents(6)
             self.table_widget.resizeColumnToContents(7)
-        return found
+        return found_count
+
+    def _get_active_keywords(self):
+        """Returns the list of keywords currently entered in the SOR search bar."""
+        keywords_text = self.keywords_input.text().lower()
+        return [k.strip() for k in keywords_text.split(',') if k.strip()]
+
+    def _price_sor_with_keywords(self, gross_rate, rate_code):
+        """Prices items in the SOR that match the currently entered keywords."""
+        keywords = self._get_active_keywords()
+        if not keywords:
+            return -1 # Special code for missing keywords
+            
+        found_count = 0
+        similar_checked = self.similar_checkbox.isChecked()
+        
+        for row in range(self.table_widget.rowCount()):
+            # We match against the full row text just like the filter does
+            row_texts = []
+            for col in range(self.table_widget.columnCount()):
+                item = self.table_widget.item(row, col)
+                if item:
+                    row_texts.append(item.text().lower())
+            
+            full_row_text = " ".join(row_texts)
+            
+            match = False
+            if similar_checked:
+                if any(kw in full_row_text for kw in keywords):
+                    match = True
+            else:
+                if all(kw in full_row_text for kw in keywords):
+                    match = True
+                    
+            if match:
+                # Update UI
+                gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.table_widget.setItem(row, 6, gross_item)
+                self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
+                
+                # Persist to DB
+                self._persist_to_sor_db(row, f"{gross_rate:,.2f}", rate_code)
+                found_count += 1
+                
+        if found_count > 0:
+            self.table_widget.resizeColumnToContents(6)
+            self.table_widget.resizeColumnToContents(7)
+        return found_count
