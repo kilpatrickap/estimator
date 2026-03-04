@@ -55,6 +55,20 @@ class SORDialog(QDialog):
         
         right_layout.addLayout(search_layout)
         
+        # Stats layout
+        stats_layout = QHBoxLayout()
+        self.total_rates_label = QLabel("Total Rates : 0")
+        self.found_rates_label = QLabel("Found Rates : 0")
+        
+        # Style labels for slight emphasis
+        self.total_rates_label.setStyleSheet("font-weight: bold; color: #555;")
+        self.found_rates_label.setStyleSheet("font-weight: bold; color: #555;")
+        
+        stats_layout.addWidget(self.total_rates_label)
+        stats_layout.addWidget(self.found_rates_label)
+        stats_layout.addStretch()
+        right_layout.addLayout(stats_layout)
+        
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(6)
         self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit"])
@@ -106,6 +120,8 @@ class SORDialog(QDialog):
                 checked_items.append(item)
         
         if not checked_items:
+            self.total_rates_label.setText("Total Rates : 0")
+            self.found_rates_label.setText("Found Rates : 0")
             return
             
         all_rows = []
@@ -147,6 +163,8 @@ class SORDialog(QDialog):
             for col_idx, col_val in enumerate(row_data):
                 t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
                 self.table_widget.setItem(row_idx, col_idx, t_item)
+                
+        self.total_rates_label.setText(f"Total Rates : {len(all_rows)}")
 
         self._filter_table()
 
@@ -156,6 +174,8 @@ class SORDialog(QDialog):
         similar_checked = self.similar_checkbox.isChecked()
         
         keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
+
+        found_count = 0
 
         for row in range(self.table_widget.rowCount()):
             row_visible = True
@@ -182,3 +202,7 @@ class SORDialog(QDialog):
                         row_visible = False
                         
             self.table_widget.setRowHidden(row, not row_visible)
+            if row_visible:
+                found_count += 1
+                
+        self.found_rates_label.setText(f"Found Rates : {found_count}")
