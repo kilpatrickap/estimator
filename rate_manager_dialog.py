@@ -54,7 +54,8 @@ class RateManagerDialog(QDialog):
         super().__init__(parent)
         self.main_window = main_window
         self.setWindowTitle("Rate Database")
-        self.setMinimumSize(850, 700)
+        self.setMinimumSize(850, 500)
+        self.resize(850, 650)
         self.db_manager = None
         self.project_db_manager = None
         self.is_loading = False
@@ -72,6 +73,8 @@ class RateManagerDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(5)
+
+        self.setSizeGripEnabled(True)
 
         # Header Section
         header_widget = QWidget()
@@ -170,13 +173,13 @@ class RateManagerDialog(QDialog):
         
         bottom_widget = QWidget()
         bottom_layout = QVBoxLayout(bottom_widget)
-        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        bottom_layout.setContentsMargins(0, 0, 0, 15)
         
-        proj_label = QLabel("Project Database Rates")
-        proj_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; margin-top: 10px;")
+        proj_label = QLabel("Project Rates")
+        proj_label.setStyleSheet("font-weight: bold; color: blue; margin-top: 10px;")
         
         self.project_search_input = QLineEdit()
-        self.project_search_input.setPlaceholderText("Search Project Database by Rate Code or Description...")
+        self.project_search_input.setPlaceholderText("Search for Project Rates by Rate Code or Description")
         self.project_search_input.setFixedWidth(400)
         self.project_search_input.textChanged.connect(self.filter_project_rates)
         
@@ -342,7 +345,7 @@ class RateManagerDialog(QDialog):
         self.project_table.setRowCount(0)
         rates = self.project_db_manager.get_rates_data()
         db_name_str = getattr(self, 'project_db_name', "Project Database")
-        db_path_str = self.project_db_manager.db_path
+        db_path_str = self.project_db_manager.db_file
         
         for row_idx, row_data in enumerate(rates):
             self.project_table.insertRow(row_idx)
