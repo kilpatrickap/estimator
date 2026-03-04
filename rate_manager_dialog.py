@@ -54,8 +54,9 @@ class RateManagerDialog(QDialog):
         super().__init__(parent)
         self.main_window = main_window
         self.setWindowTitle("Rate Database")
-        self.setMinimumSize(850, 500)
+        self.setMinimumSize(850, 700)
         self.db_manager = None
+        self.project_db_manager = None
         self.is_loading = False
         self.is_combined = False
         
@@ -64,6 +65,8 @@ class RateManagerDialog(QDialog):
         if self.library_combo.count() > 0:
             self.db_manager = DatabaseManager(self.library_combo.currentData())
             self.load_rates()
+            
+        self.load_project_rates()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -100,6 +103,14 @@ class RateManagerDialog(QDialog):
                 for f in os.listdir(lib_dir):
                     if f.endswith('.db'):
                         self.library_combo.addItem(f, os.path.join(lib_dir, f))
+                        
+            pdb_dir = os.path.join(project_dir, "Project Database")
+            if os.path.exists(pdb_dir):
+                for f in os.listdir(pdb_dir):
+                    if f.endswith('.db'):
+                        self.project_db_manager = DatabaseManager(os.path.join(pdb_dir, f))
+                        self.project_db_name = f
+                        break
 
         self.library_combo.currentIndexChanged.connect(self._change_library)
         header_layout.addWidget(self.library_combo)
@@ -116,7 +127,16 @@ class RateManagerDialog(QDialog):
         self.search_input.setFixedWidth(400)
         self.search_input.textChanged.connect(self.filter_rates)
         header_layout.addWidget(self.search_input)
-        layout.addWidget(header_widget)
+        
+        from PyQt6.QtWidgets import QSplitter
+        self.splitter = QSplitter(Qt.Orientation.Vertical)
+        self.splitter.setHandleWidth(4)
+        self.splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
+
+        top_widget = QWidget()
+        top_layout = QVBoxLayout(top_widget)
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.addWidget(header_widget)
 
         # Table
         self.table = QTableWidget()
@@ -139,14 +159,66 @@ class RateManagerDialog(QDialog):
         self.table.setShowGrid(False)
         self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
         
-        self.table.doubleClicked.connect(self.open_rate_buildup)
+        self.table.doubleClicked.connect(lambda idx, t=self.table: self.open_rate_buildup(t, idx))
         self.table.itemChanged.connect(self.on_item_changed)
         
         # Context Menu
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table.customContextMenuRequested.connect(self.show_context_menu)
+        self.table.customContextMenuRequested.connect(lambda pos, t=self.table: self.show_context_menu(t, pos))
         
-        layout.addWidget(self.table)
+        top_layout.addWidget(self.table)
+        
+        bottom_widget = QWidget()
+        bottom_layout = QVBoxLayout(bottom_widget)
+        bottom_layout.setContentsMargins(0, 0, 0, 0)
+        
+        proj_label = QLabel("Project Database Rates")
+        proj_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2e7d32; margin-top: 10px;")
+        
+        self.project_search_input = QLineEdit()
+        self.project_search_input.setPlaceholderText("Search Project Database by Rate Code or Description...")
+        self.project_search_input.setFixedWidth(400)
+        self.project_search_input.textChanged.connect(self.filter_project_rates)
+        
+        proj_header_layout = QHBoxLayout()
+        proj_header_layout.addWidget(proj_label)
+        proj_header_layout.addStretch()
+        proj_header_layout.addWidget(self.project_search_input)
+        
+        bottom_widget_header = QWidget()
+        bottom_widget_header.setLayout(proj_header_layout)
+        
+        bottom_layout.addWidget(bottom_widget_header)
+        
+        self.project_table = QTableWidget()
+        self.project_table.setColumnCount(len(headers))
+        self.project_table.setHorizontalHeaderLabels(headers)
+        
+        p_header = self.project_table.horizontalHeader()
+        p_header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        p_header.setStretchLastSection(True)
+        
+        self.project_table.setEditTriggers(QTableWidget.EditTrigger.AnyKeyPressed | 
+                                           QTableWidget.EditTrigger.EditKeyPressed | 
+                                           QTableWidget.EditTrigger.SelectedClicked)
+        self.project_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.project_table.setWordWrap(False)
+        self.project_table.verticalHeader().setDefaultSectionSize(25)
+        self.project_table.setAlternatingRowColors(True)
+        self.project_table.setShowGrid(False)
+        self.project_table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
+        
+        self.project_table.doubleClicked.connect(lambda idx, t=self.project_table: self.open_rate_buildup(t, idx))
+        self.project_table.itemChanged.connect(self.on_item_changed)
+        self.project_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.project_table.customContextMenuRequested.connect(lambda pos, t=self.project_table: self.show_context_menu(t, pos))
+        
+        bottom_layout.addWidget(self.project_table)
+        
+        self.splitter.addWidget(top_widget)
+        self.splitter.addWidget(bottom_widget)
+        self.splitter.setSizes([300, 300])
+        layout.addWidget(self.splitter)
 
     def _change_library(self):
         self.is_combined = False
@@ -261,10 +333,11 @@ class RateManagerDialog(QDialog):
         
         self.is_loading = False
 
-    def open_rate_buildup(self, index):
+
+    def open_rate_buildup(self, table, index):
         """Loads and shows the build-up for the selected rate."""
         row = index.row()
-        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         
         if val_str:
             db_id = int(val_str.split('|')[0])
@@ -276,7 +349,10 @@ class RateManagerDialog(QDialog):
                 self.main_window.open_rate_buildup_window(estimate_obj)
             else:
                 dialog = RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self)
-                dialog.dataCommitted.connect(self.load_rates)
+                if table == self.project_table:
+                    dialog.dataCommitted.connect(self.load_project_rates)
+                else:
+                    dialog.dataCommitted.connect(self.load_rates)
                 dialog.exec()
 
     def highlight_rate(self, rate_code):
@@ -305,11 +381,24 @@ class RateManagerDialog(QDialog):
                 desc_match = query in item2.text().lower()
                 self.table.setRowHidden(row, not (lib_match or id_match or desc_match))
 
+    def filter_project_rates(self, text):
+        query = text.lower()
+        for row in range(self.project_table.rowCount()):
+            item0 = self.project_table.item(row, 0)
+            item1 = self.project_table.item(row, 1)
+            item2 = self.project_table.item(row, 2)
+            if item1 and item2:
+                lib_match = query in item0.text().lower() if item0 else False
+                id_match = query in item1.text().lower()
+                desc_match = query in item2.text().lower()
+                self.project_table.setRowHidden(row, not (lib_match or id_match or desc_match))
+
     def on_item_changed(self, item):
         """Handles inline editing of Rate Code and Description."""
         if self.is_loading:
             return
             
+        table = item.tableWidget()
         row = item.row()
         col = item.column()
         
@@ -317,7 +406,7 @@ class RateManagerDialog(QDialog):
         if col not in [1, 2]:
             return
             
-        val_str = self.table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         if not val_str:
             return
             
@@ -332,44 +421,52 @@ class RateManagerDialog(QDialog):
             pass
         else:
             QMessageBox.warning(self, "Error", f"Failed to update {field} in database.")
-            self.load_rates()
+            if table == self.project_table:
+                self.load_project_rates()
+            else:
+                self.load_rates()
 
-    def show_context_menu(self, pos):
-        """Shows the context menu for the rate table."""
+    def show_context_menu(self, table, pos):
+        """Shows the context menu for the given rate table."""
         menu = QMenu(self)
         
         new_action = QAction("New Rate", self)
-        new_action.triggered.connect(self.new_rate)
+        new_action.triggered.connect(lambda: self.new_rate(table))
         menu.addAction(new_action)
         
-        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
             edit_action = QAction("Edit Rate", self)
-            edit_action.triggered.connect(self.edit_rate)
+            edit_action.triggered.connect(lambda: self.edit_rate(table))
             menu.addAction(edit_action)
             
             menu.addSeparator()
             
             duplicate_action = QAction("Duplicate Rate", self)
-            duplicate_action.triggered.connect(self.duplicate_rate)
+            duplicate_action.triggered.connect(lambda: self.duplicate_rate(table))
             menu.addAction(duplicate_action)
             
             delete_action = QAction("Delete Rate", self)
-            delete_action.triggered.connect(self.delete_rate)
+            delete_action.triggered.connect(lambda: self.delete_rate(table))
             menu.addAction(delete_action)
             
-        menu.exec(self.table.viewport().mapToGlobal(pos))
+        menu.exec(table.viewport().mapToGlobal(pos))
 
-    def edit_rate(self):
+    def edit_rate(self, table=None):
+        if table is None: table = self.table
         """Opens the build-up dialog for the selected rate."""
-        selected_indexes = self.table.selectionModel().selectedRows()
+        selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
-            self.open_rate_buildup(selected_indexes[0])
+            self.open_rate_buildup(table, selected_indexes[0])
 
-    def new_rate(self):
+    def new_rate(self, table=None):
+        if table is None: table = self.table
         """Creates a new rate and opens the build-up dialog."""
-        if self.is_combined or not self.db_manager:
+        if table == self.table and (self.is_combined or not self.db_manager):
             QMessageBox.warning(self, "Select Library", "Please select a specific single library from the drop-down to add a new rate.")
+            return
+        elif table == self.project_table and not self.project_db_manager:
+            QMessageBox.warning(self, "No Project Database", "No Project Database found.")
             return
             
         from models import Estimate
