@@ -971,14 +971,14 @@ class NewEstimateDialog(QDialog):
         
         validator = QDoubleValidator(0.0, 100.0, 2, notation=QDoubleValidator.Notation.StandardNotation)
         
-        self.overhead = QLineEdit(self.db_manager.get_setting('overhead', '15.00'))
+        self.overhead = QLineEdit('15.00')
         self.overhead.setValidator(validator)
-        self.profit = QLineEdit(self.db_manager.get_setting('profit', '10.00'))
+        self.profit = QLineEdit('10.00')
         self.profit.setValidator(validator)
         
         self.currency = QComboBox()
         self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-        self.currency.setCurrentText(self.db_manager.get_setting('currency', 'GHS (₵)'))
+        self.currency.setCurrentText('GHS (₵)')
 
         self.library_layout = QHBoxLayout()
         self.library_path = QLineEdit()

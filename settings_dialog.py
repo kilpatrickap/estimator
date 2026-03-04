@@ -214,16 +214,6 @@ class SettingsDialog(QDialog):
         app_layout = QVBoxLayout(app_group)
         app_form = QFormLayout()
         
-        self.currency_combo = QComboBox()
-        self.currency_combo.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
-        self.currency_combo.setCurrentText(self.db_manager.get_setting('currency', 'GHS (₵)'))
-        
-        pct_validator = QDoubleValidator(0.0, 100.0, 2)
-        self.overhead_input = QLineEdit(self.db_manager.get_setting('overhead', '15.00'))
-        self.overhead_input.setValidator(pct_validator)
-        self.profit_input = QLineEdit(self.db_manager.get_setting('profit', '10.00'))
-        self.profit_input.setValidator(pct_validator)
-        
         self.company_name = QLineEdit(self.db_manager.get_setting('company_name', ''))
         self.company_name.setPlaceholderText("Your Company Name")
         
@@ -237,9 +227,6 @@ class SettingsDialog(QDialog):
         browse_btn.clicked.connect(self.browse_logo)
         logo_layout.addWidget(browse_btn)
 
-        app_form.addRow("Default Currency:", self.currency_combo)
-        app_form.addRow("Default Overhead (%):", self.overhead_input)
-        app_form.addRow("Default Profit (%):", self.profit_input)
         app_form.addRow("Company Name:", self.company_name)
         app_form.addRow("Company Logo:", logo_layout)
 
@@ -300,6 +287,7 @@ class SettingsDialog(QDialog):
                 def_profit = proj_db_manager.get_setting('profit', def_profit)
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
                 
+            pct_validator = QDoubleValidator(0.0, 100.0, 2)
             self.proj_overhead = QLineEdit(def_overhead)
             self.proj_overhead.setValidator(pct_validator)
             self.proj_profit = QLineEdit(def_profit)
@@ -308,7 +296,6 @@ class SettingsDialog(QDialog):
             self.proj_currency = QComboBox()
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
             self.proj_currency.setCurrentText(def_currency)
-            
             self.proj_library = QLineEdit(actual_lib_path)
             self.proj_library.setReadOnly(True)
             proj_lib_btn = QPushButton("Browse...")
@@ -412,7 +399,7 @@ class SettingsDialog(QDialog):
                     QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
 
     def get_project_data(self):
-        if not self.estimate:
+        if not hasattr(self, 'proj_overhead'):
             return None
         return {
             "name": getattr(self, '_def_name', ""),
@@ -426,13 +413,10 @@ class SettingsDialog(QDialog):
 
     def save_settings(self):
         try:
-            self.db_manager.set_setting('currency', self.currency_combo.currentText())
-            self.db_manager.set_setting('overhead', float(self.overhead_input.text()))
-            self.db_manager.set_setting('profit', float(self.profit_input.text()))
             self.db_manager.set_setting('company_name', self.company_name.text())
             self.db_manager.set_setting('company_logo', self.logo_path.text())
             
-            if self.estimate:
+            if hasattr(self, 'proj_library') and self.project_dir:
                 import os, shutil
                 lib_path = self.proj_library.text().strip()
                 if lib_path and os.path.exists(lib_path):

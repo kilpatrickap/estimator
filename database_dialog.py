@@ -367,7 +367,7 @@ class DatabaseManagerDialog(QDialog):
     def add_item(self, table_name):
         """Adds a new empty placeholder item to the database and a row to the table for inline editing."""
         now = QDate.currentDate().toString("yyyy-MM-dd")
-        default_curr = self.db_manager.get_setting('currency', 'GHS (₵)')
+        default_curr = 'GHS (₵)'
         
         if table_name == 'indirect_costs':
             # name, unit, curr, amount, formula, date (6 items)
