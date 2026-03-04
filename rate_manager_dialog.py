@@ -150,13 +150,22 @@ class RateManagerDialog(QDialog):
 
     def _change_library(self):
         self.is_combined = False
+        if hasattr(self, 'combine_btn'):
+            self.combine_btn.setText("Combine Libraries")
         db_path = self.library_combo.currentData()
         if db_path:
             self.db_manager = DatabaseManager(db_path)
             self.load_rates()
 
     def _combine_libraries(self):
-        self.is_combined = True
+        self.is_combined = not self.is_combined
+        if self.is_combined:
+            self.combine_btn.setText("Un-Combine Libraries")
+        else:
+            self.combine_btn.setText("Combine Libraries")
+            db_path = self.library_combo.currentData()
+            if db_path:
+                self.db_manager = DatabaseManager(db_path)
         self.load_rates()
 
 
