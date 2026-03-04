@@ -460,3 +460,24 @@ class SORDialog(QDialog):
             
             self.table_widget.resizeColumnToContents(6)
             self.table_widget.resizeColumnToContents(7)
+
+    def _price_sor_with_rate(self, rate_desc, gross_rate, rate_code):
+        """Searches the SOR table for a matching description and updates it."""
+        found = False
+        for row in range(self.table_widget.rowCount()):
+            sor_desc_item = self.table_widget.item(row, 3)
+            if sor_desc_item and sor_desc_item.text().strip().lower() == rate_desc.strip().lower():
+                # Update UI
+                gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                self.table_widget.setItem(row, 6, gross_item)
+                self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
+                
+                # Persist to DB
+                self._persist_to_sor_db(row, f"{gross_rate:,.2f}", rate_code)
+                found = True
+        
+        if found:
+            self.table_widget.resizeColumnToContents(6)
+            self.table_widget.resizeColumnToContents(7)
+        return found

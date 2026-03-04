@@ -504,9 +504,13 @@ class RateManagerDialog(QDialog):
         
         selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
-            edit_action = QAction("Edit Rate", self)
             edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
             menu.addAction(edit_action)
+            
+            if table == self.project_table:
+                price_sor_action = QAction("Price SOR", self)
+                price_sor_action.triggered.connect(self.price_sor_from_rate)
+                menu.addAction(price_sor_action)
             
             menu.addSeparator()
             
@@ -612,3 +616,39 @@ class RateManagerDialog(QDialog):
                         self.load_project_rates()
                     else:
                         self.load_rates()
+
+    def price_sor_from_rate(self):
+        """Finds the open SOR window and pushes the selected rate data to it."""
+        selected_indexes = self.project_table.selectionModel().selectedRows()
+        if not selected_indexes:
+            return
+            
+        row = selected_indexes[0].row()
+        rate_code = self.project_table.item(row, 1).text()
+        rate_desc = self.project_table.item(row, 2).text()
+        
+        # Gross Rate is index 6
+        try:
+            gross_str = self.project_table.item(row, 6).text().replace(',', '')
+            gross_rate = float(gross_str)
+        except:
+            gross_rate = 0.0
+            
+        # Find SORDialog in MDI area
+        sor_dialog = None
+        if self.main_window:
+            from sor_viewer import SORDialog
+            for sub in self.main_window.mdi_area.subWindowList():
+                widget = sub.widget()
+                if isinstance(widget, SORDialog):
+                    sor_dialog = widget
+                    break
+                    
+        if not sor_dialog:
+            QMessageBox.warning(self, "SOR Not Open", "Please open the SOR window first to use 'Price SOR'.")
+            return
+            
+        if sor_dialog._price_sor_with_rate(rate_desc, gross_rate, rate_code):
+            QMessageBox.information(self, "Success", f"SOR items matching '{rate_desc}' have been updated.")
+        else:
+            QMessageBox.information(self, "No Match", f"No items matching '{rate_desc}' were found in the current SOR view.")
