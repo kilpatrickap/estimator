@@ -328,7 +328,7 @@ class SORDialog(QDialog):
             
         # Update Table UI
         gross_item = QTableWidgetItem(data['gross_rate'])
-        gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         rate_code_item = QTableWidgetItem(data['rate_code'])
         
         self.table_widget.setItem(row, 6, gross_item)
@@ -448,7 +448,7 @@ class SORDialog(QDialog):
             formatted_gross = f"{gross_rate:,.2f}"
             
             gross_item = QTableWidgetItem(formatted_gross)
-            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             
             rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
             
@@ -469,7 +469,7 @@ class SORDialog(QDialog):
             if sor_desc_item and sor_desc_item.text().strip().lower() == rate_desc.strip().lower():
                 # Update UI
                 gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
-                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table_widget.setItem(row, 6, gross_item)
                 self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
                 
@@ -517,7 +517,7 @@ class SORDialog(QDialog):
             if match:
                 # Update UI
                 gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
-                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table_widget.setItem(row, 6, gross_item)
                 self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
                 
