@@ -68,17 +68,17 @@ class SORDialog(QDialog):
         
         # Style labels with specific colors
         self.total_rates_label.setStyleSheet("font-weight: bold; color: blue;")
-        self.found_rates_label.setStyleSheet("font-weight: bold; color: green;")
+        self.found_rates_label.setStyleSheet("font-weight: bold; color: green; margin-left: 20px;")
         self.priced_rates_label.setStyleSheet("font-weight: bold; color: orange; margin-left: 20px;")
         self.outstanding_rates_label.setStyleSheet("font-weight: bold; color: red; margin-left: 10px;")
         
         stats_row.addWidget(self.total_rates_label)
+        stats_row.addWidget(self.found_rates_label)
         stats_row.addWidget(self.priced_rates_label)
         stats_row.addWidget(self.outstanding_rates_label)
         stats_row.addStretch()
         
         stats_layout.addLayout(stats_row)
-        stats_layout.addWidget(self.found_rates_label)
         right_layout.addLayout(stats_layout)
         
         self.table_widget = QTableWidget()
