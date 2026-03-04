@@ -262,7 +262,16 @@ class SORDialog(QDialog):
         new_est.category = cat
         new_est.rate_code = db.generate_next_rate_code(cat)
         
+        def refresh_manager():
+            if self.main_window:
+                for s in self.main_window.mdi_area.subWindowList():
+                    widget = s.widget()
+                    if getattr(widget, '__class__', None).__name__ == 'RateManagerDialog':
+                        if hasattr(widget, 'load_project_rates'):
+                            widget.load_project_rates()
+
         dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
+        dialog.dataCommitted.connect(refresh_manager)
         dialog.exec()
         
         if hasattr(dialog, 'estimate') and dialog.estimate.id:
