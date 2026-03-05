@@ -20,5 +20,13 @@ if __name__ == "__main__":
         print("Warning: styles.qss not found. Using default styles.")
 
     window = MainWindow()
+    
+    # Provide a comfortable default size (1400x767)
+    # If the user has a smaller screen, it adapts by keeping at least a 100px margin around the edges.
+    screen = app.primaryScreen().availableGeometry()
+    width = min(1400, screen.width() - 100)
+    height = min(767, screen.height() - 100)
+    window.resize(width, height)
+    
     window.show()
     sys.exit(app.exec())
