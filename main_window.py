@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Construction Estimating Software")
-        self.setMinimumSize(1400, 900)
+        self.setMinimumSize(1400, 767)
         self.db_manager = DatabaseManager()
 
         # Main Layout Structure
