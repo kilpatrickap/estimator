@@ -3,7 +3,7 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
                              QFormLayout, QLineEdit, QDialog, QComboBox, QDateEdit,
                              QDialogButtonBox, QMessageBox, QTableWidget, QTableWidgetItem, QHeaderView, QSpacerItem,
-                             QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow,
+                             QSizePolicy, QFrame, QListWidget, QListWidgetItem, QMdiArea, QMdiSubWindow, QMenuBar,
                              QStatusBar, QSlider, QRadioButton, QButtonGroup, QSpinBox, QGroupBox,
                              QGraphicsDropShadowEffect, QGraphicsOpacityEffect)
 from PyQt6.QtGui import QFont, QDoubleValidator, QAction, QColor
@@ -44,9 +44,6 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1400, 900)
         self.db_manager = DatabaseManager()
 
-        # Build Standard Window Menu Bar
-        self._setup_menubar()
-
         # Main Layout Structure
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -54,8 +51,15 @@ class MainWindow(QMainWindow):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
 
+        # Build Standard Window Menu Bar (Added to layout above the custom navbar)
+        self._setup_menubar()
+
         # 1. Top Navigation Bar
         self._setup_navbar()
+
+        # Place the standard app menubar underneath the custom navbar 
+        # This catches the MDI minimize, restore, and close buttons
+        self.main_layout.addWidget(self.menuBar())
 
         # 2. MDI Area
         self.mdi_area = RestrictedMdiArea()
@@ -125,7 +129,9 @@ class MainWindow(QMainWindow):
 
     def _setup_menubar(self):
         """Creates the standard top application menu bar."""
-        menubar = self.menuBar()
+        # Standalone horizontal menu bar to sit above the ribbon toolbar
+        menubar = QMenuBar()
+        self.main_layout.addWidget(menubar)
         
         # File Menu
         file_menu = menubar.addMenu("File")
