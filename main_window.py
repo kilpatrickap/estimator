@@ -21,6 +21,20 @@ import os
 
 
 
+class RestrictedSubWindow(QMdiSubWindow):
+    def moveEvent(self, event):
+        if self.pos().y() < 0:
+            self.move(self.pos().x(), 0)
+        super().moveEvent(event)
+
+class RestrictedMdiArea(QMdiArea):
+    def addSubWindow(self, widget, flags=Qt.WindowType.SubWindow):
+        if isinstance(widget, QMdiSubWindow):
+            return super().addSubWindow(widget)
+        sub = RestrictedSubWindow()
+        sub.setWidget(widget)
+        super().addSubWindow(sub)
+        return sub
 
 class MainWindow(QMainWindow):
     """Main application window using MDI architecture."""
@@ -44,7 +58,7 @@ class MainWindow(QMainWindow):
         self._setup_navbar()
 
         # 2. MDI Area
-        self.mdi_area = QMdiArea()
+        self.mdi_area = RestrictedMdiArea()
         self.mdi_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.mdi_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.mdi_area.setViewMode(QMdiArea.ViewMode.SubWindowView)
@@ -116,10 +130,10 @@ class MainWindow(QMainWindow):
         # File Menu
         file_menu = menubar.addMenu("File")
         
-        new_action = self._create_action("New Estimate...", "Ctrl+N", self.new_estimate)
+        new_action = self._create_action("New Project...", "Ctrl+N", self.new_estimate)
         file_menu.addAction(new_action)
         
-        load_action = self._create_action("Load Estimate...", "Ctrl+O", self.load_estimate)
+        load_action = self._create_action("Load Project...", "Ctrl+O", self.load_estimate)
         file_menu.addAction(load_action)
         
         file_menu.addSeparator()
@@ -150,8 +164,15 @@ class MainWindow(QMainWindow):
         db_action = self._create_action("Cost Database", None, self.manage_database)
         window_menu.addAction(db_action)
         
-        rate_db_action = self._create_action("Rate Database", None, self.manage_rate_database)
+        rate_db_action = self._create_action("Libraries", None, self.manage_rate_database)
         window_menu.addAction(rate_db_action)
+
+        # View Menu
+        view_menu = menubar.addMenu("View")
+        self.toggle_toolbar_action = self._create_action("Toggle Toolbar", "Ctrl+T", self.toggle_toolbar)
+        self.toggle_toolbar_action.setCheckable(True)
+        self.toggle_toolbar_action.setChecked(True)
+        view_menu.addAction(self.toggle_toolbar_action)
 
     def _create_action(self, text, shortcut, slot):
         action = QAction(text, self)
@@ -175,9 +196,15 @@ class MainWindow(QMainWindow):
 
     def _setup_navbar(self):
         """Creates the premium top navigation bar."""
+        self.navbar_container = QWidget()
+        self.navbar_container_layout = QVBoxLayout(self.navbar_container)
+        self.navbar_container_layout.setContentsMargins(0, 0, 0, 0)
+        self.navbar_container_layout.setSpacing(0)
+
         self.navbar = QFrame()
         self.navbar.setObjectName("TopNavBar")
-        self.navbar.setFixedHeight(80) 
+        # Reduced height from 80 to 45
+        self.navbar.setFixedHeight(45) 
         self.navbar.setStyleSheet("""
             QFrame#TopNavBar {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1b5e20, stop:1 #2e7d32);
@@ -211,11 +238,15 @@ class MainWindow(QMainWindow):
         """)
 
         layout = QHBoxLayout(self.navbar)
-        layout.setContentsMargins(20, 10, 20, 10)
-        layout.setSpacing(15)
+        # Reduced margins
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(10)
 
         # Branding
-        layout.addWidget(QLabel("Estimator Pro"))
+        branding_label = QLabel("Estimator Pro")
+        
+        branding_label.setStyleSheet("font-size: 14px;")
+        layout.addWidget(branding_label)
         
         line = QFrame()
         line.setFrameShape(QFrame.Shape.VLine)
@@ -224,10 +255,10 @@ class MainWindow(QMainWindow):
 
         # Navigation Buttons
         nav_items = [
-            ("Create New Estimate", self.new_estimate),
-            ("Load Estimate", self.load_estimate),
+            ("New Project", self.new_estimate),
+            ("Load Project", self.load_estimate),
             ("Cost Database", self.manage_database),
-            ("Rate Database", self.manage_rate_database),
+            ("Libraries", self.manage_rate_database),
             ("Settings", self.open_settings),
             ("BOQ Setup", self.open_boq_setup),
             ("SOR", self.open_sor_dialog)
@@ -265,7 +296,49 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.redo_btn)
         layout.addWidget(self.save_btn)
 
-        self.main_layout.addWidget(self.navbar)
+        self.navbar_container_layout.addWidget(self.navbar)
+
+        # Ribbon toggle button (small flap underneath)
+        self.ribbon_toggle_btn = QPushButton("≡")
+        self.ribbon_toggle_btn.setObjectName("RibbonToggleBtn")
+        self.ribbon_toggle_btn.setFixedSize(40, 6) # Made as thin as possible
+        self.ribbon_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ribbon_toggle_btn.setToolTip("Toggle Toolbar (Ctrl+T)")
+        self.ribbon_toggle_btn.setStyleSheet("""
+            QPushButton#RibbonToggleBtn {
+                background: #2e7d32;
+                color: white;
+                border: none;
+                border-bottom-left-radius: 4px;
+                border-bottom-right-radius: 4px;
+                font-size: 6px; /* Extremely small */
+                padding: 0px;
+            }
+            QPushButton#RibbonToggleBtn:hover {
+                background: #1b5e20;
+            }
+        """)
+        self.ribbon_toggle_btn.clicked.connect(self.toggle_toolbar)
+
+        # Container for the toggle button to right-align it
+        toggle_container = QWidget()
+        toggle_layout = QHBoxLayout(toggle_container)
+        toggle_layout.setContentsMargins(0, 0, 20, 0) # Add 20px right margin so it doesn't touch the very edge
+        toggle_layout.setSpacing(0)
+        toggle_layout.addStretch()
+        toggle_layout.addWidget(self.ribbon_toggle_btn)
+        # Removed the right stretch so it sits on the right side
+        
+        self.navbar_container_layout.addWidget(toggle_container)
+
+        self.main_layout.addWidget(self.navbar_container)
+
+    def toggle_toolbar(self):
+        is_visible = self.navbar.isVisible()
+        self.navbar.setVisible(not is_visible)
+        
+        if hasattr(self, 'toggle_toolbar_action'):
+            self.toggle_toolbar_action.setChecked(self.navbar.isVisible())
 
     def new_estimate(self):
         dialog = NewEstimateDialog(self)
@@ -318,7 +391,7 @@ class MainWindow(QMainWindow):
             est_window = EstimateWindow(estimate_object=estimate_obj, main_window=self, db_path=db_path)
             self._add_estimate_window(est_window)
         else:
-            QMessageBox.critical(self, "Error", "Failed to load estimate from the file.")
+            QMessageBox.critical(self, "Error", "Failed to load project from the file.")
 
     def open_rate_buildup_window(self, estimate_obj, db_path=None):
         """Opens a rate build-up in an MDI window."""
@@ -515,7 +588,7 @@ class MainWindow(QMainWindow):
         sub.show()
 
     def show_rate_in_database(self, rate_code):
-        """Opens the rate database and highlights a specific rate."""
+        """Opens the libraries and highlights a specific rate."""
         rate_sub = None
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), RateManagerDialog):
@@ -1146,7 +1219,7 @@ class LoadEstimateDialog(QDialog):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
         self.selected_estimate_id = None
-        self.setWindowTitle("Load Estimate")
+        self.setWindowTitle("Load Project")
         self.setMinimumSize(800, 500)
 
         layout = QVBoxLayout(self)

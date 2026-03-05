@@ -53,7 +53,7 @@ class RateManagerDialog(QDialog):
     def __init__(self, main_window=None, parent=None):
         super().__init__(parent)
         self.main_window = main_window
-        self.setWindowTitle("Rate Database")
+        self.setWindowTitle("Libraries")
         self.setMinimumSize(850, 500)
         self.resize(850, 650)
         self.db_manager = None

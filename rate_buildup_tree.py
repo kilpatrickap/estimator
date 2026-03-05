@@ -220,7 +220,7 @@ class RateBuildupTreeWidget(QWidget):
             
         type_code = item.item_type
         
-        # If the resource is an imported rate (composite sub-rate), open the rate database
+        # If the resource is an imported rate (composite sub-rate), open the libraries
         if hasattr(item, 'task_object') and getattr(item.task_object, 'description', '') == "Imported Rates":
             name = item.item_data.get('name', '')
             rate_code = name.split(':')[0].strip() if ':' in name else name.split()[0] if name else ""
