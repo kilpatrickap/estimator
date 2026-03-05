@@ -48,7 +48,7 @@ class DatabaseManagerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db_manager = DatabaseManager()
-        self.setWindowTitle("Manage Cost Database")
+        self.setWindowTitle("Manage Resources")
         self.setMinimumSize(900, 600)
         self.is_loading = False
 

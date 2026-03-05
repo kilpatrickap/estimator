@@ -167,7 +167,7 @@ class MainWindow(QMainWindow):
         # Windows Menu
         window_menu = menubar.addMenu("Window")
         
-        db_action = self._create_action("Cost Database", None, self.manage_database)
+        db_action = self._create_action("Resources", None, self.manage_database)
         window_menu.addAction(db_action)
         
         rate_db_action = self._create_action("Libraries", None, self.manage_rate_database)
@@ -263,7 +263,7 @@ class MainWindow(QMainWindow):
         nav_items = [
             ("New Project", self.new_estimate),
             ("Load Project", self.load_estimate),
-            ("Cost Database", self.manage_database),
+            ("Resources", self.manage_database),
             ("Libraries", self.manage_rate_database),
             ("Settings", self.open_settings),
             ("BOQ Setup", self.open_boq_setup),
@@ -518,7 +518,7 @@ class MainWindow(QMainWindow):
         sub.show()
 
     def show_resource_in_database(self, table_name, resource_name):
-        """Opens the cost database and highlights a specific resource."""
+        """Opens the resources and highlights a specific resource."""
         db_sub = None
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), DatabaseManagerDialog):
