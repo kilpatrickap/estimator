@@ -43,6 +43,7 @@ class RateBuildUpDialog(QDialog):
         self.impacted_resources = set() # Stores (type, name) tuples
         self.show_impact_highlights = True
         self.mismatch_notified = False
+        self.is_dirty = False
         
         self._init_ui()
         self.refresh_view()
@@ -65,6 +66,7 @@ class RateBuildUpDialog(QDialog):
         """Saves current estimate state to undo stack."""
         self.undo_stack.append(copy.deepcopy(self.estimate))
         self.redo_stack.clear() # Clear redo when a new action is performed
+        self.is_dirty = True
         self.stateChanged.emit()
 
     def undo(self):
@@ -148,7 +150,7 @@ class RateBuildUpDialog(QDialog):
 
     def _on_tree_state_changed(self):
         self._save_state()
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
         self.refresh_view()
         self.stateChanged.emit()
 
@@ -167,7 +169,7 @@ class RateBuildUpDialog(QDialog):
         self.estimate.rate_type = new_type
         self.header_widget.update_rate_type_style()
         self._sync_tables_visibility()
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
 
     def _on_header_factor_changed(self):
         text = self.header_widget.adjstmt_factor_input.text().strip()
@@ -181,7 +183,7 @@ class RateBuildUpDialog(QDialog):
             self.estimate.adjustment_factor = 1.0
 
         self._save_state()
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
         self.refresh_view()
         self.stateChanged.emit()
         
@@ -190,12 +192,12 @@ class RateBuildUpDialog(QDialog):
         if new_desc and new_desc != self.estimate.project_name:
             self._save_state()
             self.estimate.project_name = new_desc
-            self.save_changes(show_message=False)
+            # self.save_changes(show_message=False)
             self.refresh_view()
         
     def _on_summary_notes_changed(self):
         self._save_state()
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
 
 
 
@@ -233,7 +235,7 @@ class RateBuildUpDialog(QDialog):
         self.estimate.sub_rates[sub_idx] = new_sub
         
         self.refresh_view()
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
         
         QMessageBox.information(
             self, 
@@ -293,7 +295,7 @@ class RateBuildUpDialog(QDialog):
         new_code = self.db_manager.generate_next_rate_code(new_category)
         self.estimate.rate_code = new_code
         
-        self.save_changes(show_message=False)
+        # self.save_changes(show_message=False)
         self.refresh_view()
         self.stateChanged.emit()
 
@@ -303,7 +305,7 @@ class RateBuildUpDialog(QDialog):
         if new_desc and new_desc != self.estimate.project_name:
             self._save_state()
             self.estimate.project_name = new_desc
-            self.save_changes(show_message=False)
+            # self.save_changes(show_message=False)
             self.refresh_view()
 
     def handle_library_update(self, table_name, resource_name, new_val, new_curr, new_unit="", auto_update=False):
@@ -418,6 +420,7 @@ class RateBuildUpDialog(QDialog):
         self.estimate.date = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         
         if self.db_manager.save_estimate(self.estimate):
+            self.is_dirty = False
             self.dataCommitted.emit()
             if show_message:
                 from PyQt6.QtWidgets import QMessageBox
@@ -428,9 +431,26 @@ class RateBuildUpDialog(QDialog):
                 QMessageBox.critical(self, "Error", "Failed to save changes.")
 
     def closeEvent(self, event):
-        """Automatically save changes when the window is closed."""
-        self.save_changes(show_message=False)
-        super().closeEvent(event)
+        """Confirm to the User whether he would like to save or not."""
+        if getattr(self, 'is_dirty', False):
+            from PyQt6.QtWidgets import QMessageBox
+            reply = QMessageBox.question(
+                self, 
+                "Save Changes", 
+                "Do you want to save your changes to this rate build-up before closing?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No | QMessageBox.StandardButton.Cancel,
+                QMessageBox.StandardButton.Yes
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_changes(show_message=False)
+                event.accept()
+            elif reply == QMessageBox.StandardButton.No:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            super().closeEvent(event)
 
     def refresh_view(self):
         self.is_loading = True
