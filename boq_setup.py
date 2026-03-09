@@ -45,8 +45,28 @@ class BOQSetupWindow(QWidget):
         file_layout = QHBoxLayout()
         file_layout.addWidget(QLabel("Select BOQ File:"))
         self.boq_file_selector = QComboBox()
-        self.boq_file_selector.addItem(os.path.basename(self.boq_file_path), self.boq_file_path)
-        self.boq_file_selector.addItem("Browse for another BOQ...")
+        
+        project_folder = getattr(self, 'project_dir', None)
+        if not project_folder:
+            project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_folder and os.path.basename(project_folder) == "Project Database":
+                project_folder = os.path.dirname(project_folder)
+                
+        boq_dir = os.path.join(project_folder, "Imported BOQs")
+        
+        if os.path.exists(boq_dir):
+            for f in os.listdir(boq_dir):
+                if f.lower().endswith(('.xlsx', '.xls')):
+                    self.boq_file_selector.addItem(f, os.path.join(boq_dir, f))
+                    
+        # Ensure current loaded BOQ is selected
+        idx = self.boq_file_selector.findData(self.boq_file_path)
+        if idx >= 0:
+            self.boq_file_selector.setCurrentIndex(idx)
+        else:
+            self.boq_file_selector.addItem(os.path.basename(self.boq_file_path), self.boq_file_path)
+            self.boq_file_selector.setCurrentIndex(self.boq_file_selector.count() - 1)
+            
         self.boq_file_selector.activated.connect(self._on_boq_file_changed) # Only triggers on user click, avoiding programmatic loops
         file_layout.addWidget(self.boq_file_selector, stretch=1)
         
@@ -202,37 +222,11 @@ class BOQSetupWindow(QWidget):
     def _on_boq_file_changed(self, index):
         if index < 0: return
         
-        if self.boq_file_selector.itemText(index) == "Browse for another BOQ...":
-            from PyQt6.QtWidgets import QFileDialog
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "Select BOQ Excel File", "", "Excel Files (*.xls *.xlsx)"
-            )
-            if file_path:
-                # Temporarily block signals to prevent double-loading and recursive dialogs
-                self.boq_file_selector.blockSignals(True)
-                
-                # Add new file to combo box before 'Browse' and set it as active
-                count = self.boq_file_selector.count()
-                self.boq_file_selector.insertItem(count - 1, os.path.basename(file_path), file_path)
-                self.boq_file_selector.setCurrentIndex(count - 1)
-                
-                self.boq_file_selector.blockSignals(False)
-                
-                self.boq_file_path = file_path
-                self.setWindowTitle(f"BOQ Setup - {os.path.basename(file_path)}")
-                self._load_excel()
-            else:
-                # User cancelled, revert combo box to previous valid selection
-                self.boq_file_selector.blockSignals(True)
-                self.boq_file_selector.setCurrentIndex(0) # Simple fallback
-                self.boq_file_selector.blockSignals(False)
-        else:
-            # Selected an already loaded file path from the combo box data
-            new_path = self.boq_file_selector.itemData(index)
-            if new_path and new_path != self.boq_file_path:
-                self.boq_file_path = new_path
-                self.setWindowTitle(f"BOQ Setup - {os.path.basename(new_path)}")
-                self._load_excel()
+        new_path = self.boq_file_selector.itemData(index)
+        if new_path and new_path != self.boq_file_path:
+            self.boq_file_path = new_path
+            self.setWindowTitle(f"BOQ Setup - {os.path.basename(new_path)}")
+            self._load_excel()
 
     def _load_excel(self):
         try:
@@ -668,7 +662,6 @@ class BOQSetupWindow(QWidget):
             df.to_sql('pboq_items', conn, if_exists='replace', index=False)
             conn.close()
             QMessageBox.information(self, "Success", f"Successfully saved Priced BOQ to:\n{pboq_file_path}")
-            self.close()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to save Priced BOQ Database file:\n{e}")
 
