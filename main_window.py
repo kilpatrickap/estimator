@@ -746,12 +746,9 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "No BOQs", "No Excel BOQ files found in this project 'Imported BOQs' directory.\nPlease import them via Project Settings or New Project Dialog.")
             return
             
-        from PyQt6.QtWidgets import QInputDialog
+        # Automatically bypass dialog and select the most recently modified BOQ
+        boq_files.sort(key=lambda f: os.path.getmtime(os.path.join(boq_dir, f)), reverse=True)
         target_boq = boq_files[0]
-        if len(boq_files) > 1:
-            choice, ok = QInputDialog.getItem(self, "Select BOQ", "Select BOQ file to setup:", boq_files, 0, False)
-            if not ok: return
-            target_boq = choice
             
         full_path = os.path.join(boq_dir, target_boq)
         
