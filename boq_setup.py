@@ -610,6 +610,7 @@ class BOQSetupWindow(QWidget):
         import os
         import sqlite3
         import pandas as pd
+        import json
         
         if not self.sheet_data:
             QMessageBox.warning(self, "Warning", "No data loaded to save.")
@@ -634,13 +635,38 @@ class BOQSetupWindow(QWidget):
         new_file_name = f"PBOQ_{name}.db"
         pboq_file_path = os.path.join(pboq_folder, new_file_name)
         
-        # Collect raw data from all sheets
+        # Load Excel workbook for formatting extraction
+        is_xlsx = self.boq_file_path.lower().endswith('.xlsx')
+        wb = None
+        if is_xlsx:
+            import openpyxl
+            try:
+                wb = openpyxl.load_workbook(self.boq_file_path, data_only=True)
+            except: pass
+        else:
+            import xlrd
+            try:
+                wb = xlrd.open_workbook(self.boq_file_path, formatting_info=True)
+            except: pass
+        
+        # Collect raw data and formatting from all sheets
         all_rows = []
+        all_formats = []
         max_cols = 0
+        global_row_idx = 0
         
         for sheet_name, data in self.sheet_data.items():
             df = data['df']
             max_cols = max(max_cols, len(df.columns))
+            
+            # Get the worksheet for formatting
+            ws = None
+            if wb and is_xlsx and sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+            elif wb and not is_xlsx:
+                try:
+                    ws = wb.sheet_by_name(sheet_name)
+                except: pass
             
             for r in range(len(df)):
                 row_values = []
@@ -649,7 +675,45 @@ class BOQSetupWindow(QWidget):
                     if val.lower() in ('nan', '<na>', 'none'):
                         val = ""
                     row_values.append(val)
+                    
+                    # Extract formatting
+                    fmt = {}
+                    if ws and is_xlsx:
+                        try:
+                            cell = ws.cell(row=r+1, column=c+1)
+                            if cell.font:
+                                if cell.font.bold: fmt['bold'] = True
+                                if cell.font.italic: fmt['italic'] = True
+                                if cell.font.underline: fmt['underline'] = True
+                                if cell.font.color and cell.font.color.rgb and cell.font.color.rgb != '00000000':
+                                    rgb = str(cell.font.color.rgb)
+                                    if len(rgb) == 8: rgb = rgb[2:]  # Strip alpha
+                                    fmt['font_color'] = f"#{rgb}"
+                            if cell.fill and cell.fill.fgColor and cell.fill.fgColor.rgb:
+                                rgb = str(cell.fill.fgColor.rgb)
+                                if rgb and rgb != '00000000':
+                                    if len(rgb) == 8: rgb = rgb[2:]
+                                    fmt['bg_color'] = f"#{rgb}"
+                        except: pass
+                    elif ws and not is_xlsx:
+                        try:
+                            xf_idx = ws.cell_xf_index(r, c)
+                            xf = wb.xf_list[xf_idx]
+                            font = wb.font_list[xf.font_index]
+                            if font.weight >= 700: fmt['bold'] = True
+                            if font.italic: fmt['italic'] = True
+                            if font.underlined: fmt['underline'] = True
+                        except: pass
+                    
+                    if fmt:
+                        all_formats.append({
+                            'row_idx': global_row_idx,
+                            'col_idx': c,
+                            'fmt_json': json.dumps(fmt)
+                        })
+                
                 all_rows.append({"Sheet": sheet_name, "row_values": row_values})
+                global_row_idx += 1
         
         if not all_rows:
             QMessageBox.warning(self, "Warning", "No data to save to Priced BOQ.")
@@ -670,6 +734,23 @@ class BOQSetupWindow(QWidget):
             df_out = pd.DataFrame(records)
             conn = sqlite3.connect(pboq_file_path)
             df_out.to_sql('pboq_items', conn, if_exists='replace', index=False)
+            
+            # Save formatting data
+            cursor = conn.cursor()
+            cursor.execute("DROP TABLE IF EXISTS pboq_formatting")
+            cursor.execute("""
+                CREATE TABLE pboq_formatting (
+                    row_idx INTEGER,
+                    col_idx INTEGER,
+                    fmt_json TEXT
+                )
+            """)
+            if all_formats:
+                cursor.executemany(
+                    "INSERT INTO pboq_formatting (row_idx, col_idx, fmt_json) VALUES (?, ?, ?)",
+                    [(f['row_idx'], f['col_idx'], f['fmt_json']) for f in all_formats]
+                )
+            conn.commit()
             conn.close()
             QMessageBox.information(self, "Success", f"Successfully saved Priced BOQ to:\n{pboq_file_path}")
         except Exception as e:

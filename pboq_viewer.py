@@ -4,9 +4,10 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
                              QLineEdit, QWidget, QCheckBox, QComboBox, QTabWidget,
-                             QGroupBox, QFormLayout, QAbstractItemView, QMenu)
+                             QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QAction
+import json
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Excel-style tabbed view with column mapping."""
@@ -48,6 +49,12 @@ class PBOQDialog(QDialog):
         self.pboq_file_selector.activated.connect(self._load_pboq_db)
         top_bar.addWidget(self.pboq_file_selector, stretch=1)
         main_layout.addLayout(top_bar)
+        
+        # Keep Formatting toggle
+        self.keep_formatting_cb = QCheckBox("Keep Formatting")
+        self.keep_formatting_cb.setChecked(True)
+        self.keep_formatting_cb.stateChanged.connect(self._toggle_formatting)
+        main_layout.addWidget(self.keep_formatting_cb)
         
         # Main splitter: Left (Excel-style table) | Right (Column Mapping + Stats)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -171,8 +178,9 @@ class PBOQDialog(QDialog):
                 db_columns.append("RateCode")
             conn.commit()
             
-            # Fetch all data
-            query = f"SELECT {', '.join(db_columns)} FROM pboq_items"
+            # Fetch all data (quote column names since they may contain spaces)
+            quoted_cols = [f'"{c}"' for c in db_columns]
+            query = f"SELECT {', '.join(quoted_cols)} FROM pboq_items"
             cursor.execute(query)
             rows = cursor.fetchall()
             conn.close()
@@ -265,8 +273,98 @@ class PBOQDialog(QDialog):
             self.priced_items_label.setText(f"Priced Items : {priced_items}")
             self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
             
+            # Load formatting data from DB
+            self.formatting_data = {}
+            try:
+                conn2 = sqlite3.connect(file_path)
+                cursor2 = conn2.cursor()
+                cursor2.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
+                if cursor2.fetchone():
+                    cursor2.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
+                    for row_idx, col_idx, fmt_json in cursor2.fetchall():
+                        self.formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
+                conn2.close()
+            except: pass
+            
+            # Auto-apply formatting if checkbox is checked
+            if self.keep_formatting_cb.isChecked() and self.formatting_data:
+                self._apply_formatting()
+            
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
+    
+    def _toggle_formatting(self, state):
+        """Toggles formatting on/off when the checkbox changes."""
+        if state:
+            self._apply_formatting()
+        else:
+            self._clear_formatting()
+    
+    def _apply_formatting(self):
+        """Applies saved Excel formatting to all table cells across all tabs."""
+        if not hasattr(self, 'formatting_data') or not self.formatting_data:
+            return
+        
+        # Build a mapping: for each tab, track its starting global row index
+        global_row = 0
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
+            
+            for r in range(table.rowCount()):
+                for c in range(table.columnCount()):
+                    fmt = self.formatting_data.get((global_row, c))
+                    if not fmt:
+                        continue
+                    
+                    item = table.item(r, c)
+                    if not item:
+                        continue
+                    
+                    # Apply font attributes
+                    font = item.font()
+                    if fmt.get('bold'):
+                        font.setBold(True)
+                    if fmt.get('italic'):
+                        font.setItalic(True)
+                    if fmt.get('underline'):
+                        font.setUnderline(True)
+                    item.setFont(font)
+                    
+                    # Apply font color
+                    if 'font_color' in fmt:
+                        color = QColor(fmt['font_color'])
+                        if color.isValid():
+                            item.setForeground(color)
+                    
+                    # Apply background color
+                    if 'bg_color' in fmt:
+                        color = QColor(fmt['bg_color'])
+                        if color.isValid():
+                            item.setBackground(color)
+                
+                global_row += 1
+    
+    def _clear_formatting(self):
+        """Removes all formatting from table cells (resets to defaults)."""
+        default_font = QFont()
+        default_fg = QColor(Qt.GlobalColor.black)
+        default_bg = QColor(Qt.GlobalColor.white)
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
+            
+            for r in range(table.rowCount()):
+                for c in range(table.columnCount()):
+                    item = table.item(r, c)
+                    if not item:
+                        continue
+                    item.setFont(default_font)
+                    item.setForeground(default_fg)
+                    item.setBackground(default_bg)
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
