@@ -437,9 +437,11 @@ class SORDialog(QDialog):
         row = index.row()
         item = self.table_widget.item(row, 3) # Description column
         unit_item = self.table_widget.item(row, 5) # Unit column
+        rate_code_item = self.table_widget.item(row, 7) # Rate Code column
         
         desc = item.text().strip() if item and item.text().strip() else "New Rate"
         unit = unit_item.text().strip() if unit_item and unit_item.text().strip() else "m"
+        rate_code = rate_code_item.text().strip() if rate_code_item else ""
         
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
@@ -458,6 +460,23 @@ class SORDialog(QDialog):
             return
 
         db = DatabaseManager(db_path)
+        
+        if rate_code:
+            from orm_models import DBEstimate
+            est_id = None
+            with db.Session() as session:
+                db_est = session.query(DBEstimate).filter(DBEstimate.rate_code == rate_code).first()
+                if db_est:
+                    est_id = db_est.id
+            if est_id:
+                estimate_obj = db.load_estimate_details(est_id)
+                if estimate_obj and self.main_window:
+                    self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
+                return
+            else:
+                QMessageBox.warning(self, "Not Found", f"Rate '{rate_code}' could not be found in the Project Database.")
+                return
+                
         cat = "Miscellaneous"
         new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
         new_est.category = cat
