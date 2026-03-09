@@ -49,12 +49,7 @@ class PBOQDialog(QDialog):
         self.pboq_file_selector.activated.connect(self._load_pboq_db)
         top_bar.addWidget(self.pboq_file_selector, stretch=1)
         main_layout.addLayout(top_bar)
-        
-        # Keep Formatting toggle
-        self.keep_formatting_cb = QCheckBox("Keep Formatting")
-        self.keep_formatting_cb.setChecked(True)
-        self.keep_formatting_cb.stateChanged.connect(self._toggle_formatting)
-        main_layout.addWidget(self.keep_formatting_cb)
+
         
         # Main splitter: Left (Excel-style table) | Right (Column Mapping + Stats)
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -183,11 +178,20 @@ class PBOQDialog(QDialog):
             query = f"SELECT {', '.join(quoted_cols)} FROM pboq_items"
             cursor.execute(query)
             rows = cursor.fetchall()
-            conn.close()
             
             if not rows:
                 QMessageBox.information(self, "Empty", "No data found in this PBOQ database.")
                 return
+            
+            # Load formatting data from DB before building tables
+            formatting_data = {}
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
+            if cursor.fetchone():
+                cursor.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
+                for row_idx, col_idx, fmt_json in cursor.fetchall():
+                    formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
+            
+            conn.close()
             
             # Store DB column names for persistence
             self.db_columns = db_columns
@@ -197,20 +201,17 @@ class PBOQDialog(QDialog):
             display_col_names = db_columns[1:]  # Everything except "Sheet"
             num_display_cols = len(display_col_names)
             
-            # Group rows by Sheet name (first column)
+            # Group rows by Sheet name (first column), preserving global row index
             sheet_groups = {}
-            for row in rows:
+            for g_idx, row in enumerate(rows):
                 sheet_name = str(row[0]) if row[0] else "Sheet 1"
                 if sheet_name not in sheet_groups:
                     sheet_groups[sheet_name] = []
-                # Store only the data columns (skip Sheet)
-                sheet_groups[sheet_name].append(row[1:])
+                # Store data columns + global row index
+                sheet_groups[sheet_name].append((g_idx, row[1:]))
             
             # Populate combo boxes with the display column count
             self._populate_column_combos(num_display_cols)
-            
-            bold_font = QFont()
-            bold_font.setBold(True)
             
             total_items = 0
             priced_items = 0
@@ -221,9 +222,9 @@ class PBOQDialog(QDialog):
             qty_mapped = self.cb_qty.currentIndex() - 1  # -1 for "-- Select Column --"
             
             # Create a tab for each sheet
-            for sheet_name, sheet_rows in sheet_groups.items():
+            for sheet_name, sheet_entries in sheet_groups.items():
                 table = QTableWidget()
-                table.setRowCount(len(sheet_rows))
+                table.setRowCount(len(sheet_entries))
                 table.setColumnCount(num_display_cols)
                 table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
                 table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
@@ -233,10 +234,30 @@ class PBOQDialog(QDialog):
                 table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 table.customContextMenuRequested.connect(lambda pos, t=table: self._show_context_menu(pos, t))
                 
-                for r_idx, row_data in enumerate(sheet_rows):
+                for r_idx, (global_row_idx, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
                         col_val = row_data[c_idx] if c_idx < len(row_data) else ""
                         t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                        
+                        # Apply formatting inline from saved data
+                        fmt = formatting_data.get((global_row_idx, c_idx))
+                        if fmt:
+                            font = t_item.font()
+                            if fmt.get('bold'): font.setBold(True)
+                            if fmt.get('italic'): font.setItalic(True)
+                            if fmt.get('underline'): font.setUnderline(True)
+                            t_item.setFont(font)
+                            
+                            if 'font_color' in fmt:
+                                color = QColor(fmt['font_color'])
+                                if color.isValid():
+                                    t_item.setForeground(color)
+                            
+                            if 'bg_color' in fmt:
+                                color = QColor(fmt['bg_color'])
+                                if color.isValid():
+                                    t_item.setBackground(color)
+                        
                         table.setItem(r_idx, c_idx, t_item)
                     
                     # Count stats: check if row has a quantity (not a heading)
@@ -273,98 +294,8 @@ class PBOQDialog(QDialog):
             self.priced_items_label.setText(f"Priced Items : {priced_items}")
             self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
             
-            # Load formatting data from DB
-            self.formatting_data = {}
-            try:
-                conn2 = sqlite3.connect(file_path)
-                cursor2 = conn2.cursor()
-                cursor2.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
-                if cursor2.fetchone():
-                    cursor2.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
-                    for row_idx, col_idx, fmt_json in cursor2.fetchall():
-                        self.formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
-                conn2.close()
-            except: pass
-            
-            # Auto-apply formatting if checkbox is checked
-            if self.keep_formatting_cb.isChecked() and self.formatting_data:
-                self._apply_formatting()
-            
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
-    
-    def _toggle_formatting(self, state):
-        """Toggles formatting on/off when the checkbox changes."""
-        if state:
-            self._apply_formatting()
-        else:
-            self._clear_formatting()
-    
-    def _apply_formatting(self):
-        """Applies saved Excel formatting to all table cells across all tabs."""
-        if not hasattr(self, 'formatting_data') or not self.formatting_data:
-            return
-        
-        # Build a mapping: for each tab, track its starting global row index
-        global_row = 0
-        for tab_idx in range(self.tabs.count()):
-            table = self.tabs.widget(tab_idx)
-            if not isinstance(table, QTableWidget):
-                continue
-            
-            for r in range(table.rowCount()):
-                for c in range(table.columnCount()):
-                    fmt = self.formatting_data.get((global_row, c))
-                    if not fmt:
-                        continue
-                    
-                    item = table.item(r, c)
-                    if not item:
-                        continue
-                    
-                    # Apply font attributes
-                    font = item.font()
-                    if fmt.get('bold'):
-                        font.setBold(True)
-                    if fmt.get('italic'):
-                        font.setItalic(True)
-                    if fmt.get('underline'):
-                        font.setUnderline(True)
-                    item.setFont(font)
-                    
-                    # Apply font color
-                    if 'font_color' in fmt:
-                        color = QColor(fmt['font_color'])
-                        if color.isValid():
-                            item.setForeground(color)
-                    
-                    # Apply background color
-                    if 'bg_color' in fmt:
-                        color = QColor(fmt['bg_color'])
-                        if color.isValid():
-                            item.setBackground(color)
-                
-                global_row += 1
-    
-    def _clear_formatting(self):
-        """Removes all formatting from table cells (resets to defaults)."""
-        default_font = QFont()
-        default_fg = QColor(Qt.GlobalColor.black)
-        default_bg = QColor(Qt.GlobalColor.white)
-        
-        for tab_idx in range(self.tabs.count()):
-            table = self.tabs.widget(tab_idx)
-            if not isinstance(table, QTableWidget):
-                continue
-            
-            for r in range(table.rowCount()):
-                for c in range(table.columnCount()):
-                    item = table.item(r, c)
-                    if not item:
-                        continue
-                    item.setFont(default_font)
-                    item.setForeground(default_fg)
-                    item.setBackground(default_bg)
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
