@@ -3,269 +3,302 @@ import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
-                             QLineEdit, QWidget, QCheckBox)
+                             QLineEdit, QWidget, QCheckBox, QComboBox, QTabWidget,
+                             QGroupBox, QFormLayout, QAbstractItemView, QMenu)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QAction
 
 class PBOQDialog(QDialog):
+    """Priced Bill of Quantities viewer - Excel-style tabbed view with column mapping."""
     def __init__(self, project_dir, parent=None):
         super().__init__(parent)
         self.main_window = parent
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
-        self.clipboard_data = None  # Store copied rate data
+        self.clipboard_data = None
+        
+        # Color codes matching BOQ Setup
+        self.COLOR_HEADING = QColor("#e8f5e9")
+        self.COLOR_ITEM = QColor("#fff9c4")
+        self.COLOR_IGNORE = QColor("#ffffff")
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(950, 600)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
+        self._init_ui()
         
-        # Splitter to hold Left (List) and Right (Table)
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setHandleWidth(4)
-        self.splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
+        # Auto-load first PBOQ if available
+        if self.pboq_file_selector.count() > 0:
+            self._load_pboq_db(self.pboq_file_selector.currentIndex())
+
+    def _init_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Left Panel (List of SORs)
-        self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { height: 20px; font-size: 8pt; padding: 0px; }")
-        self.list_widget.itemChanged.connect(self._load_selected_pboq)
-        self.splitter.addWidget(self.list_widget)
+        # Top bar: PBOQ file selector
+        top_bar = QHBoxLayout()
+        top_bar.addWidget(QLabel("Select Priced BOQ:"))
+        self.pboq_file_selector = QComboBox()
         
-        # Right Panel (Layout containing Search Bar and Table)
+        if os.path.exists(self.pboq_folder):
+            for f in sorted(os.listdir(self.pboq_folder)):
+                if f.lower().endswith('.db'):
+                    self.pboq_file_selector.addItem(f, os.path.join(self.pboq_folder, f))
+        
+        self.pboq_file_selector.activated.connect(self._load_pboq_db)
+        top_bar.addWidget(self.pboq_file_selector, stretch=1)
+        main_layout.addLayout(top_bar)
+        
+        # Main splitter: Left (Excel-style table) | Right (Column Mapping + Stats)
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+        splitter.setHandleWidth(4)
+        splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
+        
+        # LEFT PANE: Excel-style tabbed table
+        left_widget = QWidget()
+        left_layout = QVBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        
+        left_layout.addWidget(QLabel("Priced BOQ Data:"))
+        
+        self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.TabPosition.South)
+        left_layout.addWidget(self.tabs)
+        
+        splitter.addWidget(left_widget)
+        
+        # RIGHT PANE: Column Mapping + Stats + Search
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Search controls layout
-        search_layout = QHBoxLayout()
+        # Column Mapping Group
+        col_group = QGroupBox("Column Mapping")
+        col_layout = QFormLayout(col_group)
+        col_layout.setContentsMargins(5, 5, 5, 5)
+        col_layout.setSpacing(5)
+        
+        self.cb_ref = QComboBox()
+        self.cb_desc = QComboBox()
+        self.cb_qty = QComboBox()
+        self.cb_unit = QComboBox()
+        self.cb_rate = QComboBox()
+        self.cb_rate_code = QComboBox()
+        
+        col_layout.addRow("Ref / Item No:", self.cb_ref)
+        col_layout.addRow("Description:", self.cb_desc)
+        col_layout.addRow("Quantity:", self.cb_qty)
+        col_layout.addRow("Unit:", self.cb_unit)
+        col_layout.addRow("Gross Rate:", self.cb_rate)
+        col_layout.addRow("Rate Code:", self.cb_rate_code)
+        
+        right_layout.addWidget(col_group)
+        
+        # Search
+        search_group = QGroupBox("Search")
+        search_layout = QVBoxLayout(search_group)
+        search_layout.setContentsMargins(5, 5, 5, 5)
+        search_layout.setSpacing(5)
         
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search...")
-        self.search_bar.textChanged.connect(self._filter_table)
+        self.search_bar.setPlaceholderText("Search across all sheets...")
+        self.search_bar.textChanged.connect(self._filter_current_table)
         search_layout.addWidget(self.search_bar)
         
-        self.similar_checkbox = QCheckBox("Similar rates")
-        self.similar_checkbox.stateChanged.connect(self._filter_table)
-        search_layout.addWidget(self.similar_checkbox)
+        right_layout.addWidget(search_group)
         
-        self.keywords_label = QLabel("Keywords:")
-        search_layout.addWidget(self.keywords_label)
+        # Stats
+        stats_group = QGroupBox("Statistics")
+        stats_layout = QVBoxLayout(stats_group)
+        stats_layout.setContentsMargins(5, 5, 5, 5)
+        stats_layout.setSpacing(4)
         
-        self.keywords_input = QLineEdit()
-        self.keywords_input.setPlaceholderText("e.g. wall, brick, 150mm")
-        self.keywords_input.textChanged.connect(self._filter_table)
-        search_layout.addWidget(self.keywords_input)
+        label_style = "font-weight: bold; font-size: 9pt;"
+        self.total_items_label = QLabel("Total Items : 0")
+        self.total_items_label.setStyleSheet(f"{label_style} color: blue;")
+        self.priced_items_label = QLabel("Priced Items : 0")
+        self.priced_items_label.setStyleSheet(f"{label_style} color: green;")
+        self.outstanding_items_label = QLabel("Outstanding : 0")
+        self.outstanding_items_label.setStyleSheet(f"{label_style} color: red;")
         
-        right_layout.addLayout(search_layout)
+        stats_layout.addWidget(self.total_items_label)
+        stats_layout.addWidget(self.priced_items_label)
+        stats_layout.addWidget(self.outstanding_items_label)
         
-        # Stats layout
-        stats_layout = QVBoxLayout()
-        stats_layout.setSpacing(2)
-        stats_row = QHBoxLayout()
-        self.total_rates_label = QLabel("Total Rates : 0")
-        self.found_rates_label = QLabel("Found Rates : 0")
-        self.priced_rates_label = QLabel("Priced Rates : 0")
-        self.outstanding_rates_label = QLabel("Outstanding Rates : 0")
+        right_layout.addWidget(stats_group)
+        right_layout.addStretch()
         
-        # Style labels with smaller font for compact look
-        label_style = "font-weight: bold; font-size: 8pt;"
-        self.total_rates_label.setStyleSheet(f"{label_style} color: blue;")
-        self.found_rates_label.setStyleSheet(f"{label_style} color: green; margin-left: 15px;")
-        self.priced_rates_label.setStyleSheet(f"{label_style} color: orange; margin-left: 15px;")
-        self.outstanding_rates_label.setStyleSheet(f"{label_style} color: red; margin-left: 10px;")
+        splitter.addWidget(right_widget)
         
-        stats_row.addWidget(self.total_rates_label)
-        stats_row.addWidget(self.found_rates_label)
-        stats_row.addWidget(self.priced_rates_label)
-        stats_row.addWidget(self.outstanding_rates_label)
-        stats_row.addStretch()
+        # Give the Excel-style table most of the space
+        splitter.setStretchFactor(0, 7)
+        splitter.setStretchFactor(1, 3)
         
-        stats_layout.addLayout(stats_row)
-        right_layout.addLayout(stats_layout)
-        
-        self.table_widget = QTableWidget()
-        self.table_widget.setColumnCount(8)
-        self.table_widget.setHorizontalHeaderLabels(["PBOQ", "Sheet", "Ref", "Description", "Quantity", "Unit", "Gross Rate", "Rate Code"])
-        self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.verticalHeader().setDefaultSectionSize(22)
-        self.table_widget.verticalHeader().setVisible(False)
-        self.table_widget.setShowGrid(False)
-        
-        header = self.table_widget.horizontalHeader()
-        header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
-        header.setMinimumSectionSize(20)
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        
-        self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-        self.table_widget.customContextMenuRequested.connect(self._show_context_menu)
-        
-        right_layout.addWidget(self.table_widget)
-        self.splitter.addWidget(right_widget)
-        
-        # Set initial splitter sizes
-        self.splitter.setSizes([200, 700])
-        
-        layout.addWidget(self.splitter)
-        
-        self._populate_list()
+        main_layout.addWidget(splitter)
 
-    def _populate_list(self):
-        self.list_widget.blockSignals(True)
-        self.list_widget.clear()
-        if not os.path.exists(self.pboq_folder):
-            self.list_widget.blockSignals(False)
+    def _load_pboq_db(self, index):
+        """Loads a PBOQ .db file and renders it in Excel-style tabs."""
+        if index < 0 or index >= self.pboq_file_selector.count():
             return
             
-        for f in os.listdir(self.pboq_folder):
-            if f.lower().endswith('.db'):
-                item = QListWidgetItem(f)
-                item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked)
-                self.list_widget.addItem(item)
-        self.list_widget.blockSignals(False)
-
-    def _load_selected_pboq(self):
-        self.table_widget.setRowCount(0)
-        
-        checked_items = []
-        for index in range(self.list_widget.count()):
-            item = self.list_widget.item(index)
-            if item.checkState() == Qt.CheckState.Checked:
-                checked_items.append(item)
-        
-        if not checked_items:
-            self.total_rates_label.setText("Total Rates : 0")
-            self.found_rates_label.setText("Found Rates : 0")
+        file_path = self.pboq_file_selector.itemData(index)
+        if not file_path or not os.path.exists(file_path):
             return
             
-        all_rows = []
-        for item in checked_items:
-            filename = item.text()
-            file_path = os.path.join(self.pboq_folder, filename)
+        self.tabs.clear()
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
             
-            if not os.path.exists(file_path):
-                QMessageBox.warning(self, "Error", f"Selected file {filename} no longer exists.")
-                continue
-                
-            try:
-                conn = sqlite3.connect(file_path)
-                cursor = conn.cursor()
-                
-                # Check if table 'pboq_items' exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
-                if not cursor.fetchone():
-                    QMessageBox.warning(self, "Format Error", f"The database {filename} does not contain valid PBOQ data.")
-                    conn.close()
-                    continue
-                    
-                sor_name = filename[:-3] if filename.lower().endswith('.db') else filename
-                # Fetch including Gross Rate and Rate Code if they exist
-                cursor.execute("PRAGMA table_info(pboq_items)")
-                columns = [info[1] for info in cursor.fetchall()]
-                
-                query = "SELECT Sheet, Ref, Description, Quantity, Unit"
-                if "GrossRate" in columns: query += ", GrossRate"
-                else: query += ", NULL"
-                if "RateCode" in columns: query += ", RateCode"
-                else: query += ", NULL"
-                query += " FROM pboq_items"
-                
-                cursor.execute(query)
-                rows = cursor.fetchall()
-                
-                for r in rows:
-                    all_rows.append((sor_name,) + r)
-                    
+            # Check for pboq_items table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
+            if not cursor.fetchone():
+                QMessageBox.warning(self, "Format Error", "This database does not contain valid PBOQ data.")
                 conn.close()
-                
-            except sqlite3.DatabaseError as e:
-                QMessageBox.warning(self, "Database Error", f"Failed to read data from {filename}:\n{e}")
-            except Exception as e:
-                QMessageBox.warning(self, "Error", f"Failed to load data from {filename}:\n{e}")
-
-        self.table_widget.setRowCount(len(all_rows))
-        for row_idx, row_data in enumerate(all_rows):
-            for col_idx, col_val in enumerate(row_data):
-                t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
-                if col_idx == 6: # Gross Rate
-                    t_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.table_widget.setItem(row_idx, col_idx, t_item)
-                
-        self.total_rates_label.setText(f"Total Rates : {len(all_rows)}")
-        
-        for i in range(self.table_widget.columnCount()):
-            if i != 3:
-                self.table_widget.resizeColumnToContents(i)
-        
-        total_w = self.table_widget.viewport().width()
-        used_w = sum(self.table_widget.columnWidth(i) for i in range(self.table_widget.columnCount()) if i != 3)
-        self.table_widget.setColumnWidth(3, max(250, total_w - used_w))
-
-        self._filter_table()
-
-    def _filter_table(self, *args):
-        search_text = self.search_bar.text().lower()
-        keywords_text = self.keywords_input.text().lower()
-        similar_checked = self.similar_checkbox.isChecked()
-        
-        keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
-
-        found_count = 0
-
-        for row in range(self.table_widget.rowCount()):
-            row_visible = True
+                return
             
+            # Get column info
+            cursor.execute("PRAGMA table_info(pboq_items)")
+            db_columns = [info[1] for info in cursor.fetchall()]
+            
+            # Build query
+            query = "SELECT * FROM pboq_items"
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            conn.close()
+            
+            if not rows:
+                QMessageBox.information(self, "Empty", "No data found in this PBOQ database.")
+                return
+            
+            # Group rows by Sheet name
+            sheet_groups = {}
+            for row in rows:
+                sheet_idx = db_columns.index("Sheet") if "Sheet" in db_columns else 0
+                sheet_name = str(row[sheet_idx]) if row[sheet_idx] else "Sheet 1"
+                if sheet_name not in sheet_groups:
+                    sheet_groups[sheet_name] = []
+                sheet_groups[sheet_name].append(row)
+            
+            # Populate combo boxes with column names
+            self._populate_column_combos(db_columns)
+            
+            bold_font = QFont()
+            bold_font.setBold(True)
+            
+            total_items = 0
+            priced_items = 0
+            
+            # Create a tab for each sheet
+            for sheet_name, sheet_rows in sheet_groups.items():
+                table = QTableWidget()
+                table.setRowCount(len(sheet_rows))
+                table.setColumnCount(len(db_columns))
+                table.setHorizontalHeaderLabels(db_columns)
+                table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+                table.setAlternatingRowColors(True)
+                table.setWordWrap(True)
+                table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+                table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                table.customContextMenuRequested.connect(lambda pos, t=table: self._show_context_menu(pos, t))
+                
+                rate_col_idx = db_columns.index("GrossRate") if "GrossRate" in db_columns else -1
+                
+                for r_idx, row_data in enumerate(sheet_rows):
+                    is_heading = True  # Assume heading if no quantity
+                    qty_col_idx = db_columns.index("Quantity") if "Quantity" in db_columns else -1
+                    
+                    if qty_col_idx >= 0:
+                        qty_val = str(row_data[qty_col_idx]).strip() if row_data[qty_col_idx] else ""
+                        if qty_val and qty_val.lower() not in ('', 'nan', 'none', '<na>'):
+                            is_heading = False
+                    
+                    for c_idx, col_val in enumerate(row_data):
+                        t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                        
+                        if is_heading:
+                            t_item.setFont(bold_font)
+                            t_item.setBackground(self.COLOR_HEADING)
+                        else:
+                            t_item.setBackground(self.COLOR_ITEM)
+                            total_items += 1
+                            
+                            # Check if this item is priced
+                            if c_idx == 0 and rate_col_idx >= 0:
+                                rate_val = str(row_data[rate_col_idx]).strip() if row_data[rate_col_idx] else ""
+                                if rate_val and rate_val.lower() not in ('', 'none', 'nan'):
+                                    priced_items += 1
+                        
+                        table.setItem(r_idx, c_idx, t_item)
+                
+                # Auto-size columns
+                table.resizeColumnsToContents()
+                for c in range(table.columnCount()):
+                    if table.columnWidth(c) > 400:
+                        table.setColumnWidth(c, 400)
+                
+                table.resizeRowsToContents()
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+                
+                # Stretch the Description column if it exists
+                desc_col_idx = db_columns.index("Description") if "Description" in db_columns else -1
+                if desc_col_idx >= 0:
+                    header = table.horizontalHeader()
+                    header.setSectionResizeMode(desc_col_idx, QHeaderView.ResizeMode.Stretch)
+                
+                self.tabs.addTab(table, sheet_name)
+            
+            # Update stats
+            outstanding = total_items - priced_items
+            self.total_items_label.setText(f"Total Items : {total_items}")
+            self.priced_items_label.setText(f"Priced Items : {priced_items}")
+            self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
+
+    def _populate_column_combos(self, columns):
+        """Populates the column mapping combo boxes from the DB columns."""
+        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate, self.cb_rate_code]:
+            cb.clear()
+            cb.addItem("-- Select Column --")
+            cb.addItems(columns)
+        
+        # Auto-select defaults based on known column names
+        col_map = {
+            self.cb_ref: "Ref",
+            self.cb_desc: "Description",
+            self.cb_qty: "Quantity",
+            self.cb_unit: "Unit",
+            self.cb_rate: "GrossRate",
+            self.cb_rate_code: "RateCode"
+        }
+        for cb, col_name in col_map.items():
+            idx = cb.findText(col_name)
+            if idx >= 0:
+                cb.setCurrentIndex(idx)
+
+    def _filter_current_table(self, text):
+        """Filters rows in the currently visible tab's table."""
+        current_table = self.tabs.currentWidget()
+        if not isinstance(current_table, QTableWidget):
+            return
+            
+        search_text = text.lower()
+        for row in range(current_table.rowCount()):
             row_texts = []
-            for col in range(self.table_widget.columnCount()):
-                item = self.table_widget.item(row, col)
+            for col in range(current_table.columnCount()):
+                item = current_table.item(row, col)
                 if item:
                     row_texts.append(item.text().lower())
             
             full_row_text = " ".join(row_texts)
-            
-            if search_text and search_text not in full_row_text:
-                row_visible = False
-                
-            if row_visible and keywords:
-                if similar_checked:
-                    # OR logic: at least one keyword must be present
-                    if not any(kw in full_row_text for kw in keywords):
-                        row_visible = False
-                else:
-                    # AND logic: all keywords must be present
-                    if not all(kw in full_row_text for kw in keywords):
-                        row_visible = False
-                        
-            self.table_widget.setRowHidden(row, not row_visible)
-            if row_visible:
-                found_count += 1
-                
-        if not search_text and not keywords:
-            self.found_rates_label.setText("Found Rates : 0")
-        else:
-            self.found_rates_label.setText(f"Found Rates : {found_count}")
-        
-        self._update_priced_stats()
+            current_table.setRowHidden(row, search_text not in full_row_text if search_text else False)
 
-    def _update_priced_stats(self):
-        """Calculates and updates labels for priced vs outstanding rates."""
-        total = self.table_widget.rowCount()
-        priced = 0
-        for row in range(total):
-            item = self.table_widget.item(row, 6) # Gross Rate column
-            if item and item.text().strip():
-                priced += 1
-        
-        outstanding = total - priced
-        self.priced_rates_label.setText(f"Priced Rates : {priced}")
-        self.outstanding_rates_label.setText(f"Outstanding Rates : {outstanding}")
-
-    def _show_context_menu(self, pos):
-        from PyQt6.QtWidgets import QMenu
-        from PyQt6.QtGui import QAction
-        
-        selected_indexes = self.table_widget.selectionModel().selectedRows()
+    def _show_context_menu(self, pos, table):
+        """Context menu for the table."""
+        selected_indexes = table.selectionModel().selectedRows()
         if not selected_indexes:
             return
             
@@ -274,39 +307,35 @@ class PBOQDialog(QDialog):
         
         menu = QMenu(self)
         
+        # Get current column mapping
+        rate_code_col = self.cb_rate_code.currentIndex() - 1
+        rate_code = ""
+        if rate_code_col >= 0:
+            item = table.item(row, rate_code_col)
+            rate_code = item.text().strip() if item else ""
+        
         # Build/Edit Rate
-        rate_code = self.table_widget.item(row, 7).text().strip()
         action_text = "Edit Rate" if rate_code else "Build Rate"
         build_rate_action = QAction(action_text, self)
-        build_rate_action.triggered.connect(lambda: self._build_rate(index))
+        build_rate_action.triggered.connect(lambda: self._build_rate(table, row))
         menu.addAction(build_rate_action)
         
         # Clear Rate
         clear_rate_action = QAction("Clear Rate", self)
-        clear_rate_action.triggered.connect(lambda: self._clear_rate(index))
+        clear_rate_action.triggered.connect(lambda: self._clear_rate(table, row))
         menu.addAction(clear_rate_action)
         
         menu.addSeparator()
         
         # Copy Rate
         copy_action = QAction("Copy Rate", self)
-        copy_action.triggered.connect(lambda: self._copy_rate(index))
+        copy_action.triggered.connect(lambda: self._copy_rate(table, row))
         menu.addAction(copy_action)
         
-        # Multi-Copy Rates
-        if len(selected_indexes) > 1:
-            multi_copy_action = QAction(f"Multi-Copy Rates ({len(selected_indexes)})", self)
-            multi_copy_action.triggered.connect(self._multi_copy_rates)
-            menu.addAction(multi_copy_action)
-            
         # Paste Rate
         paste_action = QAction("Paste Rate", self)
-        # Check if clipboard has data and unit matches
-        if self.clipboard_data:
-            paste_action.setEnabled(True)
-        else:
-            paste_action.setEnabled(False)
-        paste_action.triggered.connect(lambda: self._paste_rate(index))
+        paste_action.setEnabled(bool(self.clipboard_data))
+        paste_action.triggered.connect(lambda: self._paste_rate(table, row))
         menu.addAction(paste_action)
         
         menu.addSeparator()
@@ -317,131 +346,34 @@ class PBOQDialog(QDialog):
         goto_rate_action.triggered.connect(lambda: self._goto_project_rates(rate_code))
         menu.addAction(goto_rate_action)
         
-        menu.exec(self.table_widget.viewport().mapToGlobal(pos))
+        menu.exec(table.viewport().mapToGlobal(pos))
 
-    def _copy_rate(self, index):
-        row = index.row()
-        self.clipboard_data = {
-            'gross_rate': self.table_widget.item(row, 6).text(),
-            'rate_code': self.table_widget.item(row, 7).text(),
-            'unit': self.table_widget.item(row, 5).text()
+    def _get_mapped_values(self, table, row):
+        """Returns a dict of mapped column values for a given row."""
+        result = {}
+        mappings = {
+            'ref': self.cb_ref,
+            'desc': self.cb_desc,
+            'qty': self.cb_qty,
+            'unit': self.cb_unit,
+            'rate': self.cb_rate,
+            'rate_code': self.cb_rate_code
         }
-        if self.main_window:
-            self.main_window.statusBar().showMessage(f"Rate {self.clipboard_data['rate_code']} copied to clipboard.", 3000)
+        for key, cb in mappings.items():
+            col = cb.currentIndex() - 1
+            if col >= 0:
+                item = table.item(row, col)
+                result[key] = item.text().strip() if item else ""
+            else:
+                result[key] = ""
+        return result
 
-    def _multi_copy_rates(self):
-        # Implementation for multiple rates could be a list in clipboard_data
-        selected_indexes = self.table_widget.selectionModel().selectedRows()
-        self.clipboard_data = []
-        for idx in selected_indexes:
-            row = idx.row()
-            self.clipboard_data.append({
-                'gross_rate': self.table_widget.item(row, 6).text(),
-                'rate_code': self.table_widget.item(row, 7).text(),
-                'unit': self.table_widget.item(row, 5).text()
-            })
-        if self.main_window:
-            self.main_window.statusBar().showMessage(f"{len(self.clipboard_data)} rates copied to clipboard.", 3000)
-
-    def _paste_rate(self, index):
-        if not self.clipboard_data:
-            return
-            
-        row = index.row()
-        target_unit = self.table_widget.item(row, 5).text().strip()
-        
-        # Support both single and multi paste (using first item for simplicity if single paste triggered)
-        data = self.clipboard_data if isinstance(self.clipboard_data, dict) else self.clipboard_data[0]
-        
-        if data['unit'].strip().lower() != target_unit.lower():
-            QMessageBox.warning(self, "Unit Mismatch", 
-                                f"Cannot paste rate. Units do not match!\n\n"
-                                f"Source: {data['unit']}\nTarget: {target_unit}")
-            return
-            
-        # Update Table UI
-        gross_item = QTableWidgetItem(data['gross_rate'])
-        gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        rate_code_item = QTableWidgetItem(data['rate_code'])
-        
-        self.table_widget.setItem(row, 6, gross_item)
-        self.table_widget.setItem(row, 7, rate_code_item)
-        
-        # Persist to PBOQ DB
-        self._persist_to_pboq_db(row, data['gross_rate'], data['rate_code'])
-        
-        if self.main_window:
-            self.main_window.statusBar().showMessage("Rate pasted and persisted to PBOQ database.", 3000)
-
-    def _clear_rate(self, index):
-        row = index.row()
-        desc = self.table_widget.item(row, 3).text()
-        
-        reply = QMessageBox.question(self, "Clear Rate", 
-                                   f"Are you sure you want to clear the Gross Rate and Rate Code for:\n\n{desc}?",
-                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                                   QMessageBox.StandardButton.No)
-                                   
-        if reply == QMessageBox.StandardButton.Yes:
-            # Update Table UI
-            self.table_widget.setItem(row, 6, QTableWidgetItem("")) # Gross Rate
-            self.table_widget.setItem(row, 7, QTableWidgetItem("")) # Rate Code
-            
-            # Persist to PBOQ DB
-            self._persist_to_pboq_db(row, "", "")
-            
-            if self.main_window:
-                self.main_window.statusBar().showMessage("Rate cleared and persisted to PBOQ database.", 3000)
-
-    def _goto_project_rates(self, rate_code):
-        if self.main_window and rate_code:
-            self.main_window.show_rate_in_database(rate_code)
-
-    def _persist_to_pboq_db(self, row, gross_rate, rate_code):
-        """Persists the Gross Rate and Rate Code back to the original SOR SQLite database."""
-        sor_name = self.table_widget.item(row, 0).text()
-        sheet = self.table_widget.item(row, 1).text()
-        ref = self.table_widget.item(row, 2).text()
-        desc = self.table_widget.item(row, 3).text()
-        
-        file_path = os.path.join(self.pboq_folder, f"{sor_name}.db")
-        if not os.path.exists(file_path):
-            return
-            
-        try:
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
-            
-            # Ensure columns exist
-            cursor.execute("PRAGMA table_info(pboq_items)")
-            cols = [info[1] for info in cursor.fetchall()]
-            
-            if "GrossRate" not in cols:
-                cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
-            if "RateCode" not in cols:
-                cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
-                
-            # Update the specific row. We use Sheet, Ref, and Description as unique identifiers
-            cursor.execute("""
-                UPDATE pboq_items 
-                SET GrossRate = ?, RateCode = ? 
-                WHERE Sheet = ? AND Ref = ? AND Description = ?
-            """, (gross_rate, rate_code, sheet, ref, desc))
-            
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            QMessageBox.critical(self, "Database Error", f"Failed to persist SOR data:\n{e}")
-        
-    def _build_rate(self, index):
-        row = index.row()
-        item = self.table_widget.item(row, 3) # Description column
-        unit_item = self.table_widget.item(row, 5) # Unit column
-        rate_code_item = self.table_widget.item(row, 7) # Rate Code column
-        
-        desc = item.text().strip() if item and item.text().strip() else "New Rate"
-        unit = unit_item.text().strip() if unit_item and unit_item.text().strip() else "m"
-        rate_code = rate_code_item.text().strip() if rate_code_item else ""
+    def _build_rate(self, table, row):
+        """Build or edit a rate for the selected PBOQ item."""
+        vals = self._get_mapped_values(table, row)
+        desc = vals['desc'] or "New Rate"
+        unit = vals['unit'] or "m"
+        rate_code = vals['rate_code']
         
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
@@ -458,7 +390,7 @@ class PBOQDialog(QDialog):
         if not db_path:
             QMessageBox.warning(self, "No Project Database", "No Project Database found to build rate into.")
             return
-
+        
         db = DatabaseManager(db_path)
         
         if rate_code:
@@ -476,7 +408,7 @@ class PBOQDialog(QDialog):
             else:
                 QMessageBox.warning(self, "Not Found", f"Rate '{rate_code}' could not be found in the Project Database.")
                 return
-                
+        
         cat = "Miscellaneous"
         new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
         new_est.category = cat
@@ -489,7 +421,7 @@ class PBOQDialog(QDialog):
                     if getattr(widget, '__class__', None).__name__ == 'RateManagerDialog':
                         if hasattr(widget, 'load_project_rates'):
                             widget.load_project_rates()
-
+        
         dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
         dialog.dataCommitted.connect(refresh_manager)
         dialog.exec()
@@ -499,85 +431,162 @@ class PBOQDialog(QDialog):
             gross_rate = totals.get('grand_total', 0.0)
             formatted_gross = f"{gross_rate:,.2f}"
             
-            gross_item = QTableWidgetItem(formatted_gross)
-            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            # Update table cells using mapped columns
+            rate_col = self.cb_rate.currentIndex() - 1
+            rate_code_col = self.cb_rate_code.currentIndex() - 1
             
-            rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
+            if rate_col >= 0:
+                gross_item = QTableWidgetItem(formatted_gross)
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                table.setItem(row, rate_col, gross_item)
             
-            self.table_widget.setItem(row, 6, gross_item)
-            self.table_widget.setItem(row, 7, rate_code_item)
+            if rate_code_col >= 0:
+                table.setItem(row, rate_code_col, QTableWidgetItem(str(dialog.estimate.rate_code)))
             
             # Persist to PBOQ DB
-            self._persist_to_pboq_db(row, formatted_gross, str(dialog.estimate.rate_code))
-            
-            self.table_widget.resizeColumnToContents(6)
-            self.table_widget.resizeColumnToContents(7)
+            self._persist_to_pboq_db(table, row, formatted_gross, str(dialog.estimate.rate_code))
+            self._update_stats()
 
-    def _price_pboq_with_rate(self, rate_desc, gross_rate, rate_code):
-        """Searches the PBOQ table for a matching description and updates it."""
-        found_count = 0
-        for row in range(self.table_widget.rowCount()):
-            sor_desc_item = self.table_widget.item(row, 3)
-            if sor_desc_item and sor_desc_item.text().strip().lower() == rate_desc.strip().lower():
-                # Update UI
-                gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
-                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.table_widget.setItem(row, 6, gross_item)
-                self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
-                
-                # Persist to DB
-                self._persist_to_pboq_db(row, f"{gross_rate:,.2f}", rate_code)
-                found_count += 1
+    def _copy_rate(self, table, row):
+        vals = self._get_mapped_values(table, row)
+        self.clipboard_data = {
+            'gross_rate': vals['rate'],
+            'rate_code': vals['rate_code'],
+            'unit': vals['unit']
+        }
+        if self.main_window:
+            self.main_window.statusBar().showMessage(f"Rate {vals['rate_code']} copied to clipboard.", 3000)
+
+    def _paste_rate(self, table, row):
+        if not self.clipboard_data:
+            return
+            
+        vals = self._get_mapped_values(table, row)
+        target_unit = vals['unit']
+        data = self.clipboard_data if isinstance(self.clipboard_data, dict) else self.clipboard_data[0]
         
-        if found_count > 0:
-            self.table_widget.resizeColumnToContents(6)
-            self.table_widget.resizeColumnToContents(7)
-        return found_count
-
-    def _get_active_keywords(self):
-        """Returns the list of keywords currently entered in the SOR search bar."""
-        keywords_text = self.keywords_input.text().lower()
-        return [k.strip() for k in keywords_text.split(',') if k.strip()]
-
-    def _price_pboq_with_keywords(self, gross_rate, rate_code):
-        """Prices items in the PBOQ that match the currently entered keywords."""
-        keywords = self._get_active_keywords()
-        if not keywords:
-            return -1 # Special code for missing keywords
-            
-        found_count = 0
-        similar_checked = self.similar_checkbox.isChecked()
+        if data['unit'].strip().lower() != target_unit.lower():
+            QMessageBox.warning(self, "Unit Mismatch",
+                                f"Cannot paste rate. Units do not match!\n\n"
+                                f"Source: {data['unit']}\nTarget: {target_unit}")
+            return
         
-        for row in range(self.table_widget.rowCount()):
-            # We match against the full row text just like the filter does
-            row_texts = []
-            for col in range(self.table_widget.columnCount()):
-                item = self.table_widget.item(row, col)
-                if item:
-                    row_texts.append(item.text().lower())
+        rate_col = self.cb_rate.currentIndex() - 1
+        rate_code_col = self.cb_rate_code.currentIndex() - 1
+        
+        if rate_col >= 0:
+            gross_item = QTableWidgetItem(data['gross_rate'])
+            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            table.setItem(row, rate_col, gross_item)
+        
+        if rate_code_col >= 0:
+            table.setItem(row, rate_code_col, QTableWidgetItem(data['rate_code']))
+        
+        self._persist_to_pboq_db(table, row, data['gross_rate'], data['rate_code'])
+        self._update_stats()
+        
+        if self.main_window:
+            self.main_window.statusBar().showMessage("Rate pasted and persisted to PBOQ database.", 3000)
+
+    def _clear_rate(self, table, row):
+        desc_col = self.cb_desc.currentIndex() - 1
+        desc = table.item(row, desc_col).text() if desc_col >= 0 and table.item(row, desc_col) else "this item"
+        
+        reply = QMessageBox.question(self, "Clear Rate",
+                                   f"Are you sure you want to clear the Gross Rate and Rate Code for:\n\n{desc}?",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                                   QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            rate_col = self.cb_rate.currentIndex() - 1
+            rate_code_col = self.cb_rate_code.currentIndex() - 1
             
-            full_row_text = " ".join(row_texts)
+            if rate_col >= 0:
+                table.setItem(row, rate_col, QTableWidgetItem(""))
+            if rate_code_col >= 0:
+                table.setItem(row, rate_code_col, QTableWidgetItem(""))
             
-            match = False
-            if similar_checked:
-                if any(kw in full_row_text for kw in keywords):
-                    match = True
-            else:
-                if all(kw in full_row_text for kw in keywords):
-                    match = True
-                    
-            if match:
-                # Update UI
-                gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
-                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                self.table_widget.setItem(row, 6, gross_item)
-                self.table_widget.setItem(row, 7, QTableWidgetItem(rate_code))
+            self._persist_to_pboq_db(table, row, "", "")
+            self._update_stats()
+            
+            if self.main_window:
+                self.main_window.statusBar().showMessage("Rate cleared and persisted to PBOQ database.", 3000)
+
+    def _goto_project_rates(self, rate_code):
+        if self.main_window and rate_code:
+            self.main_window.show_rate_in_database(rate_code)
+
+    def _persist_to_pboq_db(self, table, row, gross_rate, rate_code):
+        """Persists the Gross Rate and Rate Code back to the PBOQ SQLite database."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path):
+            return
+        
+        # Get identifying values from the row
+        header_labels = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+        
+        sheet_col = header_labels.index("Sheet") if "Sheet" in header_labels else -1
+        ref_col = header_labels.index("Ref") if "Ref" in header_labels else -1
+        desc_col = header_labels.index("Description") if "Description" in header_labels else -1
+        
+        sheet = table.item(row, sheet_col).text() if sheet_col >= 0 and table.item(row, sheet_col) else ""
+        ref = table.item(row, ref_col).text() if ref_col >= 0 and table.item(row, ref_col) else ""
+        desc = table.item(row, desc_col).text() if desc_col >= 0 and table.item(row, desc_col) else ""
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            # Ensure columns exist
+            cursor.execute("PRAGMA table_info(pboq_items)")
+            cols = [info[1] for info in cursor.fetchall()]
+            
+            if "GrossRate" not in cols:
+                cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
+            if "RateCode" not in cols:
+                cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
+            
+            cursor.execute("""
+                UPDATE pboq_items 
+                SET GrossRate = ?, RateCode = ? 
+                WHERE Sheet = ? AND Ref = ? AND Description = ?
+            """, (gross_rate, rate_code, sheet, ref, desc))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"Failed to persist PBOQ data:\n{e}")
+
+    def _update_stats(self):
+        """Recalculates the priced/outstanding stats across all tabs."""
+        total_items = 0
+        priced_items = 0
+        
+        rate_col = self.cb_rate.currentIndex() - 1
+        qty_col = self.cb_qty.currentIndex() - 1
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
                 
-                # Persist to DB
-                self._persist_to_pboq_db(row, f"{gross_rate:,.2f}", rate_code)
-                found_count += 1
+            for row in range(table.rowCount()):
+                # Only count items that have a quantity (not headings)
+                if qty_col >= 0:
+                    qty_item = table.item(row, qty_col)
+                    qty_val = qty_item.text().strip() if qty_item else ""
+                    if not qty_val or qty_val.lower() in ('', 'nan', 'none', '<na>'):
+                        continue
                 
-        if found_count > 0:
-            self.table_widget.resizeColumnToContents(6)
-            self.table_widget.resizeColumnToContents(7)
-        return found_count
+                total_items += 1
+                
+                if rate_col >= 0:
+                    rate_item = table.item(row, rate_col)
+                    rate_val = rate_item.text().strip() if rate_item else ""
+                    if rate_val and rate_val.lower() not in ('', 'none', 'nan'):
+                        priced_items += 1
+        
+        outstanding = total_items - priced_items
+        self.total_items_label.setText(f"Total Items : {total_items}")
+        self.priced_items_label.setText(f"Priced Items : {priced_items}")
+        self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
