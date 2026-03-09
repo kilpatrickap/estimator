@@ -84,6 +84,8 @@ class PBOQDialog(QDialog):
         self.cb_desc = QComboBox()
         self.cb_qty = QComboBox()
         self.cb_unit = QComboBox()
+        self.cb_bill_rate = QComboBox()
+        self.cb_bill_amount = QComboBox()
         self.cb_rate = QComboBox()
         self.cb_rate_code = QComboBox()
         
@@ -91,6 +93,8 @@ class PBOQDialog(QDialog):
         col_layout.addRow("Description:", self.cb_desc)
         col_layout.addRow("Quantity:", self.cb_qty)
         col_layout.addRow("Unit:", self.cb_unit)
+        col_layout.addRow("Bill Rate:", self.cb_bill_rate)
+        col_layout.addRow("Bill Amount:", self.cb_bill_amount)
         col_layout.addRow("Gross Rate:", self.cb_rate)
         col_layout.addRow("Rate Code:", self.cb_rate_code)
         
@@ -301,7 +305,7 @@ class PBOQDialog(QDialog):
         """Populates the column mapping combo boxes with generic Column numbers."""
         explicit_columns = [f"Column {i}" for i in range(num_columns)]
         
-        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate, self.cb_rate_code]:
+        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
             cb.clear()
             cb.addItem("-- Select Column --")
             cb.addItems(explicit_columns)
