@@ -606,11 +606,14 @@ class BOQSetupWindow(QWidget):
         self.tree.expandAll()
 
     def _save_to_priced_boq(self):
-        """Creates a SQLite DB for the formatted BOQ data in a 'Priced BOQs' folder."""
+        """Creates a SQLite DB for the raw BOQ data (from Excel) in a 'Priced BOQs' folder."""
         import os
-        from PyQt6.QtWidgets import QTreeWidgetItemIterator
         import sqlite3
         import pandas as pd
+        
+        if not self.sheet_data:
+            QMessageBox.warning(self, "Warning", "No data loaded to save.")
+            return
         
         project_folder = getattr(self, 'project_dir', None)
         if not project_folder:
@@ -631,35 +634,42 @@ class BOQSetupWindow(QWidget):
         new_file_name = f"PBOQ_{name}.db"
         pboq_file_path = os.path.join(pboq_folder, new_file_name)
         
-        data = []
-        iterator = QTreeWidgetItemIterator(self.tree)
-        while iterator.value():
-            item = iterator.value()
-            desc = item.text(2)
-            item_type = item.text(6)
+        # Collect raw data from all sheets
+        all_rows = []
+        max_cols = 0
+        
+        for sheet_name, data in self.sheet_data.items():
+            df = data['df']
+            max_cols = max(max_cols, len(df.columns))
             
-            # Skip the artificial Sheet Root nodes
-            if item_type == "Heading" and desc == "Sheet Root":
-                iterator += 1
-                continue
-                
-            data.append({
-                "Sheet": item.text(0),
-                "Ref": item.text(1),
-                "Description": desc,
-                "Quantity": item.text(3),
-                "Unit": item.text(4)
-            })
-            iterator += 1
-            
-        if not data:
-            QMessageBox.warning(self, "Warning", "No data to save to Priced BOQ. Please apply mapping first.")
+            for r in range(len(df)):
+                row_values = []
+                for c in range(len(df.columns)):
+                    val = str(df.iloc[r, c])
+                    if val.lower() in ('nan', '<na>', 'none'):
+                        val = ""
+                    row_values.append(val)
+                all_rows.append({"Sheet": sheet_name, "row_values": row_values})
+        
+        if not all_rows:
+            QMessageBox.warning(self, "Warning", "No data to save to Priced BOQ.")
             return
+        
+        # Build records with generic column names: Sheet + Column 0, Column 1, ...
+        records = []
+        for row_entry in all_rows:
+            record = {"Sheet": row_entry["Sheet"]}
+            for c_idx, val in enumerate(row_entry["row_values"]):
+                record[f"Column {c_idx}"] = val
+            # Fill remaining columns if this sheet had fewer columns
+            for c_idx in range(len(row_entry["row_values"]), max_cols):
+                record[f"Column {c_idx}"] = ""
+            records.append(record)
             
         try:
-            df = pd.DataFrame(data)
+            df_out = pd.DataFrame(records)
             conn = sqlite3.connect(pboq_file_path)
-            df.to_sql('pboq_items', conn, if_exists='replace', index=False)
+            df_out.to_sql('pboq_items', conn, if_exists='replace', index=False)
             conn.close()
             QMessageBox.information(self, "Success", f"Successfully saved Priced BOQ to:\n{pboq_file_path}")
         except Exception as e:

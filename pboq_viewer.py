@@ -162,8 +162,17 @@ class PBOQDialog(QDialog):
             cursor.execute("PRAGMA table_info(pboq_items)")
             db_columns = [info[1] for info in cursor.fetchall()]
             
-            # Build query
-            query = "SELECT * FROM pboq_items"
+            # Ensure GrossRate and RateCode columns exist in DB
+            if "GrossRate" not in db_columns:
+                cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
+                db_columns.append("GrossRate")
+            if "RateCode" not in db_columns:
+                cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
+                db_columns.append("RateCode")
+            conn.commit()
+            
+            # Fetch all data
+            query = f"SELECT {', '.join(db_columns)} FROM pboq_items"
             cursor.execute(query)
             rows = cursor.fetchall()
             conn.close()
@@ -172,17 +181,25 @@ class PBOQDialog(QDialog):
                 QMessageBox.information(self, "Empty", "No data found in this PBOQ database.")
                 return
             
-            # Group rows by Sheet name
+            # Store DB column names for persistence
+            self.db_columns = db_columns
+            
+            # The first column is always "Sheet" — the rest are data columns
+            # Display columns exclude "Sheet" (it's used for tab grouping)
+            display_col_names = db_columns[1:]  # Everything except "Sheet"
+            num_display_cols = len(display_col_names)
+            
+            # Group rows by Sheet name (first column)
             sheet_groups = {}
             for row in rows:
-                sheet_idx = db_columns.index("Sheet") if "Sheet" in db_columns else 0
-                sheet_name = str(row[sheet_idx]) if row[sheet_idx] else "Sheet 1"
+                sheet_name = str(row[0]) if row[0] else "Sheet 1"
                 if sheet_name not in sheet_groups:
                     sheet_groups[sheet_name] = []
-                sheet_groups[sheet_name].append(row)
+                # Store only the data columns (skip Sheet)
+                sheet_groups[sheet_name].append(row[1:])
             
-            # Populate combo boxes with column names
-            self._populate_column_combos(db_columns)
+            # Populate combo boxes with the display column count
+            self._populate_column_combos(num_display_cols)
             
             bold_font = QFont()
             bold_font.setBold(True)
@@ -190,12 +207,17 @@ class PBOQDialog(QDialog):
             total_items = 0
             priced_items = 0
             
+            # Find GrossRate column index in the display columns
+            rate_display_idx = display_col_names.index("GrossRate") if "GrossRate" in display_col_names else -1
+            # Find Quantity column based on current mapping
+            qty_mapped = self.cb_qty.currentIndex() - 1  # -1 for "-- Select Column --"
+            
             # Create a tab for each sheet
             for sheet_name, sheet_rows in sheet_groups.items():
                 table = QTableWidget()
                 table.setRowCount(len(sheet_rows))
-                table.setColumnCount(len(db_columns))
-                table.setHorizontalHeaderLabels(db_columns)
+                table.setColumnCount(num_display_cols)
+                table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
                 table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
                 table.setAlternatingRowColors(True)
                 table.setWordWrap(True)
@@ -203,34 +225,22 @@ class PBOQDialog(QDialog):
                 table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
                 table.customContextMenuRequested.connect(lambda pos, t=table: self._show_context_menu(pos, t))
                 
-                rate_col_idx = db_columns.index("GrossRate") if "GrossRate" in db_columns else -1
-                
                 for r_idx, row_data in enumerate(sheet_rows):
-                    is_heading = True  # Assume heading if no quantity
-                    qty_col_idx = db_columns.index("Quantity") if "Quantity" in db_columns else -1
-                    
-                    if qty_col_idx >= 0:
-                        qty_val = str(row_data[qty_col_idx]).strip() if row_data[qty_col_idx] else ""
-                        if qty_val and qty_val.lower() not in ('', 'nan', 'none', '<na>'):
-                            is_heading = False
-                    
-                    for c_idx, col_val in enumerate(row_data):
+                    for c_idx in range(num_display_cols):
+                        col_val = row_data[c_idx] if c_idx < len(row_data) else ""
                         t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
-                        
-                        if is_heading:
-                            t_item.setFont(bold_font)
-                            t_item.setBackground(self.COLOR_HEADING)
-                        else:
-                            t_item.setBackground(self.COLOR_ITEM)
+                        table.setItem(r_idx, c_idx, t_item)
+                    
+                    # Count stats: check if row has a quantity (not a heading)
+                    if qty_mapped >= 0 and qty_mapped < len(row_data):
+                        qty_val = str(row_data[qty_mapped]).strip() if row_data[qty_mapped] else ""
+                        if qty_val and qty_val.lower() not in ('', 'nan', 'none', '<na>'):
                             total_items += 1
-                            
-                            # Check if this item is priced
-                            if c_idx == 0 and rate_col_idx >= 0:
-                                rate_val = str(row_data[rate_col_idx]).strip() if row_data[rate_col_idx] else ""
+                            # Check if priced
+                            if rate_display_idx >= 0 and rate_display_idx < len(row_data):
+                                rate_val = str(row_data[rate_display_idx]).strip() if row_data[rate_display_idx] else ""
                                 if rate_val and rate_val.lower() not in ('', 'none', 'nan'):
                                     priced_items += 1
-                        
-                        table.setItem(r_idx, c_idx, t_item)
                 
                 # Auto-size columns
                 table.resizeColumnsToContents()
@@ -241,11 +251,11 @@ class PBOQDialog(QDialog):
                 table.resizeRowsToContents()
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
                 
-                # Stretch the Description column if it exists
-                desc_col_idx = db_columns.index("Description") if "Description" in db_columns else -1
-                if desc_col_idx >= 0:
+                # Stretch the Description column if mapped
+                desc_mapped = self.cb_desc.currentIndex() - 1
+                if desc_mapped >= 0 and desc_mapped < num_display_cols:
                     header = table.horizontalHeader()
-                    header.setSectionResizeMode(desc_col_idx, QHeaderView.ResizeMode.Stretch)
+                    header.setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
                 
                 self.tabs.addTab(table, sheet_name)
             
@@ -258,26 +268,30 @@ class PBOQDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
 
-    def _populate_column_combos(self, columns):
-        """Populates the column mapping combo boxes from the DB columns."""
+    def _populate_column_combos(self, num_columns):
+        """Populates the column mapping combo boxes with generic Column numbers."""
+        explicit_columns = [f"Column {i}" for i in range(num_columns)]
+        
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_rate, self.cb_rate_code]:
             cb.clear()
             cb.addItem("-- Select Column --")
-            cb.addItems(columns)
+            cb.addItems(explicit_columns)
         
-        # Auto-select defaults based on known column names
+        # Auto-select defaults based on known PBOQ DB column order
+        # db_columns = [Sheet, Column 0, Column 1, ..., GrossRate, RateCode]
+        # display_col_names = db_columns[1:] (Sheet is excluded from display)
+        db_cols = getattr(self, 'db_columns', [])
+        display_cols = db_cols[1:] if len(db_cols) > 1 else []
+        
+        # Map combo boxes to known DB column names
         col_map = {
-            self.cb_ref: "Ref",
-            self.cb_desc: "Description",
-            self.cb_qty: "Quantity",
-            self.cb_unit: "Unit",
             self.cb_rate: "GrossRate",
             self.cb_rate_code: "RateCode"
         }
         for cb, col_name in col_map.items():
-            idx = cb.findText(col_name)
-            if idx >= 0:
-                cb.setCurrentIndex(idx)
+            if col_name in display_cols:
+                idx = display_cols.index(col_name)
+                cb.setCurrentIndex(idx + 1)  # +1 because of "-- Select Column --"
 
     def _filter_current_table(self, text):
         """Filters rows in the currently visible tab's table."""
@@ -522,16 +536,13 @@ class PBOQDialog(QDialog):
         if not file_path or not os.path.exists(file_path):
             return
         
-        # Get identifying values from the row
-        header_labels = [table.horizontalHeaderItem(c).text() for c in range(table.columnCount())]
+        # Get the sheet name from the current tab
+        current_tab_idx = self.tabs.indexOf(table)
+        sheet_name = self.tabs.tabText(current_tab_idx) if current_tab_idx >= 0 else ""
         
-        sheet_col = header_labels.index("Sheet") if "Sheet" in header_labels else -1
-        ref_col = header_labels.index("Ref") if "Ref" in header_labels else -1
-        desc_col = header_labels.index("Description") if "Description" in header_labels else -1
-        
-        sheet = table.item(row, sheet_col).text() if sheet_col >= 0 and table.item(row, sheet_col) else ""
-        ref = table.item(row, ref_col).text() if ref_col >= 0 and table.item(row, ref_col) else ""
-        desc = table.item(row, desc_col).text() if desc_col >= 0 and table.item(row, desc_col) else ""
+        # Get the DB column names (db_columns[1:] = display columns)
+        db_cols = getattr(self, 'db_columns', [])
+        display_cols = db_cols[1:] if len(db_cols) > 1 else []
         
         try:
             conn = sqlite3.connect(file_path)
@@ -546,11 +557,25 @@ class PBOQDialog(QDialog):
             if "RateCode" not in cols:
                 cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
             
-            cursor.execute("""
+            # Build WHERE clause using Sheet + all data columns (excluding GrossRate and RateCode)
+            where_parts = ["Sheet = ?"]
+            where_values = [sheet_name]
+            
+            for c_idx, col_name in enumerate(display_cols):
+                if col_name in ("GrossRate", "RateCode"):
+                    continue
+                item = table.item(row, c_idx)
+                val = item.text() if item else ""
+                where_parts.append(f'"{col_name}" = ?')
+                where_values.append(val)
+            
+            where_clause = " AND ".join(where_parts)
+            
+            cursor.execute(f"""
                 UPDATE pboq_items 
                 SET GrossRate = ?, RateCode = ? 
-                WHERE Sheet = ? AND Ref = ? AND Description = ?
-            """, (gross_rate, rate_code, sheet, ref, desc))
+                WHERE {where_clause}
+            """, [gross_rate, rate_code] + where_values)
             
             conn.commit()
             conn.close()
