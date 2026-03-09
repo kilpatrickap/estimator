@@ -267,7 +267,8 @@ class MainWindow(QMainWindow):
             ("Libraries", self.manage_rate_database),
             ("Settings", self.open_settings),
             ("BOQ Setup", self.open_boq_setup),
-            ("SOR", self.open_sor_dialog)
+            ("SOR", self.open_sor_dialog),
+            ("PBOQ", self.open_pboq_dialog)
         ]
 
         for text, slot in nav_items:
@@ -802,6 +803,44 @@ class MainWindow(QMainWindow):
                 return
                 
         dialog = SORDialog(project_dir, self)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(950, 600)
+        self._apply_zoom_to_subwindow(sub)
+        sub.show()
+        
+    def open_pboq_dialog(self):
+        active_est = self._get_active_estimate_window()
+            
+        import os
+        project_dir = ""
+        if active_est and type(active_est).__name__ == "EstimateWindow":
+            db_path = active_est.db_path
+            project_dir = os.path.dirname(db_path) if db_path else ""
+        else:
+            project_dir = self.db_manager.get_setting('last_project_dir', '')
+            if not project_dir or not os.path.exists(project_dir):
+                from PyQt6.QtWidgets import QFileDialog
+                project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
+                if not project_dir: return
+            
+        if project_dir and os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+            
+        if not project_dir or not os.path.exists(project_dir):
+            QMessageBox.warning(self, "Error", "Project directory is invalid.")
+            return
+            
+        from pboq_viewer import PBOQDialog
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), PBOQDialog) and sub.widget().project_dir == project_dir:
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = PBOQDialog(project_dir, self)
         sub = self.mdi_area.addSubWindow(dialog)
         sub.resize(950, 600)
         self._apply_zoom_to_subwindow(sub)
