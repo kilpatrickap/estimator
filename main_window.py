@@ -979,6 +979,14 @@ class MainWindow(QMainWindow):
             props = "font-size|padding|margin|border-radius|border-width|width|height"
             new_style = re.sub(rf"({props}):\s*([\d\.]+)(pt|px);", scale_value, self._original_style)
             
+            # Apply Zebra stripe custom color globally
+            zebra_color = self.db_manager.get_setting("color_zebra") or "#e8f5e9"
+            new_style += f"""
+                QTableWidget, QTreeWidget, QListWidget {{
+                    alternate-background-color: {zebra_color};
+                }}
+            """
+            
             # Apply to app
             app = QApplication.instance()
             if app:

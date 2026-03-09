@@ -126,7 +126,7 @@ class ResourceColorsDialog(QDialog):
         layout.setSpacing(5)
         
         self.colors = {}
-        categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates", "Highlights"]
+        categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates", "Zebra", "Highlights"]
         default_colors = {
             "Materials": "#e6f2ff",
             "Labour": "#fff0e6",
@@ -134,6 +134,7 @@ class ResourceColorsDialog(QDialog):
             "Plant": "#ffe6e6",
             "Indirect Costs": "#f2e6ff",
             "Rates": "#ffffe6",
+            "Zebra": "#f5f5f5",
             "Highlights": "#fff9c4"
         }
         
@@ -185,6 +186,10 @@ class ResourceColorsDialog(QDialog):
             self.db_manager.set_setting(sk, hex_color)
         from PyQt6.QtWidgets import QApplication
         for widget in QApplication.topLevelWidgets():
+            if widget.__class__.__name__ == 'MainWindow':
+                # Force global style refresh to apply new Zebra background
+                if hasattr(widget, 'zoom_slider'):
+                    widget._handle_zoom(widget.zoom_slider.value())
             if hasattr(widget, 'mdi_area'):
                 # Trigger refresh across open editor windows
                 for sub in widget.mdi_area.subWindowList():
@@ -311,8 +316,9 @@ class SettingsDialog(QDialog):
             self.proj_currency.setCurrentText(def_currency)
             # Library (List)
             self.library_list = QListWidget()
-            self.library_list.setMaximumHeight(65)
+            self.library_list.setMaximumHeight(150)
             self.library_list.setStyleSheet("QListWidget::item { padding: 2px; margin: 0px; }")
+            self.library_list.setAlternatingRowColors(True)
             self.library_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             self._load_libraries()
             
@@ -333,8 +339,9 @@ class SettingsDialog(QDialog):
             
             # BOQ
             self.boq_list = QListWidget()
-            self.boq_list.setMaximumHeight(65)
+            self.boq_list.setMaximumHeight(150)
             self.boq_list.setStyleSheet("QListWidget::item { padding: 2px; margin: 0px; }")
+            self.boq_list.setAlternatingRowColors(True)
             self.boq_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             self._load_boqs()
             
