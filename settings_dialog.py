@@ -214,6 +214,7 @@ class SettingsDialog(QDialog):
         app_group = QGroupBox("Application Settings")
         app_layout = QVBoxLayout(app_group)
         app_form = QFormLayout()
+        app_form.setVerticalSpacing(5)
         
         self.company_name = QLineEdit(self.db_manager.get_setting('company_name', ''))
         self.company_name.setPlaceholderText("Your Company Name")
@@ -249,6 +250,7 @@ class SettingsDialog(QDialog):
             proj_group = QGroupBox("Project Settings")
             proj_layout = QVBoxLayout(proj_group)
             proj_form = QFormLayout()
+            proj_form.setVerticalSpacing(5)
             
             from PyQt6.QtWidgets import QDateEdit, QListWidget, QAbstractItemView
             from PyQt6.QtCore import QDate
@@ -309,12 +311,14 @@ class SettingsDialog(QDialog):
             self.proj_currency.setCurrentText(def_currency)
             # Library (List)
             self.library_list = QListWidget()
-            self.library_list.setMaximumHeight(100)
+            self.library_list.setMaximumHeight(65)
+            self.library_list.setStyleSheet("QListWidget::item { padding: 2px; margin: 0px; }")
             self.library_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             self._load_libraries()
             
             lib_btn_layout = QHBoxLayout()
-            self.add_lib_btn = QPushButton("Add/Import Libraries...")
+            lib_btn_layout.setContentsMargins(0, 0, 0, 0)
+            self.add_lib_btn = QPushButton("Add/Import...")
             self.add_lib_btn.clicked.connect(self._add_library)
             self.del_lib_btn = QPushButton("Delete Selected")
             self.del_lib_btn.clicked.connect(self._delete_library)
@@ -322,17 +326,21 @@ class SettingsDialog(QDialog):
             lib_btn_layout.addWidget(self.del_lib_btn)
             
             lib_main_layout = QVBoxLayout()
+            lib_main_layout.setContentsMargins(0, 0, 0, 0)
+            lib_main_layout.setSpacing(2)
             lib_main_layout.addWidget(self.library_list)
             lib_main_layout.addLayout(lib_btn_layout)
             
             # BOQ
             self.boq_list = QListWidget()
-            self.boq_list.setMaximumHeight(100)
+            self.boq_list.setMaximumHeight(65)
+            self.boq_list.setStyleSheet("QListWidget::item { padding: 2px; margin: 0px; }")
             self.boq_list.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
             self._load_boqs()
             
             boq_btn_layout = QHBoxLayout()
-            self.add_boq_btn = QPushButton("Add/Import BOQs...")
+            boq_btn_layout.setContentsMargins(0, 0, 0, 0)
+            self.add_boq_btn = QPushButton("Add/Import...")
             self.add_boq_btn.clicked.connect(self._add_boq)
             self.del_boq_btn = QPushButton("Delete Selected")
             self.del_boq_btn.clicked.connect(self._delete_boq)
@@ -340,6 +348,8 @@ class SettingsDialog(QDialog):
             boq_btn_layout.addWidget(self.del_boq_btn)
             
             boq_main_layout = QVBoxLayout()
+            boq_main_layout.setContentsMargins(0, 0, 0, 0)
+            boq_main_layout.setSpacing(2)
             boq_main_layout.addWidget(self.boq_list)
             boq_main_layout.addLayout(boq_btn_layout)
 
