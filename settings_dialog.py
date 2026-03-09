@@ -126,14 +126,15 @@ class ResourceColorsDialog(QDialog):
         layout.setSpacing(5)
         
         self.colors = {}
-        categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates"]
+        categories = ["Materials", "Labour", "Equipment", "Plant", "Indirect Costs", "Rates", "Highlights"]
         default_colors = {
             "Materials": "#e6f2ff",
             "Labour": "#fff0e6",
             "Equipment": "#e6ffe6",
             "Plant": "#ffe6e6",
             "Indirect Costs": "#f2e6ff",
-            "Rates": "#ffffe6"
+            "Rates": "#ffffe6",
+            "Highlights": "#fff9c4"
         }
         
         color_layout = QGridLayout()

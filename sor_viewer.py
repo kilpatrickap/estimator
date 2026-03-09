@@ -311,10 +311,11 @@ class SORDialog(QDialog):
         
         menu.addSeparator()
         
-        # Go-to Project Rates
-        goto_project_action = QAction("Go-to Project Rates", self)
-        goto_project_action.triggered.connect(self._goto_project_rates)
-        menu.addAction(goto_project_action)
+        # Go-To Rate
+        goto_rate_action = QAction("Go-To Rate", self)
+        goto_rate_action.setEnabled(bool(rate_code))
+        goto_rate_action.triggered.connect(lambda: self._goto_project_rates(rate_code))
+        menu.addAction(goto_rate_action)
         
         menu.exec(self.table_widget.viewport().mapToGlobal(pos))
 
@@ -392,9 +393,9 @@ class SORDialog(QDialog):
             if self.main_window:
                 self.main_window.statusBar().showMessage("Rate cleared and persisted to SOR database.", 3000)
 
-    def _goto_project_rates(self):
-        if self.main_window:
-            self.main_window.manage_rate_database()
+    def _goto_project_rates(self, rate_code):
+        if self.main_window and rate_code:
+            self.main_window.show_rate_in_database(rate_code)
 
     def _persist_to_sor_db(self, row, gross_rate, rate_code):
         """Persists the Gross Rate and Rate Code back to the original SOR SQLite database."""

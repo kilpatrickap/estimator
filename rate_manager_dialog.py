@@ -427,15 +427,30 @@ class RateManagerDialog(QDialog):
         """Finds and highlights a rate by its code."""
         # Unhide from search first easily if we have one
         self.search_input.clear()
+        self.project_search_input.clear()
+        
+        # Get the highlight color from settings
+        from database import DatabaseManager as _DB
+        _settings_db = _DB()
+        highlight_color = _settings_db.get_setting("color_highlights") or "#fff9c4"
+        from PyQt6.QtGui import QColor as _QC
+        bg = _QC(highlight_color)
         
         from PyQt6.QtWidgets import QTableWidget
-        for row in range(self.table.rowCount()):
-            item = self.table.item(row, 1)
-            if item and item.text() == rate_code:
-                self.table.clearSelection()
-                self.table.selectRow(row)
-                self.table.scrollToItem(item, QTableWidget.ScrollHint.PositionAtCenter)
-                break
+        # Search both library table and project table
+        for tbl in [self.table, self.project_table]:
+            for row in range(tbl.rowCount()):
+                item = tbl.item(row, 1)
+                if item and item.text() == rate_code:
+                    tbl.clearSelection()
+                    tbl.selectRow(row)
+                    tbl.scrollToItem(item, QTableWidget.ScrollHint.PositionAtCenter)
+                    # Apply highlight color to the row
+                    for col in range(tbl.columnCount()):
+                        cell = tbl.item(row, col)
+                        if cell:
+                            cell.setBackground(bg)
+                    return
 
     def filter_rates(self, text):
         query = text.lower()

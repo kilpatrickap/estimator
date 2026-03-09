@@ -506,6 +506,10 @@ class DatabaseManagerDialog(QDialog):
             self.tabs.setCurrentIndex(tab_idx)
             table = self.tables[table_name]
             
+            # Get the highlight color from settings
+            highlight_color = self.db_manager.get_setting("color_highlights") or "#fff9c4"
+            bg = QColor(highlight_color)
+            
             found = False
             for row in range(table.rowCount()):
                 # Column 1 is always Name/Trade/Description
@@ -513,6 +517,11 @@ class DatabaseManagerDialog(QDialog):
                     table.setRowHidden(row, False)
                     table.selectRow(row)
                     table.scrollToItem(table.item(row, 1))
+                    # Apply highlight color to the row
+                    for col in range(table.columnCount()):
+                        cell = table.item(row, col)
+                        if cell:
+                            cell.setBackground(bg)
                     found = True
                     break
             
