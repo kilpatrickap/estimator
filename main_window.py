@@ -506,6 +506,9 @@ class MainWindow(QMainWindow):
     def manage_database(self):
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), DatabaseManagerDialog):
+                sub.showNormal()
+                sub.show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
         
@@ -534,6 +537,9 @@ class MainWindow(QMainWindow):
                     break
         
         if db_sub:
+            db_sub.showNormal()
+            db_sub.show()
+            db_sub.raise_()
             self.mdi_area.setActiveSubWindow(db_sub)
             db_sub.widget().highlight_resource(table_name, resource_name)
         
@@ -583,6 +589,9 @@ class MainWindow(QMainWindow):
     def manage_rate_database(self):
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), RateManagerDialog):
+                sub.showNormal()
+                sub.show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
         
@@ -610,6 +619,9 @@ class MainWindow(QMainWindow):
                     break
         
         if rate_sub:
+            rate_sub.showNormal()
+            rate_sub.show()
+            rate_sub.raise_()
             self.mdi_area.setActiveSubWindow(rate_sub)
             rate_sub.widget().highlight_rate(rate_code)
 

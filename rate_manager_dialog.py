@@ -437,19 +437,21 @@ class RateManagerDialog(QDialog):
         bg = _QC(highlight_color)
         
         from PyQt6.QtWidgets import QTableWidget
-        # Search both library table and project table
-        for tbl in [self.table, self.project_table]:
+        # Search project table first, then library table
+        for tbl in [self.project_table, self.table]:
             for row in range(tbl.rowCount()):
                 item = tbl.item(row, 1)
                 if item and item.text() == rate_code:
                     tbl.clearSelection()
-                    tbl.selectRow(row)
                     tbl.scrollToItem(item, QTableWidget.ScrollHint.PositionAtCenter)
+                    
+                    self.is_loading = True
                     # Apply highlight color to the row
                     for col in range(tbl.columnCount()):
                         cell = tbl.item(row, col)
                         if cell:
                             cell.setBackground(bg)
+                    self.is_loading = False        
                     return
 
     def filter_rates(self, text):

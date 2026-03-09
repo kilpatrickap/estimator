@@ -515,13 +515,17 @@ class DatabaseManagerDialog(QDialog):
                 # Column 1 is always Name/Trade/Description
                 if table.item(row, 1).text() == resource_name:
                     table.setRowHidden(row, False)
-                    table.selectRow(row)
+                    table.clearSelection()
                     table.scrollToItem(table.item(row, 1))
+                    
+                    self.is_loading = True
                     # Apply highlight color to the row
                     for col in range(table.columnCount()):
                         cell = table.item(row, col)
                         if cell:
                             cell.setBackground(bg)
+                    self.is_loading = False
+                            
                     found = True
                     break
             
