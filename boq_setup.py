@@ -140,11 +140,11 @@ class BOQSetupWindow(QWidget):
         save_sor_btn.clicked.connect(self._save_to_sor)
         action_layout.addWidget(save_sor_btn)
         
-        import_btn = QPushButton("Import to\nEstimate Tasks")
-        import_btn.setMinimumHeight(50)
-        import_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
-        import_btn.clicked.connect(self._import_to_estimate)
-        action_layout.addWidget(import_btn)
+        save_pboq_btn = QPushButton("Save to\nPriced BOQ")
+        save_pboq_btn.setMinimumHeight(50)
+        save_pboq_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
+        save_pboq_btn.clicked.connect(self._save_to_priced_boq)
+        action_layout.addWidget(save_pboq_btn)
         action_layout.addStretch()
         
         # Add groups side-by-side without AlignTop so they stretch to equal heights
@@ -611,92 +611,66 @@ class BOQSetupWindow(QWidget):
                     
         self.tree.expandAll()
 
-    def _import_to_estimate(self):
-        """Creates Tasks in the active estimate based on the mapped items across all sheets."""
-        if not self.active_est_window:
-            QMessageBox.warning(self, "No Active Estimate Workspace", "There is no open Estimate workspace to import into. Please load a project Estimate workspace first if you wish to inject these tasks!")
+    def _save_to_priced_boq(self):
+        """Creates a SQLite DB for the formatted BOQ data in a 'Priced BOQs' folder."""
+        import os
+        from PyQt6.QtWidgets import QTreeWidgetItemIterator
+        import sqlite3
+        import pandas as pd
+        
+        project_folder = getattr(self, 'project_dir', None)
+        if not project_folder:
+            project_folder = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_folder and os.path.basename(project_folder) == "Project Database":
+                project_folder = os.path.dirname(project_folder)
+            
+        pboq_folder = os.path.join(project_folder, "Priced BOQs")
+        if not os.path.exists(pboq_folder):
+            try:
+                os.makedirs(pboq_folder)
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to create Priced BOQs folder:\n{e}")
+                return
+                
+        base_name = os.path.basename(self.boq_file_path)
+        name, _ = os.path.splitext(base_name)
+        new_file_name = f"PBOQ_{name}.db"
+        pboq_file_path = os.path.join(pboq_folder, new_file_name)
+        
+        data = []
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            desc = item.text(2)
+            item_type = item.text(6)
+            
+            # Skip the artificial Sheet Root nodes
+            if item_type == "Heading" and desc == "Sheet Root":
+                iterator += 1
+                continue
+                
+            data.append({
+                "Sheet": item.text(0),
+                "Ref": item.text(1),
+                "Description": desc,
+                "Quantity": item.text(3),
+                "Unit": item.text(4)
+            })
+            iterator += 1
+            
+        if not data:
+            QMessageBox.warning(self, "Warning", "No data to save to Priced BOQ. Please apply mapping first.")
             return
             
-        ref_col = self.cb_ref.currentIndex() - 1
-        desc_col = self.cb_desc.currentIndex() - 1
-        qty_col = self.cb_qty.currentIndex() - 1
-        unit_col = self.cb_unit.currentIndex() - 1
-
-        if desc_col < 0:
-            QMessageBox.warning(self, "Error", "Description column must be mapped.")
-            return
-
-        self.active_est_window.save_state()
-        from models import Task
-        
-        imported_count = 0
-        selected_sheets = [item.text() for item in self.sheet_selector.selectedItems()]
-        if not selected_sheets:
-            QMessageBox.warning(self, "Warning", "No sheets selected to import.")
-            return
-        
-        selected_levels = [lvl for lvl, cb in self.level_checkboxes.items() if cb.isChecked()]
-        is_concat = getattr(self, 'concat_descriptions', False)
-
-        for sheet_name in selected_sheets:
-            if sheet_name not in self.sheet_data: continue
-            data = self.sheet_data[sheet_name]
-            df = data['df']
-            row_types = data['row_types']
-            levels = data.get('levels', [0] * len(df))
-            current_headings = {}
-            
-            for r in range(len(df)):
-                rtype = row_types[r]
-                level = levels[r]
-                
-                if rtype == 'ignore' or level not in selected_levels:
-                    continue
-                
-                desc_val = str(df.iloc[r, desc_col]).strip() if 0 <= desc_col < len(df.columns) else ""
-                if not desc_val: continue
-                
-                if rtype == 'heading':
-                    # Track headings and clear nested descendants
-                    current_headings[level] = desc_val
-                    keys_to_delete = [k for k in current_headings.keys() if k < level]
-                    for k in keys_to_delete:
-                        del current_headings[k]
-                        
-                elif rtype == 'item':
-                    ref_val = str(df.iloc[r, ref_col]).strip() if 0 <= ref_col < len(df.columns) else ""
-                    qty_str = str(df.iloc[r, qty_col]).strip() if 0 <= qty_col < len(df.columns) else "0"
-                    unit_val = str(df.iloc[r, unit_col]).strip() if 0 <= unit_col < len(df.columns) else ""
-                    
-                    try:
-                        qty = float(qty_str.replace(',', '').replace(' ', ''))
-                    except ValueError:
-                        qty = 1.0 # fallback
-                        
-                    full_desc = f"[{ref_val}] {desc_val}" if ref_val else desc_val
-                    
-                    # Compute concatenation based on active heading filters
-                    active_heading_texts = [current_headings[lvl] for lvl in sorted(current_headings.keys(), reverse=True) if lvl in selected_levels]
-                    prefix = f"[{sheet_name}]"
-                    
-                    if is_concat:
-                        if active_heading_texts:
-                            prefix += " " + " : ".join(active_heading_texts) + " :"
-                    else:
-                        # Standard default prefix uses just the immediate parent category (if exists)
-                        if active_heading_texts:
-                            prefix += f" {active_heading_texts[-1]} -" # Gets the lowest level heading active
-                            
-                    full_desc = f"{prefix} {full_desc}"
-                        
-                    new_task = Task(description=full_desc, quantity=qty, unit=unit_val)
-                    self.active_est_window.estimate.add_task(new_task)
-                    imported_count += 1
-                
-        self.active_est_window.db_manager.save_estimate(self.active_est_window.estimate)
-        self.active_est_window.refresh_view()
-        QMessageBox.information(self, "Success", f"Successfully imported {imported_count} items from all sheets into the estimate.")
-        self.close()
+        try:
+            df = pd.DataFrame(data)
+            conn = sqlite3.connect(pboq_file_path)
+            df.to_sql('pboq_items', conn, if_exists='replace', index=False)
+            conn.close()
+            QMessageBox.information(self, "Success", f"Successfully saved Priced BOQ to:\n{pboq_file_path}")
+            self.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Failed to save Priced BOQ Database file:\n{e}")
 
     def _save_state(self):
         import json, os
