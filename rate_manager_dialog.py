@@ -164,6 +164,8 @@ class RateManagerDialog(QDialog):
         
         self.table.doubleClicked.connect(lambda idx, t=self.table: self.open_rate_buildup(t, idx))
         self.table.itemChanged.connect(self.on_item_changed)
+        self.table.itemSelectionChanged.connect(lambda: self.clear_highlights(self.table))
+        self.table.cellClicked.connect(lambda r, c: self.clear_highlights(self.table))
         
         # Context Menu
         self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
@@ -213,6 +215,8 @@ class RateManagerDialog(QDialog):
         
         self.project_table.doubleClicked.connect(lambda idx, t=self.project_table: self.open_rate_buildup(t, idx))
         self.project_table.itemChanged.connect(self.on_item_changed)
+        self.project_table.itemSelectionChanged.connect(lambda: self.clear_highlights(self.project_table))
+        self.project_table.cellClicked.connect(lambda r, c: self.clear_highlights(self.project_table))
         self.project_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.project_table.customContextMenuRequested.connect(lambda pos, t=self.project_table: self.show_context_menu(t, pos))
         
@@ -222,6 +226,22 @@ class RateManagerDialog(QDialog):
         self.splitter.addWidget(bottom_widget)
         self.splitter.setSizes([300, 300])
         layout.addWidget(self.splitter)
+
+    def clear_highlights(self, table):
+        """Removes the custom background highlight once the user starts interacting with the table."""
+        if self.is_loading:
+            return
+        self.is_loading = True
+        for row in range(table.rowCount()):
+            # Check if column 1 has a custom background to avoid checking all cells
+            item = table.item(row, 1)
+            from PyQt6.QtCore import Qt
+            if item and item.background().style() != Qt.BrushStyle.NoBrush:
+                for col in range(table.columnCount()):
+                    cell = table.item(row, col)
+                    if cell:
+                        cell.setData(Qt.ItemDataRole.BackgroundRole, None)
+        self.is_loading = False
 
     def _change_library(self):
         self.is_combined = False

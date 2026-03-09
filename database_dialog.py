@@ -124,8 +124,26 @@ class DatabaseManagerDialog(QDialog):
         search_input.textChanged.connect(lambda text, tbl=table: self.filter_table(text, tbl))
         table.itemChanged.connect(lambda item: self.on_item_changed(item, table_name))
         table.itemDoubleClicked.connect(lambda item: self.on_item_double_clicked(item, table_name))
+        table.itemSelectionChanged.connect(lambda tbl=table: self.clear_highlights(tbl))
+        table.cellClicked.connect(lambda row, col, tbl=table: self.clear_highlights(tbl))
         
         self.load_data(table_name)
+
+    def clear_highlights(self, table):
+        """Removes the custom background highlight once the user starts interacting with the table."""
+        if self.is_loading:
+            return
+        self.is_loading = True
+        for row in range(table.rowCount()):
+            # Only check the first column to see if it has a custom background to avoid unnecessary loops over all cells
+            item = table.item(row, 1)
+            from PyQt6.QtCore import Qt
+            if item and item.background().style() != Qt.BrushStyle.NoBrush:
+                for col in range(table.columnCount()):
+                    cell = table.item(row, col)
+                    if cell:
+                        cell.setData(Qt.ItemDataRole.BackgroundRole, None)
+        self.is_loading = False
 
     def filter_table(self, text, table):
         query = text.lower()

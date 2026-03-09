@@ -387,6 +387,10 @@ class MainWindow(QMainWindow):
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if isinstance(widget, EstimateWindow) and widget.estimate.id == est_id and getattr(widget, 'db_path', None) == db_path:
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
@@ -405,6 +409,10 @@ class MainWindow(QMainWindow):
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if isinstance(widget, RateBuildUpDialog) and widget.estimate.id == estimate_obj.id:
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
@@ -508,6 +516,7 @@ class MainWindow(QMainWindow):
             if isinstance(sub.widget(), DatabaseManagerDialog):
                 sub.showNormal()
                 sub.show()
+                sub.widget().show()
                 sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
@@ -539,6 +548,7 @@ class MainWindow(QMainWindow):
         if db_sub:
             db_sub.showNormal()
             db_sub.show()
+            db_sub.widget().show()
             db_sub.raise_()
             self.mdi_area.setActiveSubWindow(db_sub)
             db_sub.widget().highlight_resource(table_name, resource_name)
@@ -591,6 +601,7 @@ class MainWindow(QMainWindow):
             if isinstance(sub.widget(), RateManagerDialog):
                 sub.showNormal()
                 sub.show()
+                sub.widget().show()
                 sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
@@ -621,6 +632,7 @@ class MainWindow(QMainWindow):
         if rate_sub:
             rate_sub.showNormal()
             rate_sub.show()
+            rate_sub.widget().show()
             rate_sub.raise_()
             self.mdi_area.setActiveSubWindow(rate_sub)
             rate_sub.widget().highlight_rate(rate_code)
@@ -662,6 +674,10 @@ class MainWindow(QMainWindow):
         # Check if settings window already open
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), SettingsDialog):
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
@@ -743,6 +759,10 @@ class MainWindow(QMainWindow):
         # Check if already open
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), BOQSetupWindow) and sub.widget().boq_file_path == full_path:
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
                 
@@ -777,6 +797,10 @@ class MainWindow(QMainWindow):
         from sor_viewer import SORDialog
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), SORDialog) and sub.widget().project_dir == project_dir:
+                sub.showNormal()
+                sub.show()
+                sub.widget().show()
+                sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
                 
