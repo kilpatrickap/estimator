@@ -287,9 +287,16 @@ class PBOQDialog(QDialog):
         extend_layout.addWidget(self.extend_cb2)
         extend_layout.addWidget(self.extend_cb3)
         
+        extend_btns_layout = QHBoxLayout()
+        self.clear_bill_btn = QPushButton("Clear")
+        self.clear_bill_btn.clicked.connect(self._clear_bill_rates)
+        
         self.extend_btn = QPushButton("Extend")
         self.extend_btn.clicked.connect(self._run_extend_logic)
-        extend_layout.addWidget(self.extend_btn)
+        
+        extend_btns_layout.addWidget(self.extend_btn)
+        extend_btns_layout.addWidget(self.clear_bill_btn)
+        extend_layout.addLayout(extend_btns_layout)
         
         right_layout.addWidget(extend_group)
         
@@ -529,6 +536,7 @@ class PBOQDialog(QDialog):
             self.extend_cb1.blockSignals(False)
             self.extend_cb2.blockSignals(False)
             self.extend_cb3.blockSignals(False)
+            self.extend_btn.setText("Extend")
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
@@ -613,8 +621,61 @@ class PBOQDialog(QDialog):
         # Immediately recalculate the visible tab
         self._on_tab_changed(self.tabs.currentIndex())
 
+    def _clear_bill_rates(self):
+        """Clears all '0.00' values in Bill Rate and Bill Amount columns across all sheets and persists to DB."""
+        rate_idx = self.cb_bill_rate.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        if rate_idx < 0 and amount_idx < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map at least 'Bill Rate' or 'Bill Amount' column.")
+            return
+
+        reply = QMessageBox.question(self, "Confirm Clear", 
+                                   "This will clear ALL '0.00' values in mapped Bill Rate/Amount columns across all sheets.\n\nContinue?",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply == QMessageBox.StandardButton.No:
+            return
+
+        total_cleared = 0
+        total_sheets = self.tabs.count()
+        rate_updates = [] # (rowid, val)
+        amount_updates = [] # (rowid, val)
+
+        for tab_idx in range(total_sheets):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+            
+            for row in range(table.rowCount()):
+                rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                if rowid is None: continue
+
+                # Clear Bill Rate if it's 0.00
+                if rate_idx >= 0:
+                    item = table.item(row, rate_idx)
+                    if item and item.text().strip() in ("0.00", "0"):
+                        item.setText("")
+                        rate_updates.append((rowid, None))
+                        total_cleared += 1
+
+                # Clear Bill Amount if it's 0.00
+                if amount_idx >= 0:
+                    item = table.item(row, amount_idx)
+                    if item and item.text().strip() in ("0.00", "0"):
+                        item.setText("")
+                        amount_updates.append((rowid, None))
+
+        if total_cleared > 0 or rate_updates or amount_updates:
+            if rate_updates:
+                self._persist_batch_updates(rate_idx, rate_updates)
+            if amount_updates:
+                self._persist_batch_updates(amount_idx, amount_updates)
+            
+            QMessageBox.information(self, "Clear Complete", f"Successfully cleared '0.00' values from {total_cleared} rows.")
+        else:
+            QMessageBox.information(self, "Nothing Found", "No '0.00' values were found in the mapped columns.")
+
     def _run_extend_logic(self):
-        """Iterates through all sheets and rows to insert dummy rates for aligned items."""
+        """Toggles between inserting dummy rates (Extend) and clearing them (Revert)."""
         qty_idx = self.cb_qty.currentIndex() - 1
         rate_idx = self.cb_bill_rate.currentIndex() - 1
         
@@ -625,112 +686,130 @@ class PBOQDialog(QDialog):
             QMessageBox.warning(self, "Column Mapping Required", "Please map the 'Bill Rate' column first.")
             return
 
-        checked_cols = []
-        if self.extend_cb0.isChecked(): checked_cols.append(0)
-        if self.extend_cb1.isChecked(): checked_cols.append(1)
-        if self.extend_cb2.isChecked(): checked_cols.append(2)
-        if self.extend_cb3.isChecked(): checked_cols.append(3)
-        
-        if not checked_cols:
-            QMessageBox.warning(self, "Alignment Required", 
-                                "Please select at least one column (0-3) in the 'Extend' group to align items.")
-            return
-
-        updates_to_db = [] # List of (rowid, rate_val)
+        is_revert = self.extend_btn.text() == "Revert"
+        updates_to_db = [] # List of (rowid, new_val)
         updated_count = 0
         total_sheets = self.tabs.count()
         
-        for tab_idx in range(total_sheets):
-            table = self.tabs.widget(tab_idx)
-            if not isinstance(table, QTableWidget):
-                continue
-            
-            for row in range(table.rowCount()):
-                # 1. Check Alignment
-                is_aligned = True
-                for col_idx in checked_cols:
-                    item = table.item(row, col_idx)
-                    if not item or not item.text().strip():
-                        is_aligned = False
-                        break
+        if is_revert:
+            # --- REVERT LOGIC ---
+            for tab_idx in range(total_sheets):
+                table = self.tabs.widget(tab_idx)
+                if not isinstance(table, QTableWidget): continue
                 
-                if not is_aligned:
-                    continue
-                
-                # 2. Check for Quantity (Must be a numeric value > 0)
-                qty_item = table.item(row, qty_idx)
-                qty_str = qty_item.text().strip() if qty_item else ""
-                
-                try:
-                    clean_qty = qty_str.replace(',', '').replace(' ', '')
-                    if not clean_qty:
-                        continue
-                    q_val = float(clean_qty)
-                    if q_val <= 0:
-                        continue # Only extend items with a positive quantity
-                    
-                    # 3. Check / Insert Dummy Rate
+                for row in range(table.rowCount()):
                     rate_item = table.item(row, rate_idx)
-                    rate_str = rate_item.text().strip() if rate_item else ""
-                    
-                    try:
-                        if rate_str:
-                            float(rate_str.replace(',', '').replace(' ', ''))
-                            continue # Preserves existing rates
-                    except ValueError:
-                        pass
-                    
-                    # Insert Dummy Rate
-                    dummy_val = 0.00
-                    dummy_item = QTableWidgetItem(f"{dummy_val:.2f}")
-                    dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    
-                    # Apply background color
-                    if rate_idx < 4:
-                        dummy_item.setBackground(self.COL_COLOR_BLUE)
-                    elif rate_idx < 6:
-                        dummy_item.setBackground(self.COL_COLOR_YELLOW)
-                    elif rate_idx < 8:
-                        dummy_item.setBackground(self.COL_COLOR_RED)
+                    # Identify dummy rates by their gray color
+                    if rate_item and rate_item.foreground().color().name().lower() == "#777777":
+                        # Clear the UI item
+                        rate_item.setText("")
+                        # Clear background if it was blue/yellow/red? 
+                        # Actually better just to clear the text and let it stay the column color
                         
-                    dummy_item.setForeground(QColor("#777777"))
-                    table.setItem(row, rate_idx, dummy_item)
-                    
-                    # Get rowid from hidden UserRole data in column 0
-                    rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-                    if rowid is not None:
-                        updates_to_db.append((rowid, "0.00"))
-                    
-                    updated_count += 1
-                    
-                except ValueError:
-                    continue
-                    
-        if updated_count > 0:
-            # 4. Precise Persistence to Database using rowid
-            file_path = self.pboq_file_selector.currentData()
-            if file_path and os.path.exists(file_path):
-                try:
-                    conn = sqlite3.connect(file_path)
-                    cursor = conn.cursor()
-                    
-                    db_cols = getattr(self, 'db_columns', [])
-                    db_col_to_update = db_cols[rate_idx + 1] if rate_idx + 1 < len(db_cols) else None
-                    
-                    if db_col_to_update:
-                        for rowid, rate_val in updates_to_db:
-                            cursor.execute(f'UPDATE pboq_items SET "{db_col_to_update}" = ? WHERE rowid = ?', (rate_val, rowid))
-                        conn.commit()
-                except Exception as e:
-                    print(f"Error persisting extend results: {e}")
-                finally:
-                    if conn: conn.close()
+                        # Get rowid for DB update
+                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        if rowid is not None:
+                            updates_to_db.append((rowid, None))
+                        updated_count += 1
+            
+            if updated_count > 0:
+                self._persist_batch_updates(rate_idx, updates_to_db)
+                self.extend_btn.setText("Extend")
+                QMessageBox.information(self, "Revert Complete", f"Successfully cleared {updated_count} extended rates.")
+            else:
+                self.extend_btn.setText("Extend") # Reset anyway if nothing found
+                QMessageBox.information(self, "Nothing to Revert", "No auto-extended rates were found to clear.")
 
-            QMessageBox.information(self, "Extend Complete", 
-                                  f"Successfully inserted and persisted dummy rates for {updated_count} items across {total_sheets} sheets.")
         else:
-            QMessageBox.information(self, "No Items Found", 
-                                  "No aligned items without rates were found with valid numeric quantities.")
+            # --- EXTEND LOGIC ---
+            checked_cols = []
+            if self.extend_cb0.isChecked(): checked_cols.append(0)
+            if self.extend_cb1.isChecked(): checked_cols.append(1)
+            if self.extend_cb2.isChecked(): checked_cols.append(2)
+            if self.extend_cb3.isChecked(): checked_cols.append(3)
+            
+            if not checked_cols:
+                QMessageBox.warning(self, "Alignment Required", 
+                                    "Please select at least one column (0-3) in the 'Extend' group to align items.")
+                return
+
+            for tab_idx in range(total_sheets):
+                table = self.tabs.widget(tab_idx)
+                if not isinstance(table, QTableWidget): continue
+                
+                for row in range(table.rowCount()):
+                    # 1. Check Alignment
+                    is_aligned = True
+                    for col_idx in checked_cols:
+                        item = table.item(row, col_idx)
+                        if not item or not item.text().strip():
+                            is_aligned = False
+                            break
+                    if not is_aligned: continue
+                    
+                    # 2. Check for Quantity
+                    qty_item = table.item(row, qty_idx)
+                    qty_str = qty_item.text().strip() if qty_item else ""
+                    try:
+                        clean_qty = qty_str.replace(',', '').replace(' ', '')
+                        if not clean_qty: continue
+                        if float(clean_qty) <= 0: continue
+                        
+                        # 3. Check / Insert Dummy Rate
+                        rate_item = table.item(row, rate_idx)
+                        rate_str = rate_item.text().strip() if rate_item else ""
+                        try:
+                            if rate_str:
+                                float(rate_str.replace(',', '').replace(' ', ''))
+                                continue # Preserves existing rates
+                        except ValueError: pass
+                        
+                        # Insert Dummy Rate
+                        dummy_item = QTableWidgetItem("0.00")
+                        dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        
+                        # Apply background color
+                        if rate_idx < 4: dummy_item.setBackground(self.COL_COLOR_BLUE)
+                        elif rate_idx < 6: dummy_item.setBackground(self.COL_COLOR_YELLOW)
+                        elif rate_idx < 8: dummy_item.setBackground(self.COL_COLOR_RED)
+                            
+                        dummy_item.setForeground(QColor("#777777"))
+                        table.setItem(row, rate_idx, dummy_item)
+                        
+                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        if rowid is not None:
+                            updates_to_db.append((rowid, "0.00"))
+                        updated_count += 1
+                        
+                    except ValueError: continue
+            
+            if updated_count > 0:
+                self._persist_batch_updates(rate_idx, updates_to_db)
+                self.extend_btn.setText("Revert")
+                QMessageBox.information(self, "Extend Complete", 
+                                      f"Successfully inserted and persisted {updated_count} dummy rates.")
+            else:
+                QMessageBox.information(self, "No Items Found", 
+                                      "No aligned items without rates were found with valid numeric quantities.")
+
+    def _persist_batch_updates(self, rate_idx, updates):
+        """Helper to batch update PBOQ items in the database by rowid."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path): return
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            db_cols = getattr(self, 'db_columns', [])
+            db_col_to_update = db_cols[rate_idx + 1] if rate_idx + 1 < len(db_cols) else None
+            
+            if db_col_to_update:
+                for rowid, val in updates:
+                    cursor.execute(f'UPDATE pboq_items SET "{db_col_to_update}" = ? WHERE rowid = ?', (val, rowid))
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error persisting batch updates: {e}")
 
     def _clear_gross_and_code(self):
         """Globally clears all Gross Rate and Rate Code data from the UI and Database."""
