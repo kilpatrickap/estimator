@@ -804,6 +804,12 @@ class PBOQDialog(QDialog):
                             amt_val_str = f"{bill_amount:.2f}"
                             amt_item = QTableWidgetItem(amt_val_str)
                             amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            
+                            # Apply background color based on column index (to match theme)
+                            if amount_idx < 4: amt_item.setBackground(self.COL_COLOR_BLUE)
+                            elif amount_idx < 6: amt_item.setBackground(self.COL_COLOR_YELLOW)
+                            elif amount_idx < 8: amt_item.setBackground(self.COL_COLOR_RED)
+                            
                             amt_item.setForeground(QColor("#777777")) # Match dummy color
                             table.setItem(row, amount_idx, amt_item)
 
