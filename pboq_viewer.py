@@ -189,6 +189,17 @@ class PBOQDialog(QDialog):
         
         right_layout.addWidget(format_group)
         
+        # Extend Group
+        extend_group = QGroupBox("Extend")
+        extend_layout = QVBoxLayout(extend_group)
+        extend_layout.setContentsMargins(5, 5, 5, 5)
+        extend_layout.setSpacing(5)
+        
+        self.extend_btn = QPushButton("Extend")
+        extend_layout.addWidget(self.extend_btn)
+        
+        right_layout.addWidget(extend_group)
+        
         # Search
         search_group = QGroupBox("Search")
         search_layout = QVBoxLayout(search_group)
