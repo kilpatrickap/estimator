@@ -142,8 +142,15 @@ class PBOQDialog(QDialog):
         col_layout.addRow("Rate Code:", self.cb_rate_code)
         
         # Auto-save state when column mappings change
-        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
-            cb.currentIndexChanged.connect(self._save_pboq_state)
+        # Connect signals for auto-saving
+        self.cb_ref.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_desc.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_qty.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_unit.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_bill_rate.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_bill_amount.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_rate.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_rate_code.currentIndexChanged.connect(self._save_pboq_state)
         
         right_layout.addWidget(col_group)
         
@@ -398,7 +405,7 @@ class PBOQDialog(QDialog):
         self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
         
         # Restore saved state (column mapping, format, search scope, active tab)
-        self._load_pboq_state()
+        self._load_pboq_state(index)
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
@@ -736,13 +743,19 @@ class PBOQDialog(QDialog):
         self.priced_items_label.setText(f"Priced Items : {priced_items}")
         self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
 
-    def _get_state_file_path(self):
+    def _get_state_file_path(self, file_index=None):
         """Returns the state file path for the currently loaded PBOQ."""
         states_folder = os.path.join(self.project_dir, "PBOQ States")
         os.makedirs(states_folder, exist_ok=True)
         
         # Use the PBOQ filename as the state key
-        pboq_file = self.pboq_file_selector.currentText()
+        if file_index is None:
+            file_index = self.pboq_file_selector.currentIndex()
+            
+        if file_index < 0:
+            return None
+            
+        pboq_file = self.pboq_file_selector.itemText(file_index)
         if not pboq_file:
             return None
         state_file = os.path.join(states_folder, pboq_file + ".state.json")
@@ -774,9 +787,9 @@ class PBOQDialog(QDialog):
         except Exception:
             pass  # Silently fail on save
 
-    def _load_pboq_state(self):
+    def _load_pboq_state(self, file_index=None):
         """Restores column mapping, format, and search scope from a saved JSON file."""
-        state_file = self._get_state_file_path()
+        state_file = self._get_state_file_path(file_index)
         if not state_file or not os.path.exists(state_file):
             return
         
@@ -784,7 +797,7 @@ class PBOQDialog(QDialog):
             with open(state_file, 'r') as f:
                 state = json.load(f)
             
-            # Block signals during restore to avoid triggering redundant saves
+            # 1. Restore column mappings
             combos = {
                 'cb_ref': self.cb_ref, 'cb_desc': self.cb_desc,
                 'cb_qty': self.cb_qty, 'cb_unit': self.cb_unit,
@@ -797,36 +810,53 @@ class PBOQDialog(QDialog):
                     cb.setCurrentIndex(state[key])
                     cb.blockSignals(False)
             
-            # Restore wrap text state
-            if state.get('wrap_text', False):
-                self.wrap_text_btn.setChecked(True)
-                self._toggle_wrap_text()
+            # 2. Restore wrap text state
+            wrap_val = state.get('wrap_text', False)
+            self.wrap_text_enabled = wrap_val
+            self.wrap_text_btn.blockSignals(True)
+            self.wrap_text_btn.setChecked(wrap_val)
+            self.wrap_text_btn.setText("Unwrap Text" if wrap_val else "Wrap Text")
+            self.wrap_text_btn.blockSignals(False)
             
-            # Restore search scope (block signals to avoid overwriting state during load)
+            # Apply the wrap formatting to all tables
+            for tab_idx in range(self.tabs.count()):
+                table = self.tabs.widget(tab_idx)
+                if isinstance(table, QTableWidget):
+                    table.setWordWrap(wrap_val)
+                    if wrap_val:
+                        table.verticalHeader().setMinimumSectionSize(24)
+                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+                    else:
+                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                        table.verticalHeader().setDefaultSectionSize(24)
+            
+            # 3. Restore search scope
             self.search_this_sheet.blockSignals(True)
             self.search_all_sheets.blockSignals(True)
             if state.get('search_all_sheets', False):
                 self.search_all_sheets.setChecked(True)
+                self.search_this_sheet.setChecked(False)
             else:
                 self.search_this_sheet.setChecked(True)
+                self.search_all_sheets.setChecked(False)
             self.search_this_sheet.blockSignals(False)
             self.search_all_sheets.blockSignals(False)
             
-            # Restore active tab
+            # 4. Restore active tab
             if 'active_tab' in state and state['active_tab'] < self.tabs.count():
                 self.tabs.blockSignals(True)
                 self.tabs.setCurrentIndex(state['active_tab'])
                 self.tabs.blockSignals(False)
             
-            # Re-apply description column stretch with restored mapping
+            # 5. Re-apply UI refinements
             desc_mapped = self.cb_desc.currentIndex() - 1
             for tab_idx in range(self.tabs.count()):
                 table = self.tabs.widget(tab_idx)
                 if isinstance(table, QTableWidget) and desc_mapped >= 0 and desc_mapped < table.columnCount():
                     table.horizontalHeader().setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
             
-            # Update stats with restored mappings
             self._update_stats()
             
-        except Exception:
-            pass  # Silently fail on load
+        except Exception as e:
+            print(f"Error loading PBOQ state: {e}")
+            pass
