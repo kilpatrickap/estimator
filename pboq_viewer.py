@@ -66,6 +66,48 @@ class PBOQDialog(QDialog):
         
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.South)
+        
+        # Excel-style sheet navigation arrows on the left
+        self.tabs.tabBar().setUsesScrollButtons(False)  # Hide default right-side scroll buttons
+        
+        nav_widget = QWidget()
+        nav_layout = QHBoxLayout(nav_widget)
+        nav_layout.setContentsMargins(2, 0, 2, 0)
+        nav_layout.setSpacing(1)
+        
+        btn_style = "QPushButton { border: 1px solid #ccc; background: #f5f5f5; padding: 1px 4px; font-size: 8pt; } QPushButton:hover { background: #e0e0e0; }"
+        
+        first_btn = QPushButton("⏮")
+        first_btn.setFixedSize(22, 18)
+        first_btn.setStyleSheet(btn_style)
+        first_btn.setToolTip("First Sheet")
+        first_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(0))
+        
+        prev_btn = QPushButton("◀")
+        prev_btn.setFixedSize(22, 18)
+        prev_btn.setStyleSheet(btn_style)
+        prev_btn.setToolTip("Previous Sheet")
+        prev_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(max(0, self.tabs.currentIndex() - 1)))
+        
+        next_btn = QPushButton("▶")
+        next_btn.setFixedSize(22, 18)
+        next_btn.setStyleSheet(btn_style)
+        next_btn.setToolTip("Next Sheet")
+        next_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(min(self.tabs.count() - 1, self.tabs.currentIndex() + 1)))
+        
+        last_btn = QPushButton("⏭")
+        last_btn.setFixedSize(22, 18)
+        last_btn.setStyleSheet(btn_style)
+        last_btn.setToolTip("Last Sheet")
+        last_btn.clicked.connect(lambda: self.tabs.setCurrentIndex(self.tabs.count() - 1))
+        
+        nav_layout.addWidget(first_btn)
+        nav_layout.addWidget(prev_btn)
+        nav_layout.addWidget(next_btn)
+        nav_layout.addWidget(last_btn)
+        
+        self.tabs.setCornerWidget(nav_widget, Qt.Corner.BottomLeftCorner)
+        
         left_layout.addWidget(self.tabs)
         
         splitter.addWidget(left_widget)
