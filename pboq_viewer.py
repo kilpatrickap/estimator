@@ -49,10 +49,18 @@ class PBOQDialog(QDialog):
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
         
-        # Top bar: PBOQ file selector
+        # Top bar: PBOQ file selector + Search + Stats
         top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Select Priced BOQ:"))
+        top_bar.setSpacing(15)
+        
+        # 1. File Selector Group
+        self.pboq_sel_group = QGroupBox("Select Priced BOQ")
+        self.pboq_sel_group.setFixedHeight(65)
+        file_sel_layout = QVBoxLayout(self.pboq_sel_group)
+        file_sel_layout.setContentsMargins(5, 5, 5, 2)
+        
         self.pboq_file_selector = QComboBox()
+        self.pboq_file_selector.setMaximumWidth(250)
         
         if os.path.exists(self.pboq_folder):
             for f in sorted(os.listdir(self.pboq_folder)):
@@ -60,7 +68,59 @@ class PBOQDialog(QDialog):
                     self.pboq_file_selector.addItem(f, os.path.join(self.pboq_folder, f))
         
         self.pboq_file_selector.activated.connect(self._load_pboq_db)
-        top_bar.addWidget(self.pboq_file_selector, stretch=1)
+        file_sel_layout.addWidget(self.pboq_file_selector)
+        top_bar.addWidget(self.pboq_sel_group)
+        
+        # 2. Search Group (Moved to top)
+        self.search_group = QGroupBox("Search")
+        self.search_group.setFixedHeight(65)
+        search_layout = QHBoxLayout(self.search_group)
+        search_layout.setContentsMargins(10, 5, 10, 2)
+        search_layout.setSpacing(10)
+        
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Type to search...")
+        self.search_bar.setMinimumWidth(200)
+        self.search_bar.textChanged.connect(self._filter_tables)
+        search_layout.addWidget(self.search_bar)
+        
+        scope_layout = QHBoxLayout()
+        self.search_this_sheet = QCheckBox("This Sheet")
+        self.search_this_sheet.setChecked(True)
+        self.search_all_sheets = QCheckBox("All Sheets")
+        self.search_all_sheets.setChecked(False)
+        
+        self.search_this_sheet.toggled.connect(lambda checked: self.search_all_sheets.setChecked(not checked) if checked else None)
+        self.search_all_sheets.toggled.connect(lambda checked: self.search_this_sheet.setChecked(not checked) if checked else None)
+        self.search_this_sheet.toggled.connect(lambda: self._filter_tables(self.search_bar.text()))
+        self.search_this_sheet.toggled.connect(self._save_pboq_state)
+        
+        scope_layout.addWidget(self.search_this_sheet)
+        scope_layout.addWidget(self.search_all_sheets)
+        search_layout.addLayout(scope_layout)
+        top_bar.addWidget(self.search_group)
+        
+        # 3. Stats Group (Moved to top)
+        self.stats_group = QGroupBox("Statistics")
+        self.stats_group.setFixedHeight(65)
+        stats_layout = QHBoxLayout(self.stats_group)
+        stats_layout.setContentsMargins(10, 5, 10, 2)
+        stats_layout.setSpacing(15)
+        
+        label_style = "font-weight: bold; font-size: 9pt;"
+        self.total_items_label = QLabel("Total Items: 0")
+        self.total_items_label.setStyleSheet(f"{label_style} color: blue;")
+        self.priced_items_label = QLabel("Priced Items: 0")
+        self.priced_items_label.setStyleSheet(f"{label_style} color: green;")
+        self.outstanding_items_label = QLabel("Outstanding: 0")
+        self.outstanding_items_label.setStyleSheet(f"{label_style} color: red;")
+        
+        stats_layout.addWidget(self.total_items_label)
+        stats_layout.addWidget(self.priced_items_label)
+        stats_layout.addWidget(self.outstanding_items_label)
+        top_bar.addWidget(self.stats_group)
+        
+        top_bar.addStretch()
         main_layout.addLayout(top_bar)
 
         
@@ -231,55 +291,6 @@ class PBOQDialog(QDialog):
         
         right_layout.addWidget(extend_group)
         
-        # Search
-        search_group = QGroupBox("Search")
-        search_layout = QVBoxLayout(search_group)
-        search_layout.setContentsMargins(5, 5, 5, 5)
-        search_layout.setSpacing(5)
-        
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Type to search...")
-        self.search_bar.textChanged.connect(self._filter_tables)
-        search_layout.addWidget(self.search_bar)
-        
-        scope_layout = QHBoxLayout()
-        self.search_this_sheet = QCheckBox("This Sheet")
-        self.search_this_sheet.setChecked(True)
-        self.search_all_sheets = QCheckBox("All Sheets")
-        self.search_all_sheets.setChecked(False)
-        
-        # Make them mutually exclusive
-        self.search_this_sheet.toggled.connect(lambda checked: self.search_all_sheets.setChecked(not checked) if checked else None)
-        self.search_all_sheets.toggled.connect(lambda checked: self.search_this_sheet.setChecked(not checked) if checked else None)
-        # Re-filter when scope changes and auto-save
-        self.search_this_sheet.toggled.connect(lambda: self._filter_tables(self.search_bar.text()))
-        self.search_this_sheet.toggled.connect(self._save_pboq_state)
-        
-        scope_layout.addWidget(self.search_this_sheet)
-        scope_layout.addWidget(self.search_all_sheets)
-        search_layout.addLayout(scope_layout)
-        
-        right_layout.addWidget(search_group)
-        
-        # Stats
-        stats_group = QGroupBox("Statistics")
-        stats_layout = QVBoxLayout(stats_group)
-        stats_layout.setContentsMargins(5, 5, 5, 5)
-        stats_layout.setSpacing(4)
-        
-        label_style = "font-weight: bold; font-size: 9pt;"
-        self.total_items_label = QLabel("Total Items : 0")
-        self.total_items_label.setStyleSheet(f"{label_style} color: blue;")
-        self.priced_items_label = QLabel("Priced Items : 0")
-        self.priced_items_label.setStyleSheet(f"{label_style} color: green;")
-        self.outstanding_items_label = QLabel("Outstanding : 0")
-        self.outstanding_items_label.setStyleSheet(f"{label_style} color: red;")
-        
-        stats_layout.addWidget(self.total_items_label)
-        stats_layout.addWidget(self.priced_items_label)
-        stats_layout.addWidget(self.outstanding_items_label)
-        
-        right_layout.addWidget(stats_group)
         right_layout.addStretch()
         
         splitter.addWidget(right_widget)
