@@ -49,7 +49,7 @@ class PBOQDialog(QDialog):
 
     def _init_ui(self):
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
+        main_layout.setContentsMargins(10, 5, 10, 10)
         
         # Top bar: PBOQ file selector + Search + Stats
         top_bar = QHBoxLayout()
@@ -57,9 +57,9 @@ class PBOQDialog(QDialog):
         
         # 1. File Selector Group
         self.pboq_sel_group = QGroupBox("Select Priced BOQ")
-        self.pboq_sel_group.setFixedHeight(65)
+        self.pboq_sel_group.setFixedHeight(55)
         file_sel_layout = QVBoxLayout(self.pboq_sel_group)
-        file_sel_layout.setContentsMargins(5, 5, 5, 2)
+        file_sel_layout.setContentsMargins(5, 8, 5, 2)
         
         self.pboq_file_selector = QComboBox()
         self.pboq_file_selector.setMaximumWidth(250)
@@ -75,9 +75,9 @@ class PBOQDialog(QDialog):
         
         # 2. Search Group (Moved to top)
         self.search_group = QGroupBox("Search")
-        self.search_group.setFixedHeight(65)
+        self.search_group.setFixedHeight(55)
         search_layout = QHBoxLayout(self.search_group)
-        search_layout.setContentsMargins(10, 5, 10, 2)
+        search_layout.setContentsMargins(10, 8, 10, 2)
         search_layout.setSpacing(10)
         
         self.search_bar = QLineEdit()
@@ -104,9 +104,9 @@ class PBOQDialog(QDialog):
         
         # 3. Stats Group (Moved to top)
         self.stats_group = QGroupBox("Statistics")
-        self.stats_group.setFixedHeight(65)
+        self.stats_group.setFixedHeight(55)
         stats_layout = QHBoxLayout(self.stats_group)
-        stats_layout.setContentsMargins(10, 5, 10, 2)
+        stats_layout.setContentsMargins(10, 8, 10, 2)
         stats_layout.setSpacing(15)
         
         label_style = "font-weight: bold; font-size: 9pt;"
@@ -472,6 +472,11 @@ class PBOQDialog(QDialog):
                                 if color.isValid():
                                     t_item.setBackground(color)
                         
+                        # Special Case: Extended dummy rates (0.00) show as gray text by default
+                        if t_item.text() == "0.00":
+                            t_item.setForeground(QColor("#777777"))
+                            t_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
                         table.setItem(r_idx, c_idx, t_item)
                     
                     # Count stats
@@ -693,6 +698,10 @@ class PBOQDialog(QDialog):
         
         if is_revert:
             # --- REVERT LOGIC ---
+            amount_idx = self.cb_bill_amount.currentIndex() - 1
+            rate_updates = []
+            amount_updates = []
+            
             for tab_idx in range(total_sheets):
                 table = self.tabs.widget(tab_idx)
                 if not isinstance(table, QTableWidget): continue
@@ -701,27 +710,39 @@ class PBOQDialog(QDialog):
                     rate_item = table.item(row, rate_idx)
                     # Identify dummy rates by their gray color
                     if rate_item and rate_item.foreground().color().name().lower() == "#777777":
-                        # Clear the UI item
+                        # Clear Rate
                         rate_item.setText("")
-                        # Clear background if it was blue/yellow/red? 
-                        # Actually better just to clear the text and let it stay the column color
+                        
+                        # Clear Amount as well if mapped
+                        if amount_idx >= 0:
+                            amt_item = table.item(row, amount_idx)
+                            if amt_item:
+                                amt_item.setText("")
                         
                         # Get rowid for DB update
                         rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                         if rowid is not None:
-                            updates_to_db.append((rowid, None))
+                            rate_updates.append((rowid, None))
+                            if amount_idx >= 0:
+                                amount_updates.append((rowid, None))
                         updated_count += 1
             
             if updated_count > 0:
-                self._persist_batch_updates(rate_idx, updates_to_db)
+                self._persist_batch_updates(rate_idx, rate_updates)
+                if amount_idx >= 0:
+                    self._persist_batch_updates(amount_idx, amount_updates)
                 self.extend_btn.setText("Extend")
-                QMessageBox.information(self, "Revert Complete", f"Successfully cleared {updated_count} extended rates.")
+                QMessageBox.information(self, "Revert Complete", f"Successfully cleared {updated_count} extended rows.")
             else:
-                self.extend_btn.setText("Extend") # Reset anyway if nothing found
+                self.extend_btn.setText("Extend")
                 QMessageBox.information(self, "Nothing to Revert", "No auto-extended rates were found to clear.")
 
         else:
             # --- EXTEND LOGIC ---
+            amount_idx = self.cb_bill_amount.currentIndex() - 1
+            rate_updates = []
+            amount_updates = []
+            
             checked_cols = []
             if self.extend_cb0.isChecked(): checked_cols.append(0)
             if self.extend_cb1.isChecked(): checked_cols.append(1)
@@ -753,7 +774,8 @@ class PBOQDialog(QDialog):
                     try:
                         clean_qty = qty_str.replace(',', '').replace(' ', '')
                         if not clean_qty: continue
-                        if float(clean_qty) <= 0: continue
+                        q_val = float(clean_qty)
+                        if q_val <= 0: continue
                         
                         # 3. Check / Insert Dummy Rate
                         rate_item = table.item(row, rate_idx)
@@ -776,18 +798,31 @@ class PBOQDialog(QDialog):
                         dummy_item.setForeground(QColor("#777777"))
                         table.setItem(row, rate_idx, dummy_item)
                         
+                        # Calculation: Bill Amount = Qty * Bill Rate (0.00)
+                        if amount_idx >= 0:
+                            bill_amount = q_val * 0.00
+                            amt_val_str = f"{bill_amount:.2f}"
+                            amt_item = QTableWidgetItem(amt_val_str)
+                            amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            amt_item.setForeground(QColor("#777777")) # Match dummy color
+                            table.setItem(row, amount_idx, amt_item)
+
                         rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                         if rowid is not None:
-                            updates_to_db.append((rowid, "0.00"))
+                            rate_updates.append((rowid, "0.00"))
+                            if amount_idx >= 0:
+                                amount_updates.append((rowid, amt_val_str))
                         updated_count += 1
                         
                     except ValueError: continue
             
             if updated_count > 0:
-                self._persist_batch_updates(rate_idx, updates_to_db)
+                self._persist_batch_updates(rate_idx, rate_updates)
+                if amount_idx >= 0:
+                    self._persist_batch_updates(amount_idx, amount_updates)
                 self.extend_btn.setText("Revert")
                 QMessageBox.information(self, "Extend Complete", 
-                                      f"Successfully inserted and persisted {updated_count} dummy rates.")
+                                      f"Successfully inserted and calculated {updated_count} items.")
             else:
                 QMessageBox.information(self, "No Items Found", 
                                       "No aligned items without rates were found with valid numeric quantities.")
