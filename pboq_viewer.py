@@ -237,186 +237,201 @@ class PBOQDialog(QDialog):
         if not file_path or not os.path.exists(file_path):
             return
             
-        self.tabs.clear()
+        # Block all signals that could trigger _save_pboq_state during load
+        self.tabs.blockSignals(True)
+        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+            cb.blockSignals(True)
+        self.wrap_text_btn.blockSignals(True)
+        self.search_this_sheet.blockSignals(True)
+        self.search_all_sheets.blockSignals(True)
         
-        from PyQt6.QtWidgets import QApplication, QProgressDialog
-        
-        conn = None
         try:
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
+            self.tabs.clear()
             
-            # Check for pboq_items table
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
-            if not cursor.fetchone():
-                QMessageBox.warning(self, "Format Error", "This database does not contain valid PBOQ data.")
+            from PyQt6.QtWidgets import QApplication, QProgressDialog
+            
+            conn = None
+            try:
+                conn = sqlite3.connect(file_path)
+                cursor = conn.cursor()
+                
+                # Check for pboq_items table
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
+                if not cursor.fetchone():
+                    QMessageBox.warning(self, "Format Error", "This database does not contain valid PBOQ data.")
+                    return
+                
+                # Get column info
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                db_columns = [info[1] for info in cursor.fetchall()]
+                
+                # Ensure GrossRate and RateCode columns exist in DB
+                if "GrossRate" not in db_columns:
+                    cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
+                    db_columns.append("GrossRate")
+                if "RateCode" not in db_columns:
+                    cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
+                    db_columns.append("RateCode")
+                conn.commit()
+                
+                # Fetch all data (quote column names since they may contain spaces)
+                quoted_cols = [f'"{c}"' for c in db_columns]
+                query = f"SELECT {', '.join(quoted_cols)} FROM pboq_items"
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                
+                if not rows:
+                    QMessageBox.information(self, "Empty", "No data found in this PBOQ database.")
+                    return
+                
+                # Load formatting data from DB before building tables
+                formatting_data = {}
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
+                if cursor.fetchone():
+                    cursor.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
+                    for row_idx, col_idx, fmt_json in cursor.fetchall():
+                        formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
+                
+            except Exception as e:
+                QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
                 return
+            finally:
+                if conn:
+                    conn.close()
             
-            # Get column info
-            cursor.execute("PRAGMA table_info(pboq_items)")
-            db_columns = [info[1] for info in cursor.fetchall()]
+            # Store DB column names for persistence
+            self.db_columns = db_columns
             
-            # Ensure GrossRate and RateCode columns exist in DB
-            if "GrossRate" not in db_columns:
-                cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
-                db_columns.append("GrossRate")
-            if "RateCode" not in db_columns:
-                cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
-                db_columns.append("RateCode")
-            conn.commit()
+            # The first column is always "Sheet" — the rest are data columns
+            display_col_names = db_columns[1:]
+            num_display_cols = len(display_col_names)
             
-            # Fetch all data (quote column names since they may contain spaces)
-            quoted_cols = [f'"{c}"' for c in db_columns]
-            query = f"SELECT {', '.join(quoted_cols)} FROM pboq_items"
-            cursor.execute(query)
-            rows = cursor.fetchall()
+            # Group rows by Sheet name (first column), preserving global row index
+            sheet_groups = {}
+            for g_idx, row in enumerate(rows):
+                sheet_name = str(row[0]) if row[0] else "Sheet 1"
+                if sheet_name not in sheet_groups:
+                    sheet_groups[sheet_name] = []
+                sheet_groups[sheet_name].append((g_idx, row[1:]))
             
-            if not rows:
-                QMessageBox.information(self, "Empty", "No data found in this PBOQ database.")
-                return
+            # Populate combo boxes with the display column count
+            self._populate_column_combos(num_display_cols)
             
-            # Load formatting data from DB before building tables
-            formatting_data = {}
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
-            if cursor.fetchone():
-                cursor.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
-                for row_idx, col_idx, fmt_json in cursor.fetchall():
-                    formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
+            total_items = 0
+            priced_items = 0
             
-        except Exception as e:
-            QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
-            return
+            # Find GrossRate column index in the display columns
+            rate_display_idx = display_col_names.index("GrossRate") if "GrossRate" in display_col_names else -1
+            qty_mapped = self.cb_qty.currentIndex() - 1
+            
+            # Progress dialog
+            total_rows = len(rows)
+            progress = QProgressDialog("Loading PBOQ data...", None, 0, total_rows, self)
+            progress.setWindowTitle("Loading")
+            progress.setMinimumDuration(0)
+            progress.setWindowModality(Qt.WindowModality.WindowModal)
+            progress.setValue(0)
+            QApplication.processEvents()
+            
+            rows_loaded = 0
+            
+            # Create a tab for each sheet
+            for sheet_name, sheet_entries in sheet_groups.items():
+                table = QTableWidget()
+                table.setRowCount(len(sheet_entries))
+                table.setColumnCount(num_display_cols)
+                table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
+                table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+                table.setAlternatingRowColors(True)
+                table.setWordWrap(False)
+                table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+                
+                for r_idx, (global_row_idx, row_data) in enumerate(sheet_entries):
+                    for c_idx in range(num_display_cols):
+                        col_val = row_data[c_idx] if c_idx < len(row_data) else ""
+                        t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                        
+                        # Apply formatting inline from saved data
+                        fmt = formatting_data.get((global_row_idx, c_idx))
+                        if fmt:
+                            font = t_item.font()
+                            if fmt.get('bold'): font.setBold(True)
+                            if fmt.get('italic'): font.setItalic(True)
+                            if fmt.get('underline'): font.setUnderline(True)
+                            t_item.setFont(font)
+                            
+                            if 'font_color' in fmt:
+                                color = QColor(fmt['font_color'])
+                                if color.isValid():
+                                    t_item.setForeground(color)
+                            
+                            if 'bg_color' in fmt:
+                                color = QColor(fmt['bg_color'])
+                                if color.isValid():
+                                    t_item.setBackground(color)
+                        
+                        table.setItem(r_idx, c_idx, t_item)
+                    
+                    # Count stats
+                    if qty_mapped >= 0 and qty_mapped < len(row_data):
+                        qty_val = str(row_data[qty_mapped]).strip() if row_data[qty_mapped] else ""
+                        if qty_val and qty_val.lower() not in ('', 'nan', 'none', '<na>'):
+                            total_items += 1
+                            if rate_display_idx >= 0 and rate_display_idx < len(row_data):
+                                rate_val = str(row_data[rate_display_idx]).strip() if row_data[rate_display_idx] else ""
+                                if rate_val and rate_val.lower() not in ('', 'none', 'nan'):
+                                    priced_items += 1
+                    
+                    rows_loaded += 1
+                    if rows_loaded % 100 == 0:
+                        progress.setValue(rows_loaded)
+                        QApplication.processEvents()
+                
+                # Auto-size columns
+                table.resizeColumnsToContents()
+                for c in range(table.columnCount()):
+                    if table.columnWidth(c) > 400:
+                        table.setColumnWidth(c, 400)
+                
+                # Stretch the Description column if mapped
+                desc_mapped = self.cb_desc.currentIndex() - 1
+                if desc_mapped >= 0 and desc_mapped < num_display_cols:
+                    header = table.horizontalHeader()
+                    header.setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
+                
+                # Fixed 24px row height (matching Excel default)
+                table.verticalHeader().setDefaultSectionSize(24)
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                
+                self.tabs.addTab(table, sheet_name)
+            
+            progress.setValue(total_rows)
+            
+            # Update stats
+            outstanding = total_items - priced_items
+            self.total_items_label.setText(f"Total Items : {total_items}")
+            self.priced_items_label.setText(f"Priced Items : {priced_items}")
+            self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
+            
+            # Restore saved state (column mapping, format, search scope, active tab)
+            self._load_pboq_state(index)
+            
         finally:
-            if conn:
-                conn.close()
-        
-        # Store DB column names for persistence
-        self.db_columns = db_columns
-        
-        # The first column is always "Sheet" — the rest are data columns
-        display_col_names = db_columns[1:]
-        num_display_cols = len(display_col_names)
-        
-        # Group rows by Sheet name (first column), preserving global row index
-        sheet_groups = {}
-        for g_idx, row in enumerate(rows):
-            sheet_name = str(row[0]) if row[0] else "Sheet 1"
-            if sheet_name not in sheet_groups:
-                sheet_groups[sheet_name] = []
-            sheet_groups[sheet_name].append((g_idx, row[1:]))
-        
-        # Populate combo boxes with the display column count
-        self._populate_column_combos(num_display_cols)
-        
-        total_items = 0
-        priced_items = 0
-        
-        # Find GrossRate column index in the display columns
-        rate_display_idx = display_col_names.index("GrossRate") if "GrossRate" in display_col_names else -1
-        qty_mapped = self.cb_qty.currentIndex() - 1
-        
-        # Progress dialog
-        total_rows = len(rows)
-        progress = QProgressDialog("Loading PBOQ data...", None, 0, total_rows, self)
-        progress.setWindowTitle("Loading")
-        progress.setMinimumDuration(0)
-        progress.setWindowModality(Qt.WindowModality.WindowModal)
-        progress.setValue(0)
-        QApplication.processEvents()
-        
-        rows_loaded = 0
-        
-        # Create a tab for each sheet
-        for sheet_name, sheet_entries in sheet_groups.items():
-            table = QTableWidget()
-            table.setRowCount(len(sheet_entries))
-            table.setColumnCount(num_display_cols)
-            table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
-            table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-            table.setAlternatingRowColors(True)
-            table.setWordWrap(False)
-            table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-            
-            for r_idx, (global_row_idx, row_data) in enumerate(sheet_entries):
-                for c_idx in range(num_display_cols):
-                    col_val = row_data[c_idx] if c_idx < len(row_data) else ""
-                    t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
-                    
-                    # Apply formatting inline from saved data
-                    fmt = formatting_data.get((global_row_idx, c_idx))
-                    if fmt:
-                        font = t_item.font()
-                        if fmt.get('bold'): font.setBold(True)
-                        if fmt.get('italic'): font.setItalic(True)
-                        if fmt.get('underline'): font.setUnderline(True)
-                        t_item.setFont(font)
-                        
-                        if 'font_color' in fmt:
-                            color = QColor(fmt['font_color'])
-                            if color.isValid():
-                                t_item.setForeground(color)
-                        
-                        if 'bg_color' in fmt:
-                            color = QColor(fmt['bg_color'])
-                            if color.isValid():
-                                t_item.setBackground(color)
-                    
-                    table.setItem(r_idx, c_idx, t_item)
-                
-                # Count stats
-                if qty_mapped >= 0 and qty_mapped < len(row_data):
-                    qty_val = str(row_data[qty_mapped]).strip() if row_data[qty_mapped] else ""
-                    if qty_val and qty_val.lower() not in ('', 'nan', 'none', '<na>'):
-                        total_items += 1
-                        if rate_display_idx >= 0 and rate_display_idx < len(row_data):
-                            rate_val = str(row_data[rate_display_idx]).strip() if row_data[rate_display_idx] else ""
-                            if rate_val and rate_val.lower() not in ('', 'none', 'nan'):
-                                priced_items += 1
-                
-                rows_loaded += 1
-                if rows_loaded % 100 == 0:
-                    progress.setValue(rows_loaded)
-                    QApplication.processEvents()
-            
-            # Auto-size columns
-            table.resizeColumnsToContents()
-            for c in range(table.columnCount()):
-                if table.columnWidth(c) > 400:
-                    table.setColumnWidth(c, 400)
-            
-            # Stretch the Description column if mapped
-            desc_mapped = self.cb_desc.currentIndex() - 1
-            if desc_mapped >= 0 and desc_mapped < num_display_cols:
-                header = table.horizontalHeader()
-                header.setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
-            
-            # Fixed 24px row height (matching Excel default)
-            table.verticalHeader().setDefaultSectionSize(24)
-            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-            
-            self.tabs.addTab(table, sheet_name)
-        
-        progress.setValue(total_rows)
-        
-        # Update stats
-        outstanding = total_items - priced_items
-        self.total_items_label.setText(f"Total Items : {total_items}")
-        self.priced_items_label.setText(f"Priced Items : {priced_items}")
-        self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
-        
-        # Restore saved state (column mapping, format, search scope, active tab)
-        self._load_pboq_state(index)
+            self.tabs.blockSignals(False)
+            for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+                cb.blockSignals(False)
+            self.wrap_text_btn.blockSignals(False)
+            self.search_this_sheet.blockSignals(False)
+            self.search_all_sheets.blockSignals(False)
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
         explicit_columns = [f"Column {i}" for i in range(num_columns)]
         
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
-            cb.blockSignals(True)
             cb.clear()
             cb.addItem("-- Select Column --")
             cb.addItems(explicit_columns)
-            cb.blockSignals(False)
         
         # Auto-select defaults based on known PBOQ DB column order
         # db_columns = [Sheet, Column 0, Column 1, ..., GrossRate, RateCode]
@@ -432,9 +447,7 @@ class PBOQDialog(QDialog):
         for cb, col_name in col_map.items():
             if col_name in display_cols:
                 idx = display_cols.index(col_name)
-                cb.blockSignals(True)
                 cb.setCurrentIndex(idx + 1)  # +1 because of "-- Select Column --"
-                cb.blockSignals(False)
 
     def _filter_tables(self, text):
         """Filters rows based on search scope (This Sheet or All Sheets)."""
