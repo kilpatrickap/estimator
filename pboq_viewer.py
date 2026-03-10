@@ -287,6 +287,23 @@ class PBOQDialog(QDialog):
         extend_layout.addWidget(self.extend_cb2)
         extend_layout.addWidget(self.extend_cb3)
         
+        # Dummy Rate Input
+        dummy_rate_row = QHBoxLayout()
+        dummy_rate_label = QLabel("Dummy Rate :")
+        dummy_rate_label.setStyleSheet("font-size: 9pt;")
+        self.dummy_rate_spin = QDoubleSpinBox()
+        self.dummy_rate_spin.setRange(0.00, 999999.00)
+        self.dummy_rate_spin.setDecimals(2)
+        self.dummy_rate_spin.setValue(0.00)
+        self.dummy_rate_spin.setFixedWidth(85)
+        self.dummy_rate_spin.setButtonSymbols(QDoubleSpinBox.ButtonSymbols.NoButtons)
+        self.dummy_rate_spin.valueChanged.connect(self._save_pboq_state)
+        
+        dummy_rate_row.addWidget(dummy_rate_label)
+        dummy_rate_row.addWidget(self.dummy_rate_spin)
+        dummy_rate_row.addStretch()
+        extend_layout.addLayout(dummy_rate_row)
+        
         extend_btns_layout = QHBoxLayout()
         self.clear_bill_btn = QPushButton("Clear")
         self.clear_bill_btn.clicked.connect(self._clear_bill_rates)
@@ -787,7 +804,9 @@ class PBOQDialog(QDialog):
                         except ValueError: pass
                         
                         # Insert Dummy Rate
-                        dummy_item = QTableWidgetItem("0.00")
+                        d_rate = self.dummy_rate_spin.value()
+                        rate_val_str = f"{d_rate:.2f}"
+                        dummy_item = QTableWidgetItem(rate_val_str)
                         dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         
                         # Apply background color
@@ -798,9 +817,9 @@ class PBOQDialog(QDialog):
                         dummy_item.setForeground(QColor("#777777"))
                         table.setItem(row, rate_idx, dummy_item)
                         
-                        # Calculation: Bill Amount = Qty * Bill Rate (0.00)
+                        # Calculation: Bill Amount = Qty * Custom Dummy Rate
                         if amount_idx >= 0:
-                            bill_amount = q_val * 0.00
+                            bill_amount = q_val * d_rate
                             amt_val_str = f"{bill_amount:.2f}"
                             amt_item = QTableWidgetItem(amt_val_str)
                             amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -815,7 +834,7 @@ class PBOQDialog(QDialog):
 
                         rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                         if rowid is not None:
-                            rate_updates.append((rowid, "0.00"))
+                            rate_updates.append((rowid, rate_val_str))
                             if amount_idx >= 0:
                                 amount_updates.append((rowid, amt_val_str))
                         updated_count += 1
@@ -1289,6 +1308,7 @@ class PBOQDialog(QDialog):
             'extend_cb1': self.extend_cb1.isChecked(),
             'extend_cb2': self.extend_cb2.isChecked(),
             'extend_cb3': self.extend_cb3.isChecked(),
+            'dummy_rate': self.dummy_rate_spin.value(),
         }
         
         try:
@@ -1354,6 +1374,12 @@ class PBOQDialog(QDialog):
                     cb.blockSignals(True)
                     cb.setChecked(state[key])
                     cb.blockSignals(False)
+
+            # 4. Restore Dummy Rate
+            if 'dummy_rate' in state:
+                self.dummy_rate_spin.blockSignals(True)
+                self.dummy_rate_spin.setValue(float(state['dummy_rate']))
+                self.dummy_rate_spin.blockSignals(False)
 
             # 4. Restore active tab
             if 'active_tab' in state and state['active_tab'] < self.tabs.count():
