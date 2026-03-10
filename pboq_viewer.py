@@ -122,9 +122,25 @@ class PBOQDialog(QDialog):
         search_layout.setSpacing(5)
         
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search across all sheets...")
-        self.search_bar.textChanged.connect(self._filter_current_table)
+        self.search_bar.setPlaceholderText("Type to search...")
+        self.search_bar.textChanged.connect(self._filter_tables)
         search_layout.addWidget(self.search_bar)
+        
+        scope_layout = QHBoxLayout()
+        self.search_this_sheet = QCheckBox("This Sheet")
+        self.search_this_sheet.setChecked(True)
+        self.search_all_sheets = QCheckBox("All Sheets")
+        self.search_all_sheets.setChecked(False)
+        
+        # Make them mutually exclusive
+        self.search_this_sheet.toggled.connect(lambda checked: self.search_all_sheets.setChecked(not checked) if checked else None)
+        self.search_all_sheets.toggled.connect(lambda checked: self.search_this_sheet.setChecked(not checked) if checked else None)
+        # Re-filter when scope changes
+        self.search_this_sheet.toggled.connect(lambda: self._filter_tables(self.search_bar.text()))
+        
+        scope_layout.addWidget(self.search_this_sheet)
+        scope_layout.addWidget(self.search_all_sheets)
+        search_layout.addLayout(scope_layout)
         
         right_layout.addWidget(search_group)
         
@@ -358,26 +374,41 @@ class PBOQDialog(QDialog):
                 idx = display_cols.index(col_name)
                 cb.setCurrentIndex(idx + 1)  # +1 because of "-- Select Column --"
 
-    def _filter_current_table(self, text):
-        """Filters rows in the currently visible tab's table."""
-        current_table = self.tabs.currentWidget()
-        if not isinstance(current_table, QTableWidget):
-            return
-            
-        search_text = text.lower()
-        for row in range(current_table.rowCount()):
-            row_texts = []
-            for col in range(current_table.columnCount()):
-                item = current_table.item(row, col)
-                if item:
-                    row_texts.append(item.text().lower())
-            
-            full_row_text = " ".join(row_texts)
-            current_table.setRowHidden(row, search_text not in full_row_text if search_text else False)
+    def _filter_tables(self, text):
+        """Filters rows based on search scope (This Sheet or All Sheets)."""
+        search_text = text.lower() if isinstance(text, str) else self.search_bar.text().lower()
+        
+        all_tables = [self.tabs.widget(i) for i in range(self.tabs.count())]
+        
+        if self.search_all_sheets.isChecked():
+            # Filter across all tabs
+            tables = all_tables
+        else:
+            # Filter only the current tab; unhide all rows on other tabs
+            current = self.tabs.currentWidget()
+            tables = [current] if current else []
+            for t in all_tables:
+                if t != current and isinstance(t, QTableWidget):
+                    for row in range(t.rowCount()):
+                        t.setRowHidden(row, False)
+        
+        for table in tables:
+            if not isinstance(table, QTableWidget):
+                continue
+            for row in range(table.rowCount()):
+                row_texts = []
+                for col in range(table.columnCount()):
+                    item = table.item(row, col)
+                    if item:
+                        row_texts.append(item.text().lower())
+                
+                full_row_text = " ".join(row_texts)
+                table.setRowHidden(row, search_text not in full_row_text if search_text else False)
 
     def _toggle_wrap_text(self):
         """Toggles word wrap on the description column across all tabs."""
         self.wrap_text_enabled = self.wrap_text_btn.isChecked()
+        self.wrap_text_btn.setText("Unwrap Text" if self.wrap_text_enabled else "Wrap Text")
         desc_col = self.cb_desc.currentIndex() - 1
         
         for tab_idx in range(self.tabs.count()):
@@ -388,7 +419,8 @@ class PBOQDialog(QDialog):
             table.setWordWrap(self.wrap_text_enabled)
             
             if self.wrap_text_enabled:
-                # Switch to content-based row heights
+                # Allow rows to expand for wrapped text, but never shrink below 24px
+                table.verticalHeader().setMinimumSectionSize(24)
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
             else:
                 # Revert to fixed 24px row height
