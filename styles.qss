@@ -111,7 +111,6 @@ QHeaderView::section {
     border-bottom: 1px solid #dcdfe6;
     font-weight: bold;
     font-size: 9pt;
-    color: #303133;
 }
 
 /* Input Fields */

@@ -24,12 +24,24 @@ class PBOQDialog(QDialog):
         self.COLOR_ITEM = QColor("#fff9c4")
         self.COLOR_IGNORE = QColor("#ffffff")
         
+        # Column identifying colors (Soft pastels for high readability)
+        self.COL_COLOR_BLUE = QColor("#e3f2fd")
+        self.COL_COLOR_YELLOW = QColor("#fff9c4")
+        self.COL_COLOR_RED = QColor("#ffebee")
+        
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 600)
         
         self._init_ui()
         
-        # Auto-load first PBOQ if available
+        # Restore last selected bill if available
+        last_bill = self._load_viewer_state()
+        if last_bill:
+            index = self.pboq_file_selector.findText(last_bill)
+            if index >= 0:
+                self.pboq_file_selector.setCurrentIndex(index)
+        
+        # Auto-load selected PBOQ if available
         if self.pboq_file_selector.count() > 0:
             self._load_pboq_db(self.pboq_file_selector.currentIndex())
 
@@ -144,13 +156,21 @@ class PBOQDialog(QDialog):
         # Auto-save state when column mappings change
         # Connect signals for auto-saving
         self.cb_ref.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_ref.currentIndexChanged.connect(self._update_column_headers)
         self.cb_desc.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_desc.currentIndexChanged.connect(self._update_column_headers)
         self.cb_qty.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_qty.currentIndexChanged.connect(self._update_column_headers)
         self.cb_unit.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_unit.currentIndexChanged.connect(self._update_column_headers)
         self.cb_bill_rate.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_bill_rate.currentIndexChanged.connect(self._update_column_headers)
         self.cb_bill_amount.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_bill_amount.currentIndexChanged.connect(self._update_column_headers)
         self.cb_rate.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_rate.currentIndexChanged.connect(self._update_column_headers)
         self.cb_rate_code.currentIndexChanged.connect(self._save_pboq_state)
+        self.cb_rate_code.currentIndexChanged.connect(self._update_column_headers)
         
         right_layout.addWidget(col_group)
         
@@ -304,7 +324,8 @@ class PBOQDialog(QDialog):
             
             # The first column is always "Sheet" — the rest are data columns
             display_col_names = db_columns[1:]
-            num_display_cols = len(display_col_names)
+            # Only show up to 8 columns (Column 0 to Column 7)
+            num_display_cols = min(8, len(display_col_names))
             
             # Group rows by Sheet name (first column), preserving global row index
             sheet_groups = {}
@@ -351,7 +372,15 @@ class PBOQDialog(QDialog):
                         col_val = row_data[c_idx] if c_idx < len(row_data) else ""
                         t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
                         
-                        # Apply formatting inline from saved data
+                        # Apply column-based identification color as base layer
+                        if c_idx < 4:
+                            t_item.setBackground(self.COL_COLOR_BLUE)
+                        elif c_idx < 6:
+                            t_item.setBackground(self.COL_COLOR_YELLOW)
+                        elif c_idx < 8:
+                            t_item.setBackground(self.COL_COLOR_RED)
+                        
+                        # Apply specific formatting (overrides column color if present)
                         fmt = formatting_data.get((global_row_idx, c_idx))
                         if fmt:
                             font = t_item.font()
@@ -416,6 +445,12 @@ class PBOQDialog(QDialog):
             
             # Restore saved state (column mapping, format, search scope, active tab)
             self._load_pboq_state(index)
+            
+            # Update column headers based on mapping
+            self._update_column_headers()
+            
+            # Save this bill as the last active one
+            self._save_viewer_state()
             
         finally:
             self.tabs.blockSignals(False)
@@ -780,6 +815,86 @@ class PBOQDialog(QDialog):
         state_file = os.path.join(states_folder, pboq_file + ".state.json")
         return state_file
 
+    def _save_viewer_state(self):
+        """Saves the last selected bill filename to a viewer state file."""
+        states_folder = os.path.join(self.project_dir, "PBOQ States")
+        os.makedirs(states_folder, exist_ok=True)
+        viewer_state_file = os.path.join(states_folder, "viewer_state.json")
+        
+        state = {
+            'last_bill': self.pboq_file_selector.currentText()
+        }
+        
+        try:
+            with open(viewer_state_file, 'w') as f:
+                json.dump(state, f)
+        except Exception:
+            pass
+
+    def _load_viewer_state(self):
+        """Loads the last selected bill filename from the viewer state file."""
+        states_folder = os.path.join(self.project_dir, "PBOQ States")
+        viewer_state_file = os.path.join(states_folder, "viewer_state.json")
+        
+        if not os.path.exists(viewer_state_file):
+            return None
+            
+        try:
+            with open(viewer_state_file, 'r') as f:
+                state = json.load(f)
+                return state.get('last_bill')
+        except Exception:
+            return None
+
+    def _update_column_headers(self):
+        """Updates all table column headers to show mapping labels, blue color, and bold font."""
+        mappings = {
+            self.cb_ref: "Ref / Item No",
+            self.cb_desc: "Description",
+            self.cb_qty: "Quantity",
+            self.cb_unit: "Unit",
+            self.cb_bill_rate: "Bill Rate",
+            self.cb_bill_amount: "Bill Amount",
+            self.cb_rate: "Gross Rate",
+            self.cb_rate_code: "Rate Code"
+        }
+        
+        # Build a map of column_index -> list of labels
+        col_to_labels = {}
+        for cb, label in mappings.items():
+            idx = cb.currentIndex() - 1 # -1 because of "-- Select Column --"
+            if idx >= 0:
+                if idx not in col_to_labels:
+                    col_to_labels[idx] = []
+                col_to_labels[idx].append(label)
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if isinstance(table, QTableWidget):
+                num_cols = table.columnCount()
+                for c in range(num_cols):
+                    header_item = table.horizontalHeaderItem(c)
+                    if not header_item:
+                        header_item = QTableWidgetItem(f"Column {c}")
+                        table.setHorizontalHeaderItem(c, header_item)
+                    
+                    if c in col_to_labels:
+                        labels = " & ".join(col_to_labels[c])
+                        header_item.setText(labels)
+                        header_item.setForeground(QColor("#0000FF")) # Solid Blue
+                        font = header_item.font()
+                        font.setBold(True)
+                        header_item.setFont(font)
+                    else:
+                        header_item.setText(f"Column {c}")
+                        header_item.setForeground(QColor("#303133")) # Default Dark Gray
+                        font = header_item.font()
+                        font.setBold(False)
+                        header_item.setFont(font)
+                
+                # Force refresh of header to be sure
+                table.horizontalHeader().viewport().update()
+
     def _save_pboq_state(self):
         """Persists column mapping, format, and search scope to a JSON file."""
         state_file = self._get_state_file_path()
@@ -891,6 +1006,9 @@ class PBOQDialog(QDialog):
             
             # Recalculate the active tab immediately
             self._on_tab_changed(self.tabs.currentIndex())
+            
+            # Update column headers
+            self._update_column_headers()
             
             self._update_stats()
             
