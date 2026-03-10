@@ -180,12 +180,19 @@ class PBOQDialog(QDialog):
         format_layout.setContentsMargins(5, 5, 5, 5)
         format_layout.setSpacing(5)
         
+        format_btns_layout = QHBoxLayout()
         self.wrap_text_btn = QPushButton("Wrap Text")
         self.wrap_text_btn.setCheckable(True)
         self.wrap_text_btn.setChecked(False)
         self.wrap_text_btn.clicked.connect(self._toggle_wrap_text)
         self.wrap_text_btn.clicked.connect(self._save_pboq_state)
-        format_layout.addWidget(self.wrap_text_btn)
+        
+        self.clear_all_btn = QPushButton("Clear Gross & Code")
+        self.clear_all_btn.clicked.connect(self._clear_gross_and_code)
+        
+        format_btns_layout.addWidget(self.wrap_text_btn)
+        format_btns_layout.addWidget(self.clear_all_btn)
+        format_layout.addLayout(format_btns_layout)
         
         right_layout.addWidget(format_group)
         
@@ -193,9 +200,33 @@ class PBOQDialog(QDialog):
         extend_group = QGroupBox("Extend")
         extend_layout = QVBoxLayout(extend_group)
         extend_layout.setContentsMargins(5, 5, 5, 5)
-        extend_layout.setSpacing(5)
+        extend_layout.setSpacing(2)
+        
+        formula_label = QLabel("Bill Amount = Bill Rate x Qty")
+        formula_label.setStyleSheet("font-size: 8pt; color: #555; font-style: italic; margin-bottom: 0px;")
+        extend_layout.addWidget(formula_label)
+        
+        align_label = QLabel("(aligned to :)")
+        align_label.setStyleSheet("font-size: 8pt; color: #777; font-style: italic; margin-bottom: 2px;")
+        extend_layout.addWidget(align_label)
+        
+        self.extend_cb0 = QCheckBox("Column 0")
+        self.extend_cb1 = QCheckBox("Column 1")
+        self.extend_cb2 = QCheckBox("Column 2")
+        self.extend_cb3 = QCheckBox("Column 3")
+        
+        self.extend_cb0.toggled.connect(self._save_pboq_state)
+        self.extend_cb1.toggled.connect(self._save_pboq_state)
+        self.extend_cb2.toggled.connect(self._save_pboq_state)
+        self.extend_cb3.toggled.connect(self._save_pboq_state)
+        
+        extend_layout.addWidget(self.extend_cb0)
+        extend_layout.addWidget(self.extend_cb1)
+        extend_layout.addWidget(self.extend_cb2)
+        extend_layout.addWidget(self.extend_cb3)
         
         self.extend_btn = QPushButton("Extend")
+        self.extend_btn.clicked.connect(self._run_extend_logic)
         extend_layout.addWidget(self.extend_btn)
         
         right_layout.addWidget(extend_group)
@@ -275,6 +306,10 @@ class PBOQDialog(QDialog):
         self.wrap_text_btn.blockSignals(True)
         self.search_this_sheet.blockSignals(True)
         self.search_all_sheets.blockSignals(True)
+        self.extend_cb0.blockSignals(True)
+        self.extend_cb1.blockSignals(True)
+        self.extend_cb2.blockSignals(True)
+        self.extend_cb3.blockSignals(True)
         
         try:
             self.tabs.clear()
@@ -470,6 +505,10 @@ class PBOQDialog(QDialog):
             self.wrap_text_btn.blockSignals(False)
             self.search_this_sheet.blockSignals(False)
             self.search_all_sheets.blockSignals(False)
+            self.extend_cb0.blockSignals(False)
+            self.extend_cb1.blockSignals(False)
+            self.extend_cb2.blockSignals(False)
+            self.extend_cb3.blockSignals(False)
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
@@ -553,6 +592,156 @@ class PBOQDialog(QDialog):
         
         # Immediately recalculate the visible tab
         self._on_tab_changed(self.tabs.currentIndex())
+
+    def _run_extend_logic(self):
+        """Iterates through all sheets and rows to insert dummy rates for aligned items."""
+        qty_idx = self.cb_qty.currentIndex() - 1
+        rate_idx = self.cb_bill_rate.currentIndex() - 1
+        
+        if qty_idx < 0:
+            QMessageBox.warning(self, "Column Mapping Required", "Please map the 'Quantity' column first.")
+            return
+        if rate_idx < 0:
+            QMessageBox.warning(self, "Column Mapping Required", "Please map the 'Bill Rate' column first.")
+            return
+
+        checked_cols = []
+        if self.extend_cb0.isChecked(): checked_cols.append(0)
+        if self.extend_cb1.isChecked(): checked_cols.append(1)
+        if self.extend_cb2.isChecked(): checked_cols.append(2)
+        if self.extend_cb3.isChecked(): checked_cols.append(3)
+        
+        if not checked_cols:
+            QMessageBox.warning(self, "Alignment Required", 
+                                "Please select at least one column (0-3) in the 'Extend' group to align items.")
+            return
+
+        updated_count = 0
+        total_sheets = self.tabs.count()
+        
+        for tab_idx in range(total_sheets):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
+            
+            for row in range(table.rowCount()):
+                # 1. Check Alignment (Row must have content in ALL checked identifier columns)
+                is_aligned = True
+                for col_idx in checked_cols:
+                    item = table.item(row, col_idx)
+                    if not item or not item.text().strip():
+                        is_aligned = False
+                        break
+                
+                if not is_aligned:
+                    continue
+                
+                # 2. Check for Quantity (Must be a numeric value)
+                qty_item = table.item(row, qty_idx)
+                qty_str = qty_item.text().strip() if qty_item else ""
+                
+                try:
+                    # Strip commas and whitespace
+                    clean_qty = qty_str.replace(',', '').replace(' ', '')
+                    if not clean_qty:
+                        continue
+                    float(clean_qty) # Verify it's a number
+                    
+                    # 3. Check / Insert Dummy Rate
+                    rate_item = table.item(row, rate_idx)
+                    rate_str = rate_item.text().strip() if rate_item else ""
+                    
+                    try:
+                        if rate_str:
+                            float(rate_str.replace(',', '').replace(' ', ''))
+                            # Already has a valid rate, leave it alone
+                            continue
+                    except ValueError:
+                        pass # Invalid rate exists, okay to replace with dummy
+                    
+                    # Insert Dummy Rate (0.00 formatted to 2 decimals)
+                    dummy_val = 0.00
+                    dummy_item = QTableWidgetItem(f"{dummy_val:.2f}")
+                    dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    
+                    # Apply the same background color identification as during load
+                    if rate_idx < 4:
+                        dummy_item.setBackground(self.COL_COLOR_BLUE)
+                    elif rate_idx < 6:
+                        dummy_item.setBackground(self.COL_COLOR_YELLOW)
+                    elif rate_idx < 8:
+                        dummy_item.setBackground(self.COL_COLOR_RED)
+                        
+                    # Use a subtle gray for the text of dummy rates to distinguish them
+                    dummy_item.setForeground(QColor("#777777"))
+                    table.setItem(row, rate_idx, dummy_item)
+                    updated_count += 1
+                    
+                except ValueError:
+                    # Not a numeric quantity row
+                    continue
+                    
+        if updated_count > 0:
+            QMessageBox.information(self, "Extend Complete", 
+                                  f"Successfully inserted dummy rates for {updated_count} items across {total_sheets} sheets.")
+        else:
+            QMessageBox.information(self, "No Items Found", 
+                                  "No aligned items without rates were found with valid numeric quantities.")
+
+    def _clear_gross_and_code(self):
+        """Globally clears all Gross Rate and Rate Code data from the UI and Database."""
+        reply = QMessageBox.question(self, "Confirm Clear", 
+                                   "Are you sure you want to clear ALL Gross Rates and Rate Codes from every sheet?\n\nThis action cannot be undone.",
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        
+        if reply == QMessageBox.StandardButton.No:
+            return
+            
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path):
+            return
+
+        # 1. Update Database
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            # Check if columns exist before updating
+            cursor.execute("PRAGMA table_info(pboq_items)")
+            cols = [info[1] for info in cursor.fetchall()]
+            
+            if "GrossRate" in cols or "RateCode" in cols:
+                updates = []
+                if "GrossRate" in cols: updates.append("GrossRate = ''")
+                if "RateCode" in cols: updates.append("RateCode = ''")
+                
+                sql = f"UPDATE pboq_items SET {', '.join(updates)}"
+                cursor.execute(sql)
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            QMessageBox.critical(self, "Database Error", f"Failed to clear database data:\n{e}")
+            return
+
+        # 2. Update UI (All Tabs)
+        rate_idx = self.cb_rate.currentIndex() - 1
+        code_idx = self.cb_rate_code.currentIndex() - 1
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
+            
+            for row in range(table.rowCount()):
+                if rate_idx >= 0:
+                    item = table.item(row, rate_idx)
+                    if item: item.setText("")
+                if code_idx >= 0:
+                    item = table.item(row, code_idx)
+                    if item: item.setText("")
+
+        self._update_stats()
+        QMessageBox.information(self, "Success", "All Gross Rates and Rate Codes have been cleared.")
 
     def _get_mapped_values(self, table, row):
         """Returns a dict of mapped column values for a given row."""
@@ -905,6 +1094,14 @@ class PBOQDialog(QDialog):
                 
                 # Force refresh of header to be sure
                 table.horizontalHeader().viewport().update()
+        
+        # Update Extend checkboxes labels
+        extend_cbs = [self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3]
+        for i, cb in enumerate(extend_cbs):
+            if i in col_to_labels:
+                cb.setText(" & ".join(col_to_labels[i]))
+            else:
+                cb.setText(f"Column {i}")
 
     def _save_pboq_state(self):
         """Persists column mapping, format, and search scope to a JSON file."""
@@ -924,6 +1121,10 @@ class PBOQDialog(QDialog):
             'wrap_text': self.wrap_text_enabled,
             'search_all_sheets': self.search_all_sheets.isChecked(),
             'active_tab': self.tabs.currentIndex(),
+            'extend_cb0': self.extend_cb0.isChecked(),
+            'extend_cb1': self.extend_cb1.isChecked(),
+            'extend_cb2': self.extend_cb2.isChecked(),
+            'extend_cb3': self.extend_cb3.isChecked(),
         }
         
         try:
@@ -981,13 +1182,22 @@ class PBOQDialog(QDialog):
             self.search_this_sheet.blockSignals(False)
             self.search_all_sheets.blockSignals(False)
 
-            # 3. Restore active tab
+            # 3. Restore Extend checkboxes
+            extend_cbs = [self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3]
+            for i, cb in enumerate(extend_cbs):
+                key = f'extend_cb{i}'
+                if key in state:
+                    cb.blockSignals(True)
+                    cb.setChecked(state[key])
+                    cb.blockSignals(False)
+
+            # 4. Restore active tab
             if 'active_tab' in state and state['active_tab'] < self.tabs.count():
                 self.tabs.blockSignals(True)
                 self.tabs.setCurrentIndex(state['active_tab'])
                 self.tabs.blockSignals(False)
             
-            # 4. Re-apply UI refinements (Stretching columns affects wrapping)
+            # 5. Re-apply UI refinements (Stretching columns affects wrapping)
             desc_mapped = self.cb_desc.currentIndex() - 1
             for tab_idx in range(self.tabs.count()):
                 table = self.tabs.widget(tab_idx)
