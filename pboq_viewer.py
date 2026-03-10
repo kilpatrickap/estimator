@@ -17,6 +17,7 @@ class PBOQDialog(QDialog):
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         self.clipboard_data = None
+        self.wrap_text_enabled = False
         
         # Color codes matching BOQ Setup
         self.COLOR_HEADING = QColor("#e8f5e9")
@@ -99,6 +100,20 @@ class PBOQDialog(QDialog):
         col_layout.addRow("Rate Code:", self.cb_rate_code)
         
         right_layout.addWidget(col_group)
+        
+        # Format Group
+        format_group = QGroupBox("Format")
+        format_layout = QVBoxLayout(format_group)
+        format_layout.setContentsMargins(5, 5, 5, 5)
+        format_layout.setSpacing(5)
+        
+        self.wrap_text_btn = QPushButton("Wrap Text")
+        self.wrap_text_btn.setCheckable(True)
+        self.wrap_text_btn.setChecked(False)
+        self.wrap_text_btn.clicked.connect(self._toggle_wrap_text)
+        format_layout.addWidget(self.wrap_text_btn)
+        
+        right_layout.addWidget(format_group)
         
         # Search
         search_group = QGroupBox("Search")
@@ -248,10 +263,8 @@ class PBOQDialog(QDialog):
             table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
             table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
             table.setAlternatingRowColors(True)
-            table.setWordWrap(True)
+            table.setWordWrap(False)
             table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-            table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
-            table.customContextMenuRequested.connect(lambda pos, t=table: self._show_context_menu(pos, t))
             
             for r_idx, (global_row_idx, row_data) in enumerate(sheet_entries):
                 for c_idx in range(num_display_cols):
@@ -306,6 +319,10 @@ class PBOQDialog(QDialog):
                 header = table.horizontalHeader()
                 header.setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
             
+            # Fixed 24px row height (matching Excel default)
+            table.verticalHeader().setDefaultSectionSize(24)
+            table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            
             self.tabs.addTab(table, sheet_name)
         
         progress.setValue(total_rows)
@@ -358,57 +375,25 @@ class PBOQDialog(QDialog):
             full_row_text = " ".join(row_texts)
             current_table.setRowHidden(row, search_text not in full_row_text if search_text else False)
 
-    def _show_context_menu(self, pos, table):
-        """Context menu for the table."""
-        selected_indexes = table.selectionModel().selectedRows()
-        if not selected_indexes:
-            return
+    def _toggle_wrap_text(self):
+        """Toggles word wrap on the description column across all tabs."""
+        self.wrap_text_enabled = self.wrap_text_btn.isChecked()
+        desc_col = self.cb_desc.currentIndex() - 1
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
             
-        index = selected_indexes[0]
-        row = index.row()
-        
-        menu = QMenu(self)
-        
-        # Get current column mapping
-        rate_code_col = self.cb_rate_code.currentIndex() - 1
-        rate_code = ""
-        if rate_code_col >= 0:
-            item = table.item(row, rate_code_col)
-            rate_code = item.text().strip() if item else ""
-        
-        # Build/Edit Rate
-        action_text = "Edit Rate" if rate_code else "Build Rate"
-        build_rate_action = QAction(action_text, self)
-        build_rate_action.triggered.connect(lambda: self._build_rate(table, row))
-        menu.addAction(build_rate_action)
-        
-        # Clear Rate
-        clear_rate_action = QAction("Clear Rate", self)
-        clear_rate_action.triggered.connect(lambda: self._clear_rate(table, row))
-        menu.addAction(clear_rate_action)
-        
-        menu.addSeparator()
-        
-        # Copy Rate
-        copy_action = QAction("Copy Rate", self)
-        copy_action.triggered.connect(lambda: self._copy_rate(table, row))
-        menu.addAction(copy_action)
-        
-        # Paste Rate
-        paste_action = QAction("Paste Rate", self)
-        paste_action.setEnabled(bool(self.clipboard_data))
-        paste_action.triggered.connect(lambda: self._paste_rate(table, row))
-        menu.addAction(paste_action)
-        
-        menu.addSeparator()
-        
-        # Go-To Rate
-        goto_rate_action = QAction("Go-To Rate", self)
-        goto_rate_action.setEnabled(bool(rate_code))
-        goto_rate_action.triggered.connect(lambda: self._goto_project_rates(rate_code))
-        menu.addAction(goto_rate_action)
-        
-        menu.exec(table.viewport().mapToGlobal(pos))
+            table.setWordWrap(self.wrap_text_enabled)
+            
+            if self.wrap_text_enabled:
+                # Switch to content-based row heights
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+            else:
+                # Revert to fixed 24px row height
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                table.verticalHeader().setDefaultSectionSize(24)
 
     def _get_mapped_values(self, table, row):
         """Returns a dict of mapped column values for a given row."""
