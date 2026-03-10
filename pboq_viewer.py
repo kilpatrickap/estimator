@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
                              QLineEdit, QWidget, QCheckBox, QComboBox, QTabWidget,
-                             QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton)
+                             QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton, QDoubleSpinBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QAction
 import json
@@ -644,7 +644,8 @@ class PBOQDialog(QDialog):
         self._on_tab_changed(self.tabs.currentIndex())
 
     def _clear_bill_rates(self):
-        """Clears all '0.00' values in Bill Rate and Bill Amount columns across all sheets and persists to DB."""
+        """Clears all values matching the current Dummy Rate in Bill Rate/Amount columns."""
+        qty_idx = self.cb_qty.currentIndex() - 1
         rate_idx = self.cb_bill_rate.currentIndex() - 1
         amount_idx = self.cb_bill_amount.currentIndex() - 1
         
@@ -652,8 +653,11 @@ class PBOQDialog(QDialog):
             QMessageBox.warning(self, "Mapping Required", "Please map at least 'Bill Rate' or 'Bill Amount' column.")
             return
 
+        d_rate = self.dummy_rate_spin.value()
+        d_rate_str = f"{d_rate:.2f}"
+
         reply = QMessageBox.question(self, "Confirm Clear", 
-                                   "This will clear ALL '0.00' values in mapped Bill Rate/Amount columns across all sheets.\n\nContinue?",
+                                   f"This will clear values matching the Dummy Rate ({d_rate_str}) in mapped Bill Rate/Amount columns across all sheets.\n\nContinue?",
                                    QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         if reply == QMessageBox.StandardButton.No:
             return
@@ -671,20 +675,33 @@ class PBOQDialog(QDialog):
                 rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                 if rowid is None: continue
 
-                # Clear Bill Rate if it's 0.00
+                # 1. Identify Row Quantity for Amount calculation
+                q_val = 0.0
+                if qty_idx >= 0:
+                    q_item = table.item(row, qty_idx)
+                    if q_item:
+                        try:
+                            clean_q = q_item.text().strip().replace(',', '').replace(' ', '')
+                            if clean_q: q_val = float(clean_q)
+                        except ValueError: pass
+
+                # 2. Clear Bill Rate if it matches Dummy Rate
                 if rate_idx >= 0:
                     item = table.item(row, rate_idx)
-                    if item and item.text().strip() in ("0.00", "0"):
+                    if item and item.text().strip() == d_rate_str:
                         item.setText("")
                         rate_updates.append((rowid, None))
                         total_cleared += 1
 
-                # Clear Bill Amount if it's 0.00
+                # 3. Clear Bill Amount if it matches (Qty * Dummy Rate)
                 if amount_idx >= 0:
                     item = table.item(row, amount_idx)
-                    if item and item.text().strip() in ("0.00", "0"):
-                        item.setText("")
-                        amount_updates.append((rowid, None))
+                    if item:
+                        # Calculate what the dummy amount would have been
+                        expected_amt_str = f"{q_val * d_rate:.2f}"
+                        if item.text().strip() == expected_amt_str:
+                            item.setText("")
+                            amount_updates.append((rowid, None))
 
         if total_cleared > 0 or rate_updates or amount_updates:
             if rate_updates:
@@ -692,9 +709,9 @@ class PBOQDialog(QDialog):
             if amount_updates:
                 self._persist_batch_updates(amount_idx, amount_updates)
             
-            QMessageBox.information(self, "Clear Complete", f"Successfully cleared '0.00' values from {total_cleared} rows.")
+            QMessageBox.information(self, "Clear Complete", f"Successfully cleared dummy values matching {d_rate_str} from {total_cleared} rows.")
         else:
-            QMessageBox.information(self, "Nothing Found", "No '0.00' values were found in the mapped columns.")
+            QMessageBox.information(self, "Nothing Found", f"No values matching {d_rate_str} were found in the mapped columns.")
 
     def _run_extend_logic(self):
         """Toggles between inserting dummy rates (Extend) and clearing them (Revert)."""
