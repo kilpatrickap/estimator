@@ -39,7 +39,9 @@ class PBOQDialog(QDialog):
         if last_bill:
             index = self.pboq_file_selector.findText(last_bill)
             if index >= 0:
+                self.pboq_file_selector.blockSignals(True)
                 self.pboq_file_selector.setCurrentIndex(index)
+                self.pboq_file_selector.blockSignals(False)
         
         # Auto-load selected PBOQ if available
         if self.pboq_file_selector.count() > 0:
@@ -351,9 +353,9 @@ class PBOQDialog(QDialog):
                     db_columns.append("RateCode")
                 conn.commit()
                 
-                # Fetch all data (quote column names since they may contain spaces)
+                # Fetch all data including rowid for precise updates
                 quoted_cols = [f'"{c}"' for c in db_columns]
-                query = f"SELECT {', '.join(quoted_cols)} FROM pboq_items"
+                query = f"SELECT rowid, {', '.join(quoted_cols)} FROM pboq_items"
                 cursor.execute(query)
                 rows = cursor.fetchall()
                 
@@ -384,13 +386,16 @@ class PBOQDialog(QDialog):
             # Only show up to 8 columns (Column 0 to Column 7)
             num_display_cols = min(8, len(display_col_names))
             
-            # Group rows by Sheet name (first column), preserving global row index
+            # Group rows by Sheet name (index 1 after rowid), preserving global row index
             sheet_groups = {}
             for g_idx, row in enumerate(rows):
-                sheet_name = str(row[0]) if row[0] else "Sheet 1"
+                row_id = row[0]
+                sheet_data = row[1:]
+                sheet_name = str(sheet_data[0]) if sheet_data[0] else "Sheet 1"
                 if sheet_name not in sheet_groups:
                     sheet_groups[sheet_name] = []
-                sheet_groups[sheet_name].append((g_idx, row[1:]))
+                # Store (global_index, row_id, data_columns[excluding Sheet])
+                sheet_groups[sheet_name].append((g_idx, row_id, sheet_data[1:]))
             
             # Populate combo boxes with the display column count
             self._populate_column_combos(num_display_cols)
@@ -424,10 +429,14 @@ class PBOQDialog(QDialog):
                 table.setWordWrap(False)
                 table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
                 
-                for r_idx, (global_row_idx, row_data) in enumerate(sheet_entries):
+                for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
                         col_val = row_data[c_idx] if c_idx < len(row_data) else ""
                         t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                        
+                        # Store rowid in the first column's item for later reference
+                        if c_idx == 0:
+                            t_item.setData(Qt.ItemDataRole.UserRole, row_id)
                         
                         # Apply column-based identification color as base layer
                         if c_idx < 4:
@@ -627,6 +636,7 @@ class PBOQDialog(QDialog):
                                 "Please select at least one column (0-3) in the 'Extend' group to align items.")
             return
 
+        updates_to_db = [] # List of (rowid, rate_val)
         updated_count = 0
         total_sheets = self.tabs.count()
         
@@ -636,7 +646,7 @@ class PBOQDialog(QDialog):
                 continue
             
             for row in range(table.rowCount()):
-                # 1. Check Alignment (Row must have content in ALL checked identifier columns)
+                # 1. Check Alignment
                 is_aligned = True
                 for col_idx in checked_cols:
                     item = table.item(row, col_idx)
@@ -647,16 +657,17 @@ class PBOQDialog(QDialog):
                 if not is_aligned:
                     continue
                 
-                # 2. Check for Quantity (Must be a numeric value)
+                # 2. Check for Quantity (Must be a numeric value > 0)
                 qty_item = table.item(row, qty_idx)
                 qty_str = qty_item.text().strip() if qty_item else ""
                 
                 try:
-                    # Strip commas and whitespace
                     clean_qty = qty_str.replace(',', '').replace(' ', '')
                     if not clean_qty:
                         continue
-                    float(clean_qty) # Verify it's a number
+                    q_val = float(clean_qty)
+                    if q_val <= 0:
+                        continue # Only extend items with a positive quantity
                     
                     # 3. Check / Insert Dummy Rate
                     rate_item = table.item(row, rate_idx)
@@ -665,17 +676,16 @@ class PBOQDialog(QDialog):
                     try:
                         if rate_str:
                             float(rate_str.replace(',', '').replace(' ', ''))
-                            # Already has a valid rate, leave it alone
-                            continue
+                            continue # Preserves existing rates
                     except ValueError:
-                        pass # Invalid rate exists, okay to replace with dummy
+                        pass
                     
-                    # Insert Dummy Rate (0.00 formatted to 2 decimals)
+                    # Insert Dummy Rate
                     dummy_val = 0.00
                     dummy_item = QTableWidgetItem(f"{dummy_val:.2f}")
                     dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     
-                    # Apply the same background color identification as during load
+                    # Apply background color
                     if rate_idx < 4:
                         dummy_item.setBackground(self.COL_COLOR_BLUE)
                     elif rate_idx < 6:
@@ -683,18 +693,41 @@ class PBOQDialog(QDialog):
                     elif rate_idx < 8:
                         dummy_item.setBackground(self.COL_COLOR_RED)
                         
-                    # Use a subtle gray for the text of dummy rates to distinguish them
                     dummy_item.setForeground(QColor("#777777"))
                     table.setItem(row, rate_idx, dummy_item)
+                    
+                    # Get rowid from hidden UserRole data in column 0
+                    rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                    if rowid is not None:
+                        updates_to_db.append((rowid, "0.00"))
+                    
                     updated_count += 1
                     
                 except ValueError:
-                    # Not a numeric quantity row
                     continue
                     
         if updated_count > 0:
+            # 4. Precise Persistence to Database using rowid
+            file_path = self.pboq_file_selector.currentData()
+            if file_path and os.path.exists(file_path):
+                try:
+                    conn = sqlite3.connect(file_path)
+                    cursor = conn.cursor()
+                    
+                    db_cols = getattr(self, 'db_columns', [])
+                    db_col_to_update = db_cols[rate_idx + 1] if rate_idx + 1 < len(db_cols) else None
+                    
+                    if db_col_to_update:
+                        for rowid, rate_val in updates_to_db:
+                            cursor.execute(f'UPDATE pboq_items SET "{db_col_to_update}" = ? WHERE rowid = ?', (rate_val, rowid))
+                        conn.commit()
+                except Exception as e:
+                    print(f"Error persisting extend results: {e}")
+                finally:
+                    if conn: conn.close()
+
             QMessageBox.information(self, "Extend Complete", 
-                                  f"Successfully inserted dummy rates for {updated_count} items across {total_sheets} sheets.")
+                                  f"Successfully inserted and persisted dummy rates for {updated_count} items across {total_sheets} sheets.")
         else:
             QMessageBox.information(self, "No Items Found", 
                                   "No aligned items without rates were found with valid numeric quantities.")
