@@ -66,7 +66,7 @@ class PBOQDialog(QDialog):
         
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.South)
-        self.tabs.currentChanged.connect(self._save_pboq_state)
+        self.tabs.currentChanged.connect(self._on_tab_changed)
         # Excel-style sheet navigation arrows on the left
         self.tabs.tabBar().setUsesScrollButtons(False)  # Hide default right-side scroll buttons
         
@@ -400,6 +400,7 @@ class PBOQDialog(QDialog):
                     header.setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
                 
                 # Fixed 24px row height (matching Excel default)
+                table.verticalHeader().setMinimumSectionSize(24)
                 table.verticalHeader().setDefaultSectionSize(24)
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
                 
@@ -496,11 +497,16 @@ class PBOQDialog(QDialog):
             if self.wrap_text_enabled:
                 # Allow rows to expand for wrapped text, but never shrink below 24px
                 table.verticalHeader().setMinimumSectionSize(24)
+                table.verticalHeader().setDefaultSectionSize(24)
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
             else:
                 # Revert to fixed 24px row height
                 table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
                 table.verticalHeader().setDefaultSectionSize(24)
+                table.verticalHeader().setMinimumSectionSize(24)
+        
+        # Immediately recalculate the visible tab
+        self._on_tab_changed(self.tabs.currentIndex())
 
     def _get_mapped_values(self, table, row):
         """Returns a dict of mapped column values for a given row."""
@@ -800,6 +806,20 @@ class PBOQDialog(QDialog):
         except Exception:
             pass  # Silently fail on save
 
+    def _on_tab_changed(self, index):
+        """Handles tab changes: saves state and ensures correct row heights for the visible tab."""
+        self._save_pboq_state()
+        
+        table = self.tabs.widget(index)
+        if isinstance(table, QTableWidget):
+            if self.wrap_text_enabled:
+                # Force row height recalculation based on actual visible width
+                table.resizeRowsToContents()
+            else:
+                table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                table.verticalHeader().setDefaultSectionSize(24)
+                table.verticalHeader().setMinimumSectionSize(24)
+
     def _load_pboq_state(self, file_index=None):
         """Restores column mapping, format, and search scope from a saved JSON file."""
         state_file = self._get_state_file_path(file_index)
@@ -823,27 +843,7 @@ class PBOQDialog(QDialog):
                     cb.setCurrentIndex(state[key])
                     cb.blockSignals(False)
             
-            # 2. Restore wrap text state
-            wrap_val = state.get('wrap_text', False)
-            self.wrap_text_enabled = wrap_val
-            self.wrap_text_btn.blockSignals(True)
-            self.wrap_text_btn.setChecked(wrap_val)
-            self.wrap_text_btn.setText("Unwrap Text" if wrap_val else "Wrap Text")
-            self.wrap_text_btn.blockSignals(False)
-            
-            # Apply the wrap formatting to all tables
-            for tab_idx in range(self.tabs.count()):
-                table = self.tabs.widget(tab_idx)
-                if isinstance(table, QTableWidget):
-                    table.setWordWrap(wrap_val)
-                    if wrap_val:
-                        table.verticalHeader().setMinimumSectionSize(24)
-                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-                    else:
-                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
-                        table.verticalHeader().setDefaultSectionSize(24)
-            
-            # 3. Restore search scope
+            # 2. Restore search scope
             self.search_this_sheet.blockSignals(True)
             self.search_all_sheets.blockSignals(True)
             if state.get('search_all_sheets', False):
@@ -854,19 +854,43 @@ class PBOQDialog(QDialog):
                 self.search_all_sheets.setChecked(False)
             self.search_this_sheet.blockSignals(False)
             self.search_all_sheets.blockSignals(False)
-            
-            # 4. Restore active tab
+
+            # 3. Restore active tab
             if 'active_tab' in state and state['active_tab'] < self.tabs.count():
                 self.tabs.blockSignals(True)
                 self.tabs.setCurrentIndex(state['active_tab'])
                 self.tabs.blockSignals(False)
             
-            # 5. Re-apply UI refinements
+            # 4. Re-apply UI refinements (Stretching columns affects wrapping)
             desc_mapped = self.cb_desc.currentIndex() - 1
             for tab_idx in range(self.tabs.count()):
                 table = self.tabs.widget(tab_idx)
                 if isinstance(table, QTableWidget) and desc_mapped >= 0 and desc_mapped < table.columnCount():
                     table.horizontalHeader().setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
+            
+            # 5. Restore wrap text state (Must be AFTER column stretching for correct height calculation)
+            wrap_val = state.get('wrap_text', False)
+            self.wrap_text_enabled = wrap_val
+            self.wrap_text_btn.blockSignals(True)
+            self.wrap_text_btn.setChecked(wrap_val)
+            self.wrap_text_btn.setText("Unwrap Text" if wrap_val else "Wrap Text")
+            self.wrap_text_btn.blockSignals(False)
+            
+            for tab_idx in range(self.tabs.count()):
+                table = self.tabs.widget(tab_idx)
+                if isinstance(table, QTableWidget):
+                    table.setWordWrap(wrap_val)
+                    if wrap_val:
+                        table.verticalHeader().setMinimumSectionSize(24)
+                        table.verticalHeader().setDefaultSectionSize(24)
+                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+                    else:
+                        table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+                        table.verticalHeader().setDefaultSectionSize(24)
+                        table.verticalHeader().setMinimumSectionSize(24)
+            
+            # Recalculate the active tab immediately
+            self._on_tab_changed(self.tabs.currentIndex())
             
             self._update_stats()
             
