@@ -66,7 +66,7 @@ class PBOQDialog(QDialog):
         
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.South)
-        
+        self.tabs.currentChanged.connect(self._save_pboq_state)
         # Excel-style sheet navigation arrows on the left
         self.tabs.tabBar().setUsesScrollButtons(False)  # Hide default right-side scroll buttons
         
@@ -141,6 +141,10 @@ class PBOQDialog(QDialog):
         col_layout.addRow("Gross Rate:", self.cb_rate)
         col_layout.addRow("Rate Code:", self.cb_rate_code)
         
+        # Auto-save state when column mappings change
+        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+            cb.currentIndexChanged.connect(self._save_pboq_state)
+        
         right_layout.addWidget(col_group)
         
         # Format Group
@@ -153,6 +157,7 @@ class PBOQDialog(QDialog):
         self.wrap_text_btn.setCheckable(True)
         self.wrap_text_btn.setChecked(False)
         self.wrap_text_btn.clicked.connect(self._toggle_wrap_text)
+        self.wrap_text_btn.clicked.connect(self._save_pboq_state)
         format_layout.addWidget(self.wrap_text_btn)
         
         right_layout.addWidget(format_group)
@@ -177,8 +182,9 @@ class PBOQDialog(QDialog):
         # Make them mutually exclusive
         self.search_this_sheet.toggled.connect(lambda checked: self.search_all_sheets.setChecked(not checked) if checked else None)
         self.search_all_sheets.toggled.connect(lambda checked: self.search_this_sheet.setChecked(not checked) if checked else None)
-        # Re-filter when scope changes
+        # Re-filter when scope changes and auto-save
         self.search_this_sheet.toggled.connect(lambda: self._filter_tables(self.search_bar.text()))
+        self.search_this_sheet.toggled.connect(self._save_pboq_state)
         
         scope_layout.addWidget(self.search_this_sheet)
         scope_layout.addWidget(self.search_all_sheets)
@@ -390,15 +396,20 @@ class PBOQDialog(QDialog):
         self.total_items_label.setText(f"Total Items : {total_items}")
         self.priced_items_label.setText(f"Priced Items : {priced_items}")
         self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
+        
+        # Restore saved state (column mapping, format, search scope, active tab)
+        self._load_pboq_state()
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
         explicit_columns = [f"Column {i}" for i in range(num_columns)]
         
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+            cb.blockSignals(True)
             cb.clear()
             cb.addItem("-- Select Column --")
             cb.addItems(explicit_columns)
+            cb.blockSignals(False)
         
         # Auto-select defaults based on known PBOQ DB column order
         # db_columns = [Sheet, Column 0, Column 1, ..., GrossRate, RateCode]
@@ -414,7 +425,9 @@ class PBOQDialog(QDialog):
         for cb, col_name in col_map.items():
             if col_name in display_cols:
                 idx = display_cols.index(col_name)
+                cb.blockSignals(True)
                 cb.setCurrentIndex(idx + 1)  # +1 because of "-- Select Column --"
+                cb.blockSignals(False)
 
     def _filter_tables(self, text):
         """Filters rows based on search scope (This Sheet or All Sheets)."""
@@ -722,3 +735,98 @@ class PBOQDialog(QDialog):
         self.total_items_label.setText(f"Total Items : {total_items}")
         self.priced_items_label.setText(f"Priced Items : {priced_items}")
         self.outstanding_items_label.setText(f"Outstanding : {outstanding}")
+
+    def _get_state_file_path(self):
+        """Returns the state file path for the currently loaded PBOQ."""
+        states_folder = os.path.join(self.project_dir, "PBOQ States")
+        os.makedirs(states_folder, exist_ok=True)
+        
+        # Use the PBOQ filename as the state key
+        pboq_file = self.pboq_file_selector.currentText()
+        if not pboq_file:
+            return None
+        state_file = os.path.join(states_folder, pboq_file + ".state.json")
+        return state_file
+
+    def _save_pboq_state(self):
+        """Persists column mapping, format, and search scope to a JSON file."""
+        state_file = self._get_state_file_path()
+        if not state_file:
+            return
+        
+        state = {
+            'cb_ref': self.cb_ref.currentIndex(),
+            'cb_desc': self.cb_desc.currentIndex(),
+            'cb_qty': self.cb_qty.currentIndex(),
+            'cb_unit': self.cb_unit.currentIndex(),
+            'cb_bill_rate': self.cb_bill_rate.currentIndex(),
+            'cb_bill_amount': self.cb_bill_amount.currentIndex(),
+            'cb_rate': self.cb_rate.currentIndex(),
+            'cb_rate_code': self.cb_rate_code.currentIndex(),
+            'wrap_text': self.wrap_text_enabled,
+            'search_all_sheets': self.search_all_sheets.isChecked(),
+            'active_tab': self.tabs.currentIndex(),
+        }
+        
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(state, f)
+        except Exception:
+            pass  # Silently fail on save
+
+    def _load_pboq_state(self):
+        """Restores column mapping, format, and search scope from a saved JSON file."""
+        state_file = self._get_state_file_path()
+        if not state_file or not os.path.exists(state_file):
+            return
+        
+        try:
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+            
+            # Block signals during restore to avoid triggering redundant saves
+            combos = {
+                'cb_ref': self.cb_ref, 'cb_desc': self.cb_desc,
+                'cb_qty': self.cb_qty, 'cb_unit': self.cb_unit,
+                'cb_bill_rate': self.cb_bill_rate, 'cb_bill_amount': self.cb_bill_amount,
+                'cb_rate': self.cb_rate, 'cb_rate_code': self.cb_rate_code,
+            }
+            for key, cb in combos.items():
+                if key in state:
+                    cb.blockSignals(True)
+                    cb.setCurrentIndex(state[key])
+                    cb.blockSignals(False)
+            
+            # Restore wrap text state
+            if state.get('wrap_text', False):
+                self.wrap_text_btn.setChecked(True)
+                self._toggle_wrap_text()
+            
+            # Restore search scope (block signals to avoid overwriting state during load)
+            self.search_this_sheet.blockSignals(True)
+            self.search_all_sheets.blockSignals(True)
+            if state.get('search_all_sheets', False):
+                self.search_all_sheets.setChecked(True)
+            else:
+                self.search_this_sheet.setChecked(True)
+            self.search_this_sheet.blockSignals(False)
+            self.search_all_sheets.blockSignals(False)
+            
+            # Restore active tab
+            if 'active_tab' in state and state['active_tab'] < self.tabs.count():
+                self.tabs.blockSignals(True)
+                self.tabs.setCurrentIndex(state['active_tab'])
+                self.tabs.blockSignals(False)
+            
+            # Re-apply description column stretch with restored mapping
+            desc_mapped = self.cb_desc.currentIndex() - 1
+            for tab_idx in range(self.tabs.count()):
+                table = self.tabs.widget(tab_idx)
+                if isinstance(table, QTableWidget) and desc_mapped >= 0 and desc_mapped < table.columnCount():
+                    table.horizontalHeader().setSectionResizeMode(desc_mapped, QHeaderView.ResizeMode.Stretch)
+            
+            # Update stats with restored mappings
+            self._update_stats()
+            
+        except Exception:
+            pass  # Silently fail on load
