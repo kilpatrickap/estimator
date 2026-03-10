@@ -228,12 +228,31 @@ class BOQSetupWindow(QWidget):
             self.setWindowTitle(f"BOQ Setup - {os.path.basename(new_path)}")
             self._load_excel()
 
+    def _has_saved_state(self):
+        """Check if a saved state file exists for the current BOQ file."""
+        import json, os
+        project_dir = getattr(self, 'project_dir', None)
+        if not project_dir:
+            project_dir = os.path.dirname(self.active_est_window.db_path) if self.active_est_window and getattr(self.active_est_window, 'db_path', None) else os.path.dirname(self.boq_file_path)
+            if project_dir and os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
+        states_folder = os.path.join(project_dir, "BOQ-Setup States")
+        base_name = os.path.basename(self.boq_file_path)
+        state_file = os.path.join(states_folder, base_name + ".state.json")
+        return os.path.exists(state_file)
+
     def _load_excel(self):
         try:
             from PyQt6.QtWidgets import QProgressDialog, QApplication
             from PyQt6.QtCore import Qt
             
-            progress = QProgressDialog("Opening Excel file (this may take a moment)...", "Cancel", 0, 100, self)
+            # Check if we have a saved state BEFORE doing heavy work
+            has_state = self._has_saved_state()
+            
+            progress = QProgressDialog(
+                "Restoring saved BOQ state..." if has_state else "Opening Excel file (this may take a moment)...",
+                "Cancel", 0, 100, self
+            )
             progress.setWindowTitle("Loading BOQ")
             progress.setWindowModality(Qt.WindowModality.WindowModal)
             progress.setMinimumDuration(0) # Show immediately
@@ -255,20 +274,22 @@ class BOQSetupWindow(QWidget):
             progress.setValue(15)
             QApplication.processEvents()
             
-            # Basic parsing of cell styles for bold detection (auto headings)
+            # Only load openpyxl/xlrd for bold detection if NO saved state exists.
+            # When a state exists, the saved row_types are the definitive source of truth,
+            # so the expensive formatting scan is unnecessary.
             is_xlsx = self.boq_file_path.lower().endswith('.xlsx')
-            
             wb = None
-            if is_xlsx:
-                import openpyxl
-                try:
-                    wb = openpyxl.load_workbook(self.boq_file_path, data_only=True)
-                except: pass
-            else:
-                import xlrd
-                try:
-                    wb = xlrd.open_workbook(self.boq_file_path, formatting_info=True)
-                except: pass
+            if not has_state:
+                if is_xlsx:
+                    import openpyxl
+                    try:
+                        wb = openpyxl.load_workbook(self.boq_file_path, data_only=True)
+                    except: pass
+                else:
+                    import xlrd
+                    try:
+                        wb = xlrd.open_workbook(self.boq_file_path, formatting_info=True)
+                    except: pass
                 
             total_sheets = max(1, len(sheet_names))
 
@@ -276,7 +297,7 @@ class BOQSetupWindow(QWidget):
                 if progress.wasCanceled(): break
                 
                 base_progress = 15 + (s_idx / total_sheets) * 85
-                progress.setLabelText(f"Parsing sheet {s_idx + 1} of {total_sheets}: {sheet_name}...")
+                progress.setLabelText(f"Loading sheet {s_idx + 1} of {total_sheets}: {sheet_name}...")
                 progress.setValue(int(base_progress))
                 QApplication.processEvents()
                 
@@ -293,6 +314,9 @@ class BOQSetupWindow(QWidget):
                 table.customContextMenuRequested.connect(self._show_context_menu)
                 # Word wrap to handle long descriptions
                 table.setWordWrap(True)
+                
+                # Suspend visual updates while populating the table for a massive speed boost
+                table.setUpdatesEnabled(False)
                 
                 table.setRowCount(len(df))
                 table.setColumnCount(len(df.columns))
@@ -311,39 +335,42 @@ class BOQSetupWindow(QWidget):
                 bold_font = QFont()
                 bold_font.setBold(True)
                 
-                for r in range(len(df)):
-                    # Update progress every 50 rows to keep it smooth but performant
-                    if r % 50 == 0:
+                num_rows = len(df)
+                num_cols = len(df.columns)
+                
+                for r in range(num_rows):
+                    # Update progress every 100 rows
+                    if r % 100 == 0:
                         if progress.wasCanceled(): break
-                        current_progress = base_progress + ((r / len(df)) * (85 / total_sheets))
+                        current_progress = base_progress + ((r / num_rows) * (85 / total_sheets))
                         progress.setValue(int(current_progress))
                         QApplication.processEvents()
                         
                     row_is_bold = False
-                    for c in range(len(df.columns)):
+                    for c in range(num_cols):
                         val = str(df.iloc[r, c])
                         item = QTableWidgetItem(val)
                         
-                        # Preserve simple formatting (Bold check)
-                        is_bold = False
-                        if ws and is_xlsx:
-                            try:
-                                cell = ws.cell(row=r+1, column=c+1)
-                                if cell.font and cell.font.bold: is_bold = True
-                            except: pass
-                        elif ws and not is_xlsx:
-                            try:
-                                xf_idx = ws.cell_xf_index(r, c)
-                                xf = wb.xf_list[xf_idx]
-                                font = wb.font_list[xf.font_index]
-                                if font.weight >= 700: is_bold = True   # 700 is typically bold in xlrd
-                            except: pass
-                            
-                        if is_bold:
-                            item.setFont(bold_font)
-                            # If the cell has text and is bold, we might guess this row is a heading
-                            if val.strip():
-                                row_is_bold = True
+                        # Only do the expensive bold check if no saved state (first-time load)
+                        if ws:
+                            is_bold = False
+                            if is_xlsx:
+                                try:
+                                    cell = ws.cell(row=r+1, column=c+1)
+                                    if cell.font and cell.font.bold: is_bold = True
+                                except: pass
+                            else:
+                                try:
+                                    xf_idx = ws.cell_xf_index(r, c)
+                                    xf = wb.xf_list[xf_idx]
+                                    font = wb.font_list[xf.font_index]
+                                    if font.weight >= 700: is_bold = True
+                                except: pass
+                                
+                            if is_bold:
+                                item.setFont(bold_font)
+                                if val.strip():
+                                    row_is_bold = True
                                 
                         item.setBackground(self.COLOR_IGNORE)
                         table.setItem(r, c, item)
@@ -351,9 +378,12 @@ class BOQSetupWindow(QWidget):
                     # Auto guess: if major cell in row was bold, default it to heading initially
                     if row_is_bold:
                         row_types[r] = 'heading'
-                        for c in range(len(df.columns)):
+                        for c in range(num_cols):
                             if table.item(r, c): 
                                 table.item(r, c).setBackground(self.COLOR_HEADING)
+                
+                # Re-enable updates before resize so Qt can compute layout once
+                table.setUpdatesEnabled(True)
                 
                 # Automatically align column widths to content
                 table.resizeColumnsToContents()
@@ -895,14 +925,18 @@ class BOQSetupWindow(QWidget):
                     if sheet in self.sheet_data:
                         self.sheet_data[sheet]['row_types'] = row_types
                         table = self.sheet_data[sheet]['table']
+                        # Suspend repaints during bulk color update
+                        table.setUpdatesEnabled(False)
+                        num_cols = table.columnCount()
                         for r, rtype in enumerate(row_types):
                             color = self.COLOR_IGNORE
                             if rtype == 'heading': color = self.COLOR_HEADING
                             elif rtype == 'item': color = self.COLOR_ITEM
                             
-                            for c in range(table.columnCount()):
+                            for c in range(num_cols):
                                 item = table.item(r, c)
                                 if item: item.setBackground(color)
+                        table.setUpdatesEnabled(True)
                                 
             self._build_tree_preview()
             return True
