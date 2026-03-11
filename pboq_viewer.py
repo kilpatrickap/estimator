@@ -30,6 +30,9 @@ class PBOQDialog(QDialog):
         self.COL_COLOR_YELLOW = QColor("#fff9c4")
         self.COL_COLOR_RED = QColor("#ffebee")
         self.linking_source = None # Stores (table, item, original_bg)
+        self.active_links = {}     # source_rowid -> list of dest_rowids
+        self.is_syncing_links = False
+
 
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
@@ -463,7 +466,26 @@ class PBOQDialog(QDialog):
                     for row_idx, col_idx, fmt_json in cursor.fetchall():
                         formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
                 
+                # Setup Live Links Table
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS pboq_links (
+                        source_rowid INTEGER,
+                        dest_rowid INTEGER,
+                        UNIQUE(source_rowid, dest_rowid)
+                    )
+                """)
+                conn.commit()
+                
+                # Load Links into memory
+                self.active_links = {}
+                cursor.execute("SELECT source_rowid, dest_rowid FROM pboq_links")
+                for src, dst in cursor.fetchall():
+                    if src not in self.active_links:
+                        self.active_links[src] = []
+                    self.active_links[src].append(dst)
+                
             except Exception as e:
+
                 QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
                 return
             finally:
@@ -1012,10 +1034,12 @@ class PBOQDialog(QDialog):
                     # We identify collected values by their Orange background
                     if item and item.background().color().name().lower() == "#ffa500": # Orange
                         val_str = item.text().strip()
-                        if val_str:
-                            bucket.append(val_str)
+                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        if val_str and rowid is not None:
+                            bucket.append((rowid, val_str))
                 if not bucket:
                     continue
+
 
             # Target Zone Detection
             found_target = False
@@ -1053,33 +1077,38 @@ class PBOQDialog(QDialog):
                             rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
 
                             if rowid is not None:
+                                self._remove_link_from_db(rowid) # Break link on Un-Populate
                                 updates_to_db.append((rowid, ""))
                             total_affected += 1
+
                 else:
                     # POPULATE MODE
                     has_amount = amount_item and amount_item.text().strip()
                     if desc_text.strip() and not has_qty and not has_amount:
                         if bucket_idx < len(bucket):
-                            val_to_fill = bucket[bucket_idx]
+                            source_rowid, val_to_fill = bucket[bucket_idx]
+                            dest_rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            
                             if not amount_item:
                                 amount_item = QTableWidgetItem()
                                 table.setItem(row, amount_idx, amount_item)
+                            
+                            if dest_rowid is not None:
+                                self._remove_link_from_db(dest_rowid) # Break any existing links
+                                self._save_link_to_db(source_rowid, dest_rowid) # Establish live link
+                                updates_to_db.append((dest_rowid, val_to_fill))
                             
                             amount_item.setText(val_to_fill)
                             amount_item.setForeground(QColor("#777777")) 
                             amount_item.setBackground(QColor("yellow"))
                             amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-                            
-                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-                            if rowid is not None:
-                                updates_to_db.append((rowid, val_to_fill))
                             
                             bucket_idx += 1
                             total_affected += 1
                         
                         if bucket_idx >= len(bucket):
                             break 
+ 
 
             if updates_to_db:
                 self._persist_batch_updates(amount_idx, updates_to_db)
@@ -1122,18 +1151,25 @@ class PBOQDialog(QDialog):
         if not action: return
         
         item = table.item(row, col)
+        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+        
         # If clearing and no item exists, nothing to do. If linking, we need value.
         if action == clear_act:
             if item:
                 item.setText("")
-                rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                 if rowid is not None:
+                    # Remove any links where this row is a destination
+                    self._remove_link_from_db(dest_rowid=rowid)
                     self._persist_batch_updates(amount_idx, [(rowid, "")])
                 self._update_stats()
         
         elif action == link_act:
             if not item or not item.text().strip():
                 QMessageBox.warning(self, "No Value", "The source cell is empty and cannot be used for linking.")
+                return
+
+            if rowid is None:
+                QMessageBox.warning(self, "Error", "Could not identify row ID for linking.")
                 return
 
             # End any existing link mode before starting new one
@@ -1146,10 +1182,12 @@ class PBOQDialog(QDialog):
                 'table': table,
                 'row': row,
                 'col': col,
+                'rowid': rowid,
                 'val': item.text(),
                 'item': item,
                 'orig_bg': orig_bg
             }
+
 
     def _handle_table_cell_click(self, row, col):
         """Handles cell clicks for the Link to Collection logic."""
@@ -1172,23 +1210,70 @@ class PBOQDialog(QDialog):
             if not item:
                 item = QTableWidgetItem()
                 table.setItem(row, col, item)
-                
+            
+            # Establish the Link
+            dest_rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            source_rowid = ls['rowid']
             val = ls['val']
-            item.setText(val)
-            item.setForeground(QColor("#777777")) # Gray out formatted values
-            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             
-            # Persist to DB
-            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            if rowid is not None:
-                self._persist_batch_updates(amount_idx, [(rowid, val)])
-            
-            self._update_stats()
+            if dest_rowid is not None:
+                self._remove_link_from_db(dest_rowid) # Break any existing links
+                self._save_link_to_db(source_rowid, dest_rowid)
+
+                item.setText(val)
+                item.setForeground(QColor("#777777"))
+                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                
+                # Persist value to DB
+                self._persist_batch_updates(amount_idx, [(dest_rowid, val)])
+                self._update_stats()
             
         # End link mode regardless of where they clicked
         self._clear_link_mode()
 
+    def _save_link_to_db(self, source_rowid, dest_rowid):
+        """Persists a live link relationship in the database and updates memory cache."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path): return
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            # Insert or ignore for uniqueness
+            cursor.execute("INSERT OR REPLACE INTO pboq_links (source_rowid, dest_rowid) VALUES (?, ?)", 
+                         (source_rowid, dest_rowid))
+            conn.commit()
+            conn.close()
+            
+            # Update memory cache
+            if source_rowid not in self.active_links:
+                self.active_links[source_rowid] = []
+            if dest_rowid not in self.active_links[source_rowid]:
+                self.active_links[source_rowid].append(dest_rowid)
+        except Exception as e:
+            print(f"Error saving link to DB: {e}")
+
+    def _remove_link_from_db(self, dest_rowid):
+        """Removes a link relationship when a destination cell is cleared or re-linked."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path): return
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM pboq_links WHERE dest_rowid = ?", (dest_rowid,))
+            conn.commit()
+            conn.close()
+            
+            # Update memory cache
+            for src in self.active_links:
+                if dest_rowid in self.active_links[src]:
+                    self.active_links[src].remove(dest_rowid)
+        except Exception as e:
+            print(f"Error removing link from DB: {e}")
+
     def _clear_link_mode(self):
+
         """Clears the current linking state and restores visual properties."""
         if self.linking_source:
             ls = self.linking_source
@@ -1372,10 +1457,61 @@ class PBOQDialog(QDialog):
                     cursor.execute(f'UPDATE pboq_items SET "{db_col_to_update}" = ? WHERE rowid = ?', (val, rowid))
                 conn.commit()
             conn.close()
+            
+            # If this update was on the Bill Amount column, trigger live sync
+            amount_idx = self.cb_bill_amount.currentIndex() - 1
+            if rate_idx == amount_idx:
+                self._sync_live_links(updates)
+
         except Exception as e:
             print(f"Error persisting batch updates: {e}")
 
+    def _sync_live_links(self, updates):
+        """Propagates changes from source cells to destination cells."""
+        if self.is_syncing_links: return
+        self.is_syncing_links = True
+        
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        if amount_idx < 0: 
+            self.is_syncing_links = False
+            return
+
+        cascading_updates = [] # (rowid, val)
+        
+        for source_rowid, new_val in updates:
+            if source_rowid in self.active_links:
+                for dest_rowid in self.active_links[source_rowid]:
+                    # Update the UI
+                    self._update_cell_by_rowid(dest_rowid, amount_idx, new_val)
+                    cascading_updates.append((dest_rowid, new_val))
+        
+        if cascading_updates:
+            # Recursively persist and sync
+            self._persist_batch_updates(amount_idx, cascading_updates)
+            
+        self.is_syncing_links = False
+
+    def _update_cell_by_rowid(self, rowid, col_idx, val):
+        """Finds a cell by rowid across all tabs and updates its value and style."""
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+            
+            for row in range(table.rowCount()):
+                item0 = table.item(row, 0)
+                if item0 and item0.data(Qt.ItemDataRole.UserRole) == rowid:
+                    item = table.item(row, col_idx)
+                    if not item:
+                        item = QTableWidgetItem()
+                        table.setItem(row, col_idx, item)
+                    
+                    item.setText(str(val) if val is not None else "")
+                    item.setForeground(QColor("#777777"))
+                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    return
+
     def _clear_gross_and_code(self):
+
         """Globally clears all Gross Rate and Rate Code data from the UI and Database."""
         reply = QMessageBox.question(self, "Confirm Clear", 
                                    "Are you sure you want to clear ALL Gross Rates and Rate Codes from every sheet?\n\nThis action cannot be undone.",
