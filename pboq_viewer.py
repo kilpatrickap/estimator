@@ -383,7 +383,12 @@ class PBOQDialog(QDialog):
         self.collect_amount_cb.blockSignals(True)
         
         try:
+            # Set default states for buttons before loading state
+            self.extend_btn.setText("Extend")
+            self.collect_btn.setText("Collect")
+            
             self.tabs.clear()
+
             
             from PyQt6.QtWidgets import QApplication, QProgressDialog
             
@@ -595,8 +600,7 @@ class PBOQDialog(QDialog):
             self.collect_desc_cb.blockSignals(False)
             self.collect_amount_cb.blockSignals(False)
             self.collect_search_bar.blockSignals(False)
-            self.extend_btn.setText("Extend")
-            self.collect_btn.setText("Collect")
+
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
@@ -692,7 +696,8 @@ class PBOQDialog(QDialog):
             return
 
         d_rate = self.dummy_rate_spin.value()
-        d_rate_str = f"{d_rate:.2f}"
+        d_rate_str = "{:,.2f}".format(d_rate)
+
 
         reply = QMessageBox.question(self, "Confirm Clear", 
                                    f"This will clear values matching the Dummy Rate ({d_rate_str}) in mapped Bill Rate/Amount columns across all sheets.\n\nContinue?",
@@ -736,7 +741,8 @@ class PBOQDialog(QDialog):
                     item = table.item(row, amount_idx)
                     if item:
                         # Calculate what the dummy amount would have been
-                        expected_amt_str = f"{q_val * d_rate:.2f}"
+                        expected_amt_str = "{:,.2f}".format(q_val * d_rate)
+
                         if item.text().strip() == expected_amt_str:
                             item.setText("")
                             amount_updates.append((rowid, None))
@@ -836,8 +842,9 @@ class PBOQDialog(QDialog):
                         if amount_item:
                             amount_item.setBackground(QColor("orange"))
                             # Store and display sum
-                            formatted_sum = f"{current_sum:,.2f}"
+                            formatted_sum = "{:,.2f}".format(current_sum)
                             amount_item.setText(formatted_sum)
+                            amount_item.setForeground(QColor("#777777")) # Gray out color
                             
                             # Prepare DB update
                             rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -848,6 +855,7 @@ class PBOQDialog(QDialog):
                         
                         # Reset the sum accumulator for the next collection area
                         current_sum = 0.0
+
                     else:
                         # Accumulate the sum from existing valid figures
                         if amount_item and amount_item.text().strip():
@@ -891,6 +899,8 @@ class PBOQDialog(QDialog):
                     amount_item = table.item(row, amount_idx)
                     if amount_item:
                         amount_item.setBackground(QColor("orange"))
+                        amount_item.setForeground(QColor("#777777"))
+                        amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         
         self.collect_btn.setText("Revert")
 
@@ -917,14 +927,17 @@ class PBOQDialog(QDialog):
             rate_updates = []
             amount_updates = []
             
+            d_rate = self.dummy_rate_spin.value()
+            d_rate_str = "{:,.2f}".format(d_rate)
+        
             for tab_idx in range(total_sheets):
                 table = self.tabs.widget(tab_idx)
                 if not isinstance(table, QTableWidget): continue
                 
                 for row in range(table.rowCount()):
                     rate_item = table.item(row, rate_idx)
-                    # Identify dummy rates by their gray color
-                    if rate_item and rate_item.foreground().color().name().lower() == "#777777":
+                    # Identify dummy rates by their gray color AND matching the current dummy rate value
+                    if rate_item and rate_item.foreground().color().name().lower() == "#777777" and rate_item.text() == d_rate_str:
                         # Clear Rate
                         rate_item.setText("")
                         
@@ -1003,7 +1016,7 @@ class PBOQDialog(QDialog):
                         
                         # Insert Dummy Rate
                         d_rate = self.dummy_rate_spin.value()
-                        rate_val_str = f"{d_rate:.2f}"
+                        rate_val_str = "{:,.2f}".format(d_rate)
                         dummy_item = QTableWidgetItem(rate_val_str)
                         dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         
@@ -1018,7 +1031,7 @@ class PBOQDialog(QDialog):
                         # Calculation: Bill Amount = Qty * Custom Dummy Rate
                         if amount_idx >= 0:
                             bill_amount = q_val * d_rate
-                            amt_val_str = f"{bill_amount:.2f}"
+                            amt_val_str = "{:,.2f}".format(bill_amount)
                             amt_item = QTableWidgetItem(amt_val_str)
                             amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             
@@ -1038,6 +1051,7 @@ class PBOQDialog(QDialog):
                         updated_count += 1
                         
                     except ValueError: continue
+
             
             if updated_count > 0:
                 self._persist_batch_updates(rate_idx, rate_updates)
@@ -1484,6 +1498,48 @@ class PBOQDialog(QDialog):
             else:
                 cb.setText(f"Column {i}")
 
+        # Apply cell-level styling for mapped columns
+        self._apply_column_cell_styles()
+
+    def _apply_column_cell_styles(self):
+        """Applies gray color and 2-decimal comma-separated formatting to Bill Rate and Bill Amount columns."""
+        rate_idx = self.cb_bill_rate.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        target_indices = []
+        if rate_idx >= 0: target_indices.append(rate_idx)
+        if amount_idx >= 0: target_indices.append(amount_idx)
+        
+        if not target_indices:
+            return
+            
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget):
+                continue
+                
+            for row in range(table.rowCount()):
+                for col_idx in target_indices:
+                    item = table.item(row, col_idx)
+                    if item:
+                        text = item.text().strip()
+                        if text:
+                            # 1. Format text
+                            try:
+                                clean_text = text.replace(',', '').replace(' ', '')
+                                if clean_text:
+                                    val = float(clean_text)
+                                    formatted_text = "{:,.2f}".format(val)
+                                    if text != formatted_text:
+                                        item.setText(formatted_text)
+                            except ValueError:
+                                pass
+                        
+                        # 2. Set foreground to gray
+                        item.setForeground(QColor("#777777"))
+                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+
     def _save_pboq_state(self):
         """Persists column mapping, format, and search scope to a JSON file."""
         state_file = self._get_state_file_path()
@@ -1510,8 +1566,10 @@ class PBOQDialog(QDialog):
             'collect_amount': self.collect_amount_cb.isChecked(),
             'collect_keyword': self.collect_search_bar.text(),
             'collect_active': self.collect_btn.text() == "Revert",
+            'extend_active': self.extend_btn.text() == "Revert",
             'dummy_rate': self.dummy_rate_spin.value(),
         }
+
         
         try:
             with open(state_file, 'w') as f:
@@ -1638,8 +1696,15 @@ class PBOQDialog(QDialog):
             if state.get('collect_active', False):
                 self._apply_collect_highlights()
             
+            # Restore Extend button state
+            if state.get('extend_active', False):
+                self.extend_btn.setText("Revert")
+            else:
+                self.extend_btn.setText("Extend")
+            
             # Update column headers
             self._update_column_headers()
+
             
             self._update_stats()
             
