@@ -70,8 +70,12 @@ class RateBuildupCompositeWidget(QWidget):
         dialog = RateSelectionDialog(self)
         if dialog.exec() and dialog.selected_rate_id:
             db_id = dialog.selected_rate_id
+            db_path = getattr(dialog, 'selected_db_path', None)
             
-            selected_estimate = self.db_manager.load_estimate_details(db_id)
+            from database import DatabaseManager
+            db_to_use = DatabaseManager(db_path) if db_path else self.db_manager
+            
+            selected_estimate = db_to_use.load_estimate_details(db_id)
             if not selected_estimate:
                 QMessageBox.warning(self, "Error", "Failed to load rate details from database.")
                 return
