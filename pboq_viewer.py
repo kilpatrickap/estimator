@@ -776,6 +776,7 @@ class PBOQDialog(QDialog):
         if is_revert:
             # --- REVERT LOGIC ---
             updated_count = 0
+            updates_to_db = []
             for tab_idx in range(total_sheets):
                 table = self.tabs.widget(tab_idx)
                 if not isinstance(table, QTableWidget): continue
@@ -793,9 +794,20 @@ class PBOQDialog(QDialog):
                             amount_item.setBackground(self.COL_COLOR_RED)
                         else:
                             amount_item.setBackground(QColor("#ffffff"))
+                        
+                        # Clear text
+                        amount_item.setText("")
+                        
+                        # Prepare DB update
+                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        if rowid is not None:
+                            updates_to_db.append((rowid, None))
+                            
                         updated_count += 1
             
             if updated_count > 0:
+                if updates_to_db:
+                    self._persist_batch_updates(amount_idx, updates_to_db)
                 self.collect_btn.setText("Collect")
                 self._save_pboq_state()
                 QMessageBox.information(self, "Revert Complete", f"Successfully reverted {updated_count} collected cells.")
@@ -809,25 +821,49 @@ class PBOQDialog(QDialog):
                 return
 
             updated_count = 0
+            updates_to_db = []
             for tab_idx in range(total_sheets):
                 table = self.tabs.widget(tab_idx)
                 if not isinstance(table, QTableWidget): continue
                 
+                current_sum = 0.0
                 for row in range(table.rowCount()):
                     desc_item = table.item(row, desc_idx)
-                    if not desc_item: continue
+                    amount_item = table.item(row, amount_idx)
                     
-                    if keyword in desc_item.text().lower():
+                    if desc_item and keyword in desc_item.text().lower():
                         # Highlight the intersecting bill amount cell
-                        amount_item = table.item(row, amount_idx)
                         if amount_item:
                             amount_item.setBackground(QColor("orange"))
+                            # Store and display sum
+                            formatted_sum = f"{current_sum:.2f}"
+                            amount_item.setText(formatted_sum)
+                            
+                            # Prepare DB update
+                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            if rowid is not None:
+                                updates_to_db.append((rowid, formatted_sum))
+                                
                             updated_count += 1
+                        
+                        # Reset the sum accumulator for the next collection area
+                        current_sum = 0.0
+                    else:
+                        # Accumulate the sum from existing valid figures
+                        if amount_item and amount_item.text().strip():
+                            try:
+                                val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
+                                if val_str:
+                                    current_sum += float(val_str)
+                            except ValueError:
+                                pass
             
             if updated_count > 0:
+                if updates_to_db:
+                    self._persist_batch_updates(amount_idx, updates_to_db)
                 self.collect_btn.setText("Revert")
                 self._save_pboq_state()
-                QMessageBox.information(self, "Collect Complete", f"Found and highlighted {updated_count} cells.")
+                QMessageBox.information(self, "Collect Complete", f"Found, highlighted, and summed {updated_count} cells.")
             else:
                 QMessageBox.information(self, "Nothing Found", f"No descriptions matched the keyword '{keyword}'.")
 
