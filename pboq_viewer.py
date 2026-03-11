@@ -836,7 +836,7 @@ class PBOQDialog(QDialog):
                         if amount_item:
                             amount_item.setBackground(QColor("orange"))
                             # Store and display sum
-                            formatted_sum = f"{current_sum:.2f}"
+                            formatted_sum = f"{current_sum:,.2f}"
                             amount_item.setText(formatted_sum)
                             
                             # Prepare DB update
