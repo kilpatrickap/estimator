@@ -80,7 +80,13 @@ class RateBuildupCompositeWidget(QWidget):
                 QMessageBox.warning(self, "Error", "Failed to load rate details from database.")
                 return
                 
-            if selected_estimate.unit != self.estimate.unit:
+            def _units_match(u1, u2):
+                if not u1 and not u2: return True
+                if not u1 or not u2: return False
+                def norm(u): return u.replace('m²', 'm2').replace('m³', 'm3').strip().lower()
+                return norm(u1) == norm(u2)
+
+            if not _units_match(selected_estimate.unit, self.estimate.unit):
                 QMessageBox.warning(self, "Unit Mismatch",
                     f"The imported rate unit '{selected_estimate.unit}' does not match the current rate unit '{self.estimate.unit}'.\n\n"
                     "Please convert the imported rate unit and its calculations to match after importing.")
@@ -297,7 +303,13 @@ class RateBuildupCompositeWidget(QWidget):
             combo.setEditable(True)
             combo.setCurrentText(converted_unit or "")
             
-            if converted_unit != self.estimate.unit:
+            def _units_match(u1, u2):
+                if not u1 and not u2: return True
+                if not u1 or not u2: return False
+                def norm(u): return u.replace('m²', 'm2').replace('m³', 'm3').strip().lower()
+                return norm(u1) == norm(u2)
+
+            if not _units_match(converted_unit, self.estimate.unit):
                 combo.setStyleSheet("color: red; font-weight: bold;")
                 mismatched_rates.append(getattr(sub, 'rate_code', 'Unknown Rate'))
             else:
