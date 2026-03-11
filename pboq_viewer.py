@@ -1222,7 +1222,9 @@ class PBOQDialog(QDialog):
 
                 item.setText(val)
                 item.setForeground(QColor("#777777"))
+                item.setBackground(QColor("yellow"))
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
                 
                 # Persist value to DB
                 self._persist_batch_updates(amount_idx, [(dest_rowid, val)])
@@ -1507,7 +1509,9 @@ class PBOQDialog(QDialog):
                     
                     item.setText(str(val) if val is not None else "")
                     item.setForeground(QColor("#777777"))
+                    item.setBackground(QColor("yellow"))
                     item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
                     return
 
     def _clear_gross_and_code(self):
