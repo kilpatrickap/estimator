@@ -317,6 +317,38 @@ class PBOQDialog(QDialog):
         
         right_layout.addWidget(extend_group)
         
+        # Collect Group
+        collect_group = QGroupBox("Collect")
+        collect_layout = QVBoxLayout(collect_group)
+        collect_layout.setContentsMargins(5, 5, 5, 5)
+        collect_layout.setSpacing(2)
+        
+        # Keywords search
+        keywords_layout = QHBoxLayout()
+        keywords_label = QLabel("Keywords :")
+        keywords_label.setStyleSheet("font-size: 8pt; color: #555;")
+        self.collect_search_bar = QLineEdit()
+        self.collect_search_bar.setPlaceholderText("Search terms...")
+        self.collect_search_bar.textChanged.connect(self._save_pboq_state)
+        keywords_layout.addWidget(keywords_label)
+        keywords_layout.addWidget(self.collect_search_bar)
+        collect_layout.addLayout(keywords_layout)
+        
+        self.collect_desc_cb = QCheckBox("Description")
+        self.collect_amount_cb = QCheckBox("Bill Amount")
+        
+        self.collect_desc_cb.toggled.connect(self._save_pboq_state)
+        self.collect_amount_cb.toggled.connect(self._save_pboq_state)
+        
+        collect_layout.addWidget(self.collect_desc_cb)
+        collect_layout.addWidget(self.collect_amount_cb)
+        
+        self.collect_btn = QPushButton("Collect")
+        self.collect_btn.clicked.connect(self._run_collect_logic)
+        collect_layout.addWidget(self.collect_btn)
+        
+        right_layout.addWidget(collect_group)
+        
         right_layout.addStretch()
         
         splitter.addWidget(right_widget)
@@ -347,6 +379,8 @@ class PBOQDialog(QDialog):
         self.extend_cb1.blockSignals(True)
         self.extend_cb2.blockSignals(True)
         self.extend_cb3.blockSignals(True)
+        self.collect_desc_cb.blockSignals(True)
+        self.collect_amount_cb.blockSignals(True)
         
         try:
             self.tabs.clear()
@@ -558,7 +592,11 @@ class PBOQDialog(QDialog):
             self.extend_cb1.blockSignals(False)
             self.extend_cb2.blockSignals(False)
             self.extend_cb3.blockSignals(False)
+            self.collect_desc_cb.blockSignals(False)
+            self.collect_amount_cb.blockSignals(False)
+            self.collect_search_bar.blockSignals(False)
             self.extend_btn.setText("Extend")
+            self.collect_btn.setText("Collect")
 
     def _populate_column_combos(self, num_columns):
         """Populates the column mapping combo boxes with generic Column numbers."""
@@ -712,6 +750,113 @@ class PBOQDialog(QDialog):
             QMessageBox.information(self, "Clear Complete", f"Successfully cleared dummy values matching {d_rate_str} from {total_cleared} rows.")
         else:
             QMessageBox.information(self, "Nothing Found", f"No values matching {d_rate_str} were found in the mapped columns.")
+
+    def _run_collect_logic(self):
+        """Searches description for keywords and highlights intersecting bill amount cells Orange."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        if not self.collect_desc_cb.isChecked():
+            QMessageBox.warning(self, "Selection Required", "Please check the 'Description' box.")
+            return
+        if not self.collect_amount_cb.isChecked():
+            QMessageBox.warning(self, "Selection Required", "Please check the 'Bill Amount' box.")
+            return
+        if desc_idx < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map the 'Description' column first.")
+            return
+        if amount_idx < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map the 'Bill Amount' column first.")
+            return
+
+        is_revert = self.collect_btn.text() == "Revert"
+        total_sheets = self.tabs.count()
+        keyword = self.collect_search_bar.text().lower().strip()
+        
+        if is_revert:
+            # --- REVERT LOGIC ---
+            updated_count = 0
+            for tab_idx in range(total_sheets):
+                table = self.tabs.widget(tab_idx)
+                if not isinstance(table, QTableWidget): continue
+                
+                for row in range(table.rowCount()):
+                    # Find Orange cells in the bill amount column and revert to base background
+                    amount_item = table.item(row, amount_idx)
+                    if amount_item and amount_item.background().color().name().lower() == "#ffa500":  # Orange
+                        # Revert background to column color (Blue: <4, Yellow: <6, Red: <8)
+                        if amount_idx < 4:
+                            amount_item.setBackground(self.COL_COLOR_BLUE)
+                        elif amount_idx < 6:
+                            amount_item.setBackground(self.COL_COLOR_YELLOW)
+                        elif amount_idx < 8:
+                            amount_item.setBackground(self.COL_COLOR_RED)
+                        else:
+                            amount_item.setBackground(QColor("#ffffff"))
+                        updated_count += 1
+            
+            if updated_count > 0:
+                self.collect_btn.setText("Collect")
+                self._save_pboq_state()
+                QMessageBox.information(self, "Revert Complete", f"Successfully reverted {updated_count} collected cells.")
+            else:
+                self.collect_btn.setText("Collect")
+                QMessageBox.information(self, "Nothing to Revert", "No highlighted items found to clear.")
+        else:
+            # --- COLLECT LOGIC ---
+            if not keyword:
+                QMessageBox.warning(self, "Keyword Required", "Please enter a keyword to search.")
+                return
+
+            updated_count = 0
+            for tab_idx in range(total_sheets):
+                table = self.tabs.widget(tab_idx)
+                if not isinstance(table, QTableWidget): continue
+                
+                for row in range(table.rowCount()):
+                    desc_item = table.item(row, desc_idx)
+                    if not desc_item: continue
+                    
+                    if keyword in desc_item.text().lower():
+                        # Highlight the intersecting bill amount cell
+                        amount_item = table.item(row, amount_idx)
+                        if amount_item:
+                            amount_item.setBackground(QColor("orange"))
+                            updated_count += 1
+            
+            if updated_count > 0:
+                self.collect_btn.setText("Revert")
+                self._save_pboq_state()
+                QMessageBox.information(self, "Collect Complete", f"Found and highlighted {updated_count} cells.")
+            else:
+                QMessageBox.information(self, "Nothing Found", f"No descriptions matched the keyword '{keyword}'.")
+
+    def _apply_collect_highlights(self):
+        """Silently applies the collect highlights from saved state without dialogs."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        if not self.collect_desc_cb.isChecked() or not self.collect_amount_cb.isChecked() or desc_idx < 0 or amount_idx < 0:
+            return
+
+        keyword = self.collect_search_bar.text().lower().strip()
+        if not keyword:
+            return
+
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+            
+            for row in range(table.rowCount()):
+                desc_item = table.item(row, desc_idx)
+                if not desc_item: continue
+                
+                if keyword in desc_item.text().lower():
+                    amount_item = table.item(row, amount_idx)
+                    if amount_item:
+                        amount_item.setBackground(QColor("orange"))
+        
+        self.collect_btn.setText("Revert")
 
     def _run_extend_logic(self):
         """Toggles between inserting dummy rates (Extend) and clearing them (Revert)."""
@@ -1325,6 +1470,10 @@ class PBOQDialog(QDialog):
             'extend_cb1': self.extend_cb1.isChecked(),
             'extend_cb2': self.extend_cb2.isChecked(),
             'extend_cb3': self.extend_cb3.isChecked(),
+            'collect_desc': self.collect_desc_cb.isChecked(),
+            'collect_amount': self.collect_amount_cb.isChecked(),
+            'collect_keyword': self.collect_search_bar.text(),
+            'collect_active': self.collect_btn.text() == "Revert",
             'dummy_rate': self.dummy_rate_spin.value(),
         }
         
@@ -1392,6 +1541,20 @@ class PBOQDialog(QDialog):
                     cb.setChecked(state[key])
                     cb.blockSignals(False)
 
+            # Restore Collect checkboxes
+            if 'collect_desc' in state:
+                self.collect_desc_cb.blockSignals(True)
+                self.collect_desc_cb.setChecked(state['collect_desc'])
+                self.collect_desc_cb.blockSignals(False)
+            if 'collect_amount' in state:
+                self.collect_amount_cb.blockSignals(True)
+                self.collect_amount_cb.setChecked(state['collect_amount'])
+                self.collect_amount_cb.blockSignals(False)
+            if 'collect_keyword' in state:
+                self.collect_search_bar.blockSignals(True)
+                self.collect_search_bar.setText(state['collect_keyword'])
+                self.collect_search_bar.blockSignals(False)
+
             # 4. Restore Dummy Rate
             if 'dummy_rate' in state:
                 self.dummy_rate_spin.blockSignals(True)
@@ -1434,6 +1597,10 @@ class PBOQDialog(QDialog):
             
             # Recalculate the active tab immediately
             self._on_tab_changed(self.tabs.currentIndex())
+            
+            # Re-apply collected highlights if active
+            if state.get('collect_active', False):
+                self._apply_collect_highlights()
             
             # Update column headers
             self._update_column_headers()
