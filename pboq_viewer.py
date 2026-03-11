@@ -6,7 +6,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                              QLineEdit, QWidget, QCheckBox, QComboBox, QTabWidget,
                              QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton, QDoubleSpinBox)
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor, QFont, QAction
+from PyQt6.QtGui import QColor, QFont, QAction, QBrush
+
 import json
 
 class PBOQDialog(QDialog):
@@ -28,6 +29,8 @@ class PBOQDialog(QDialog):
         self.COL_COLOR_BLUE = QColor("#e3f2fd")
         self.COL_COLOR_YELLOW = QColor("#fff9c4")
         self.COL_COLOR_RED = QColor("#ffebee")
+        self.linking_source = None # Stores (table, item, original_bg)
+
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 600)
@@ -336,6 +339,9 @@ class PBOQDialog(QDialog):
         
         self.collect_desc_cb = QCheckBox("Description")
         self.collect_amount_cb = QCheckBox("Bill Amount")
+        self.collect_desc_cb.setChecked(True)
+        self.collect_amount_cb.setChecked(True)
+
         
         self.collect_desc_cb.toggled.connect(self._save_pboq_state)
         self.collect_amount_cb.toggled.connect(self._save_pboq_state)
@@ -346,8 +352,29 @@ class PBOQDialog(QDialog):
         self.collect_btn = QPushButton("Collect")
         self.collect_btn.clicked.connect(self._run_collect_logic)
         collect_layout.addWidget(self.collect_btn)
+
+        # Collection Populator (New Section)
+        pop_layout = QVBoxLayout()
+        pop_layout.setContentsMargins(0, 5, 0, 0)
+        pop_layout.setSpacing(2)
+        
+        target_label = QLabel("Collection Target (Case Sensitive) : ")
+        target_label.setStyleSheet("font-size: 8pt; color: #555; margin-top: 5px;")
+
+        self.collection_target_bar = QLineEdit()
+        self.collection_target_bar.setPlaceholderText("e.g. COLLECTION")
+        self.collection_target_bar.textChanged.connect(self._save_pboq_state)
+        
+        self.populate_btn = QPushButton("Populate")
+        self.populate_btn.clicked.connect(self._run_populate_collection)
+        
+        pop_layout.addWidget(target_label)
+        pop_layout.addWidget(self.collection_target_bar)
+        pop_layout.addWidget(self.populate_btn)
+        collect_layout.addLayout(pop_layout)
         
         right_layout.addWidget(collect_group)
+
         
         right_layout.addStretch()
         
@@ -386,6 +413,8 @@ class PBOQDialog(QDialog):
             # Set default states for buttons before loading state
             self.extend_btn.setText("Extend")
             self.collect_btn.setText("Collect")
+            self.populate_btn.setText("Populate")
+
             
             self.tabs.clear()
 
@@ -491,6 +520,10 @@ class PBOQDialog(QDialog):
                 table.setAlternatingRowColors(True)
                 table.setWordWrap(False)
                 table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+                table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+                table.customContextMenuRequested.connect(self._show_amount_context_menu)
+                table.cellClicked.connect(self._handle_table_cell_click)
+
                 
                 for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
@@ -903,8 +936,267 @@ class PBOQDialog(QDialog):
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         
         self.collect_btn.setText("Revert")
+    
+    def _apply_populate_highlights(self):
+        """Re-applies yellow highlights to populated collection cells from saved state."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        qty_idx = self.cb_qty.currentIndex() - 1
+        
+        target_input = self.collection_target_bar.text().strip()
+        if not target_input or desc_idx < 0 or amount_idx < 0:
+            return
+
+        target_keywords = [k.strip() for k in target_input.split(',') if k.strip()]
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+
+            found_target = False
+            for row in range(table.rowCount()):
+                desc_item = table.item(row, desc_idx)
+                if not desc_item: continue
+                
+                desc_text = desc_item.text()
+                
+                if not found_target:
+                    if any(kw in desc_text for kw in target_keywords):
+                        found_target = True
+                    continue 
+                
+                # Detect populated rows: Description present, No Quantity, Gray Text
+                has_qty = False
+                if qty_idx >= 0:
+                    qty_item = table.item(row, qty_idx)
+                    if qty_item and qty_item.text().strip():
+                        has_qty = True
+                
+                amount_item = table.item(row, amount_idx)
+                if desc_text.strip() and not has_qty and amount_item and amount_item.text().strip():
+                    if amount_item.foreground().color().name().lower() == "#777777":
+                        amount_item.setBackground(QColor("yellow"))
+
+
+    def _run_populate_collection(self):
+        """Sequential filling of collection summaries or clearing them (Un-Populate)."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        qty_idx = self.cb_qty.currentIndex() - 1
+        
+        target_input = self.collection_target_bar.text().strip()
+        is_revert = self.populate_btn.text() == "Un-Populate"
+        
+        if not target_input and not is_revert:
+            QMessageBox.warning(self, "Input Required", "Please enter target keyword(s) (e.g. COLLECTION, SUMMARY).")
+            return
+        if desc_idx < 0 or amount_idx < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map 'Description' and 'Bill Amount' columns.")
+            return
+
+        # Split multiple keywords by comma and strip whitespace
+        target_keywords = [k.strip() for k in target_input.split(',') if k.strip()]
+        
+        total_affected = 0
+        total_sheets = self.tabs.count()
+        
+        for tab_idx in range(total_sheets):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+
+            # For Populate: Need the bucket. For Un-Populate: We clear based on target zone logic.
+            bucket = []
+            if not is_revert:
+                for row in range(table.rowCount()):
+                    item = table.item(row, amount_idx)
+                    # We identify collected values by their Orange background
+                    if item and item.background().color().name().lower() == "#ffa500": # Orange
+                        val_str = item.text().strip()
+                        if val_str:
+                            bucket.append(val_str)
+                if not bucket:
+                    continue
+
+            # Target Zone Detection
+            found_target = False
+            bucket_idx = 0
+            updates_to_db = [] # (rowid, value)
+            
+            for row in range(table.rowCount()):
+                desc_item = table.item(row, desc_idx)
+                if not desc_item: continue
+                
+                desc_text = desc_item.text() # Case-sensitive
+                
+                if not found_target:
+                    # Case-sensitive check against any of the keywords
+                    if any(kw in desc_text for kw in target_keywords):
+                        found_target = True
+                    continue 
+                
+                # Check Quantity
+                has_qty = False
+                if qty_idx >= 0:
+                    qty_item = table.item(row, qty_idx)
+                    if qty_item and qty_item.text().strip():
+                        has_qty = True
+                
+                amount_item = table.item(row, amount_idx)
+                
+                if is_revert:
+                    # REVERT MODE: Clear values that were likely populated (Gray text, no qty)
+                    if desc_text.strip() and not has_qty and amount_item:
+                        # Check if it has gray text (our signature)
+                        if amount_item.foreground().color().name().lower() == "#777777":
+                            amount_item.setText("")
+                            amount_item.setBackground(QBrush()) # Clear yellow
+                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+
+                            if rowid is not None:
+                                updates_to_db.append((rowid, ""))
+                            total_affected += 1
+                else:
+                    # POPULATE MODE
+                    has_amount = amount_item and amount_item.text().strip()
+                    if desc_text.strip() and not has_qty and not has_amount:
+                        if bucket_idx < len(bucket):
+                            val_to_fill = bucket[bucket_idx]
+                            if not amount_item:
+                                amount_item = QTableWidgetItem()
+                                table.setItem(row, amount_idx, amount_item)
+                            
+                            amount_item.setText(val_to_fill)
+                            amount_item.setForeground(QColor("#777777")) 
+                            amount_item.setBackground(QColor("yellow"))
+                            amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+                            
+                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            if rowid is not None:
+                                updates_to_db.append((rowid, val_to_fill))
+                            
+                            bucket_idx += 1
+                            total_affected += 1
+                        
+                        if bucket_idx >= len(bucket):
+                            break 
+
+            if updates_to_db:
+                self._persist_batch_updates(amount_idx, updates_to_db)
+
+        if total_affected > 0:
+            if is_revert:
+                self.populate_btn.setText("Populate")
+                QMessageBox.information(self, "Un-Populate Complete", f"Cleared {total_affected} populated rows.")
+            else:
+                self.populate_btn.setText("Un-Populate")
+                QMessageBox.information(self, "Populate Complete", f"Successfully populated {total_affected} collection rows.")
+            self._save_pboq_state()
+        else:
+            msg = "Could not find any target zones to clear." if is_revert else "Could not find any empty rows below the keywords to fill."
+            QMessageBox.information(self, "No Action Taken", msg)
+
+
+
+    def _show_amount_context_menu(self, pos):
+        """Shows a context menu for the Bill Amount column with Clear and Link options."""
+        table = self.sender()
+        if not isinstance(table, QTableWidget): return
+        
+        index = table.indexAt(pos)
+        if not index.isValid(): return
+        
+        row = index.row()
+        col = index.column()
+        
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        if col != amount_idx: return # Only for Bill Amount column
+        
+        menu = QMenu(self)
+        clear_act = menu.addAction("Clear")
+        link_act = menu.addAction("Link to Collection")
+        
+        # Determine global position for showing the menu
+        global_pos = table.viewport().mapToGlobal(pos)
+        action = menu.exec(global_pos)
+        if not action: return
+        
+        item = table.item(row, col)
+        # If clearing and no item exists, nothing to do. If linking, we need value.
+        if action == clear_act:
+            if item:
+                item.setText("")
+                rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                if rowid is not None:
+                    self._persist_batch_updates(amount_idx, [(rowid, "")])
+                self._update_stats()
+        
+        elif action == link_act:
+            if not item or not item.text().strip():
+                QMessageBox.warning(self, "No Value", "The source cell is empty and cannot be used for linking.")
+                return
+
+            # End any existing link mode before starting new one
+            self._clear_link_mode()
+            
+            # Start Link Mode
+            orig_bg = item.background()
+            item.setBackground(QColor("#00FFFF")) # Distinctive Cyan highlight
+            self.linking_source = {
+                'table': table,
+                'row': row,
+                'col': col,
+                'val': item.text(),
+                'item': item,
+                'orig_bg': orig_bg
+            }
+
+    def _handle_table_cell_click(self, row, col):
+        """Handles cell clicks for the Link to Collection logic."""
+        if not self.linking_source:
+            return
+            
+        table = self.sender()
+        if not isinstance(table, QTableWidget): return
+        
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        # Check if clicked in Bill Amount column and it's NOT the same source cell
+        is_dest = (col == amount_idx)
+        ls = self.linking_source
+        is_source = (table == ls['table'] and row == ls['row'] and col == ls['col'])
+        
+        if is_dest and not is_source:
+            # Perform Link (Copy)
+            item = table.item(row, col)
+            if not item:
+                item = QTableWidgetItem()
+                table.setItem(row, col, item)
+                
+            val = ls['val']
+            item.setText(val)
+            item.setForeground(QColor("#777777")) # Gray out formatted values
+            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            
+            # Persist to DB
+            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+            if rowid is not None:
+                self._persist_batch_updates(amount_idx, [(rowid, val)])
+            
+            self._update_stats()
+            
+        # End link mode regardless of where they clicked
+        self._clear_link_mode()
+
+    def _clear_link_mode(self):
+        """Clears the current linking state and restores visual properties."""
+        if self.linking_source:
+            ls = self.linking_source
+            ls['item'].setBackground(ls['orig_bg'])
+            self.linking_source = None
 
     def _run_extend_logic(self):
+
         """Toggles between inserting dummy rates (Extend) and clearing them (Revert)."""
         qty_idx = self.cb_qty.currentIndex() - 1
         rate_idx = self.cb_bill_rate.currentIndex() - 1
@@ -1568,7 +1860,11 @@ class PBOQDialog(QDialog):
             'collect_active': self.collect_btn.text() == "Revert",
             'extend_active': self.extend_btn.text() == "Revert",
             'dummy_rate': self.dummy_rate_spin.value(),
+            'collect_target': self.collection_target_bar.text(),
+            'populate_active': self.populate_btn.text() == "Un-Populate",
         }
+
+
 
         
         try:
@@ -1648,6 +1944,11 @@ class PBOQDialog(QDialog):
                 self.collect_search_bar.blockSignals(True)
                 self.collect_search_bar.setText(state['collect_keyword'])
                 self.collect_search_bar.blockSignals(False)
+            if 'collect_target' in state:
+                self.collection_target_bar.blockSignals(True)
+                self.collection_target_bar.setText(state['collect_target'])
+                self.collection_target_bar.blockSignals(False)
+
 
             # 4. Restore Dummy Rate
             if 'dummy_rate' in state:
@@ -1689,21 +1990,31 @@ class PBOQDialog(QDialog):
                         table.verticalHeader().setDefaultSectionSize(24)
                         table.verticalHeader().setMinimumSectionSize(24)
             
+            # Update column headers and apply base styling
+            self._update_column_headers()
+
             # Recalculate the active tab immediately
             self._on_tab_changed(self.tabs.currentIndex())
             
-            # Re-apply collected highlights if active
+            # Re-apply highlights AFTER base styling to ensure they stay visible
             if state.get('collect_active', False):
                 self._apply_collect_highlights()
             
-            # Restore Extend button state
+            if state.get('populate_active', False):
+                self._apply_populate_highlights()
+            
+            # Restore button states
             if state.get('extend_active', False):
                 self.extend_btn.setText("Revert")
             else:
                 self.extend_btn.setText("Extend")
             
-            # Update column headers
-            self._update_column_headers()
+            if state.get('populate_active', False):
+                self.populate_btn.setText("Un-Populate")
+            else:
+                self.populate_btn.setText("Populate")
+
+
 
             
             self._update_stats()
