@@ -198,5 +198,6 @@ class DBEstimateSubRate(Base):
     quantity = Column(Float, default=1.0)
     formula = Column(String)
     converted_unit = Column(String)
+    library_path = Column(String)
 
     estimate = relationship("DBEstimate", back_populates="sub_rates")

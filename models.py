@@ -121,23 +121,13 @@ class Estimate:
         # Profit is calculated on (Subtotal + Overhead)
         profit = (subtotal + overhead) * (self.profit_margin_percent / 100.0)
 
-        # Sum of sub-rates (Composite Calculation)
-        sub_est_total = 0.0
-        for sub in self.sub_rates:
-            qty = getattr(sub, 'quantity', 1.0)
-            sub_res = sub.calculate_totals()
-            # Convert sub-rate grand_total to base currency
-            # We assume sub-rates are standalone final costs
-            val = self.convert_to_base_currency(sub_res['grand_total'], sub.currency)
-            sub_est_total += val * qty
-
-        grand_total = subtotal + overhead + profit + sub_est_total
+        grand_total = subtotal + overhead + profit
         
         return {
             "subtotal": subtotal,
             "overhead": overhead,
             "profit": profit,
-            "sub_rates_total": sub_est_total,
+            "sub_rates_total": 0.0,
             "grand_total": grand_total,
             "currency": self.currency
         }

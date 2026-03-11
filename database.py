@@ -67,7 +67,15 @@ class DatabaseManager:
                     conn.execute(text("ALTER TABLE tasks ADD COLUMN unit VARCHAR"))
                     conn.execute(text("ALTER TABLE tasks ADD COLUMN formula VARCHAR"))
                     conn.commit()
-                except Exception as e:
+                except Exception:
+                    pass
+            try:
+                conn.execute(text("SELECT library_path FROM estimate_sub_rates LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE estimate_sub_rates ADD COLUMN library_path VARCHAR"))
+                    conn.commit()
+                except Exception:
                     pass
 
     def _insert_sample_data(self):
@@ -295,7 +303,8 @@ class DatabaseManager:
                         qty = getattr(sub_rate, 'quantity', 1.0)
                         formula = getattr(sub_rate, 'formula', None)
                         c_unit = getattr(sub_rate, 'converted_unit', None)
-                        session.add(DBEstimateSubRate(estimate_id=db_est.id, sub_rate_id=sub_rate.id, quantity=qty, formula=formula, converted_unit=c_unit))
+                        l_path = getattr(sub_rate, 'library_path', None)
+                        session.add(DBEstimateSubRate(estimate_id=db_est.id, sub_rate_id=sub_rate.id, quantity=qty, formula=formula, converted_unit=c_unit, library_path=l_path))
 
                 session.commit()
                 return True
@@ -396,11 +405,17 @@ class DatabaseManager:
                 loaded.exchange_rates[er.currency] = {'rate': er.rate, 'date': er.date, 'operator': er.operator}
 
             for sr in db_est.sub_rates:
-                sub_loaded = self.load_estimate_details(sr.sub_rate_id)
+                sub_db_manager = self
+                l_path = getattr(sr, 'library_path', None)
+                if l_path and l_path != self.db_file and os.path.exists(l_path):
+                    sub_db_manager = DatabaseManager(l_path)
+                
+                sub_loaded = sub_db_manager.load_estimate_details(sr.sub_rate_id)
                 if sub_loaded:
                     sub_loaded.quantity = sr.quantity
                     sub_loaded.formula = sr.formula
                     sub_loaded.converted_unit = sr.converted_unit
+                    sub_loaded.library_path = l_path
                     loaded.add_sub_rate(sub_loaded)
 
             return loaded

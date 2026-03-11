@@ -23,7 +23,7 @@ class RateBuildupCompositeWidget(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         
         self.composite_table = QTableWidget()
-        headers = ["Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations", "New Net Rate"]
+        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Convert Unit", "Calculations", "New Net Rate"]
         self.composite_table.setColumnCount(len(headers))
         self.composite_table.setHorizontalHeaderLabels(headers)
         header_view = self.composite_table.horizontalHeader()
@@ -79,6 +79,8 @@ class RateBuildupCompositeWidget(QWidget):
             if not selected_estimate:
                 QMessageBox.warning(self, "Error", "Failed to load rate details from database.")
                 return
+                
+            selected_estimate.library_path = db_path
                 
             def _units_match(u1, u2):
                 if not u1 and not u2: return True
@@ -209,7 +211,7 @@ class RateBuildupCompositeWidget(QWidget):
                 self.stateChanged.emit()
 
     def edit_composite_calculation(self, row, col):
-        if col != 6: # Calculations column
+        if col != 7: # Calculations column
             return
             
         if row >= len(self.estimate.sub_rates):
@@ -272,7 +274,16 @@ class RateBuildupCompositeWidget(QWidget):
             
             totals = sub.calculate_totals()
             
+            import os
+            l_path = getattr(sub, 'library_path', None)
+            l_name = "Default Library"
+            if l_path:
+                l_name = os.path.basename(l_path)
+                if 'Project Database' in l_path:
+                    l_name = f"Project Database - {l_name}"
+
             items = [
+                QTableWidgetItem(l_name),
                 QTableWidgetItem(str(getattr(sub, 'rate_code', ''))),
                 QTableWidgetItem(str(getattr(sub, 'project_name', ''))),
                 QTableWidgetItem(str(getattr(sub, 'unit', ''))),
@@ -285,7 +296,7 @@ class RateBuildupCompositeWidget(QWidget):
             for col, item in enumerate(items):
                 if item:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    if col == 0:
+                    if col == 1:
                         item.setData(Qt.ItemDataRole.UserRole, sub)
                     self.composite_table.setItem(row, col, item)
             
@@ -316,7 +327,7 @@ class RateBuildupCompositeWidget(QWidget):
                 combo.setStyleSheet("")
                 
             combo.currentTextChanged.connect(lambda txt, s=sub: self._update_sub_rate_unit(s, txt))
-            self.composite_table.setCellWidget(row, 5, combo)
+            self.composite_table.setCellWidget(row, 6, combo)
                 
         self.composite_table.resizeColumnsToContents()
         self.composite_table.horizontalHeader().setStretchLastSection(True)
