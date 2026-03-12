@@ -380,6 +380,38 @@ class PBOQDialog(QDialog):
         
         right_layout.addWidget(collect_group)
 
+        # Summary Group
+        summary_group = QGroupBox("Summary")
+        summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setContentsMargins(5, 5, 5, 5)
+        summary_layout.setSpacing(2)
+        
+        summary_label = QLabel("Summarize Collections (Case Sensitive) :")
+        summary_label.setStyleSheet("font-size: 8pt; color: #555;")
+        summary_layout.addWidget(summary_label)
+        
+        summary_checks_layout = QHBoxLayout()
+        self.summary_desc_cb = QCheckBox("Description")
+        self.summary_amount_cb = QCheckBox("Bill Amount")
+        self.summary_desc_cb.setChecked(True)
+        summary_checks_layout.addWidget(self.summary_desc_cb)
+        summary_checks_layout.addWidget(self.summary_amount_cb)
+        summary_layout.addLayout(summary_checks_layout)
+        
+        self.summary_target_bar = QLineEdit()
+        self.summary_target_bar.setPlaceholderText("CARRIED TO SUMMARY OF BILL")
+        self.summary_target_bar.textChanged.connect(self._save_pboq_state)
+        self.summary_desc_cb.toggled.connect(self._save_pboq_state)
+        self.summary_amount_cb.toggled.connect(self._save_pboq_state)
+        
+        summary_layout.addWidget(self.summary_target_bar)
+        
+        self.summarize_btn = QPushButton("Summarize")
+        self.summarize_btn.clicked.connect(self._run_summary_logic)
+        summary_layout.addWidget(self.summarize_btn)
+        
+        right_layout.addWidget(summary_group)
+
         
         right_layout.addStretch()
         
@@ -1160,6 +1192,117 @@ class PBOQDialog(QDialog):
         else:
             msg = "Could not find any target zones to clear." if is_revert else "Could not find any empty rows below the keywords to fill."
             QMessageBox.information(self, "No Action Taken", msg)
+
+    def _run_summary_logic(self):
+        """Sums all 'collected' (Orange) cells and outputs the total to 'Summary' (Lime) rows."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        
+        if not self.summary_desc_cb.isChecked() and not self.summary_amount_cb.isChecked():
+            QMessageBox.warning(self, "Selection Required", "Please check 'Description' or 'Bill Amount' box.")
+            return
+        if desc_idx < 0 and self.summary_desc_cb.isChecked():
+            QMessageBox.warning(self, "Mapping Required", "Please map the 'Description' column.")
+            return
+        if amount_idx < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map the 'Bill Amount' column.")
+            return
+
+        target_text = self.summary_target_bar.text().strip()
+        if not target_text:
+            QMessageBox.warning(self, "Target Required", "Please enter a target text for summary rows.")
+            return
+
+        total_sheets = self.tabs.count()
+        overall_updated = 0
+        overall_sum = 0.0
+        
+        for tab_idx in range(total_sheets):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+            
+            # Step 1: Sum all Orange cells in this sheet
+            sheet_sum = 0.0
+            for row in range(table.rowCount()):
+                amount_item = table.item(row, amount_idx)
+                if amount_item and amount_item.background().color().name().lower() == "#ffa500": # Orange
+                    val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
+                    try:
+                        if val_str:
+                            sheet_sum += float(val_str)
+                    except ValueError:
+                        pass
+            
+            # Step 2: Find target rows and update
+            updates_to_db = []
+            for row in range(table.rowCount()):
+                match = False
+                if self.summary_desc_cb.isChecked() and desc_idx >= 0:
+                    item = table.item(row, desc_idx)
+                    if item and target_text in item.text():
+                        match = True
+                if not match and self.summary_amount_cb.isChecked():
+                    item = table.item(row, amount_idx)
+                    if item and target_text in item.text():
+                        match = True
+                
+                if match:
+                    amount_item = table.item(row, amount_idx)
+                    if not amount_item:
+                        amount_item = QTableWidgetItem()
+                        table.setItem(row, amount_idx, amount_item)
+                    
+                    formatted_sum = "{:,.2f}".format(sheet_sum)
+                    amount_item.setText(formatted_sum)
+                    amount_item.setBackground(QColor("lime"))
+                    amount_item.setForeground(QColor("#000000")) 
+                    amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                    
+                    rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                    if rowid is not None:
+                        updates_to_db.append((rowid, formatted_sum))
+                    overall_updated += 1
+                    overall_sum = sheet_sum # Store the last sheet sum for the message
+            
+            if updates_to_db:
+                self._persist_batch_updates(amount_idx, updates_to_db)
+
+        if overall_updated > 0:
+            self._save_pboq_state()
+            QMessageBox.information(self, "Summary Complete", f"Successfully updated {overall_updated} summary cells.")
+        else:
+            QMessageBox.information(self, "Nothing Found", f"Target text '{target_text}' not found in the ticked columns.")
+
+    def _apply_summary_highlights(self):
+        """Silently re-applies Lime highlights to summary cells from saved state."""
+        desc_idx = self.cb_desc.currentIndex() - 1
+        amount_idx = self.cb_bill_amount.currentIndex() - 1
+        target_text = self.summary_target_bar.text().strip()
+        
+        if not target_text or (desc_idx < 0 and amount_idx < 0):
+            return
+
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, QTableWidget): continue
+            
+            for row in range(table.rowCount()):
+                match = False
+                if self.summary_desc_cb.isChecked() and desc_idx >= 0:
+                    item = table.item(row, desc_idx)
+                    if item and target_text in item.text():
+                        match = True
+                if not match and self.summary_amount_cb.isChecked():
+                    item = table.item(row, amount_idx)
+                    if item and target_text in item.text():
+                        match = True
+                
+                if match:
+                    amount_item = table.item(row, amount_idx)
+                    if amount_item and amount_item.text().strip():
+                        amount_item.setBackground(QColor("lime"))
+                        amount_item.setForeground(QColor("#000000"))
+                        amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
 
 
@@ -2038,6 +2181,9 @@ class PBOQDialog(QDialog):
             'dummy_rate': self.dummy_rate_spin.value(),
             'collect_target': self.collection_target_bar.text(),
             'populate_active': self.populate_btn.text() == "Un-Populate",
+            'summary_desc': self.summary_desc_cb.isChecked(),
+            'summary_amount': self.summary_amount_cb.isChecked(),
+            'summary_target': self.summary_target_bar.text(),
         }
 
 
@@ -2125,6 +2271,19 @@ class PBOQDialog(QDialog):
                 self.collection_target_bar.setText(state['collect_target'])
                 self.collection_target_bar.blockSignals(False)
 
+            if 'summary_desc' in state:
+                self.summary_desc_cb.blockSignals(True)
+                self.summary_desc_cb.setChecked(state['summary_desc'])
+                self.summary_desc_cb.blockSignals(False)
+            if 'summary_amount' in state:
+                self.summary_amount_cb.blockSignals(True)
+                self.summary_amount_cb.setChecked(state['summary_amount'])
+                self.summary_amount_cb.blockSignals(False)
+            if 'summary_target' in state:
+                self.summary_target_bar.blockSignals(True)
+                self.summary_target_bar.setText(state['summary_target'])
+                self.summary_target_bar.blockSignals(False)
+
 
             # 4. Restore Dummy Rate
             if 'dummy_rate' in state:
@@ -2178,6 +2337,8 @@ class PBOQDialog(QDialog):
             
             if state.get('populate_active', False):
                 self._apply_populate_highlights()
+            
+            self._apply_summary_highlights()
             
             # Restore button states
             if state.get('extend_active', False):
