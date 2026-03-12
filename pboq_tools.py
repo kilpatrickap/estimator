@@ -62,6 +62,7 @@ class PBOQToolsPane(QWidget):
                    self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
             cb.currentIndexChanged.connect(self.columnHeadersRequested)
+            cb.currentIndexChanged.connect(self.update_extend_labels)
         
         container_layout.addWidget(col_group)
 
@@ -213,6 +214,7 @@ class PBOQToolsPane(QWidget):
         """)
 
         container_layout.addStretch()
+        self.update_extend_labels()
         scroll_area.setWidget(container)
         
         layout.addWidget(scroll_area)
@@ -265,3 +267,21 @@ class PBOQToolsPane(QWidget):
                 cb.blockSignals(True)
                 cb.setCurrentIndex(data[key] + 1)
                 cb.blockSignals(False)
+        self.update_extend_labels()
+
+    def update_extend_labels(self):
+        """Updates Extend group checkbox labels based on current column mappings."""
+        m = self.get_mappings()
+        
+        # Priority: map physical column index to its assigned logical role name
+        roles = {
+            m['ref']: "Ref/Item",
+            m['desc']: "Description",
+            m['qty']: "Quantity",
+            m['unit']: "Unit"
+        }
+        
+        self.extend_cb0.setText(roles.get(0, "Column 0"))
+        self.extend_cb1.setText(roles.get(1, "Column 1"))
+        self.extend_cb2.setText(roles.get(2, "Column 2"))
+        self.extend_cb3.setText(roles.get(3, "Column 3"))
