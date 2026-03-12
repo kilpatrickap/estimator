@@ -48,14 +48,14 @@ class PBOQToolsPane(QWidget):
         self.cb_rate = QComboBox()
         self.cb_rate_code = QComboBox()
         
-        col_layout.addRow("Ref:", self.cb_ref)
-        col_layout.addRow("Desc:", self.cb_desc)
-        col_layout.addRow("Qty:", self.cb_qty)
+        col_layout.addRow("Ref/Item:", self.cb_ref)
+        col_layout.addRow("Description:", self.cb_desc)
+        col_layout.addRow("Quantity:", self.cb_qty)
         col_layout.addRow("Unit:", self.cb_unit)
-        col_layout.addRow("B.Rate:", self.cb_bill_rate)
-        col_layout.addRow("B.Amt:", self.cb_bill_amount)
-        col_layout.addRow("G.Rate:", self.cb_rate)
-        col_layout.addRow("R.Code:", self.cb_rate_code)
+        col_layout.addRow("Bill Rate:", self.cb_bill_rate)
+        col_layout.addRow("Bill Amount:", self.cb_bill_amount)
+        col_layout.addRow("Gross Rate:", self.cb_rate)
+        col_layout.addRow("Rate Code:", self.cb_rate_code)
         
         # Connect signals
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
@@ -90,7 +90,7 @@ class PBOQToolsPane(QWidget):
         extend_layout.setSpacing(1)
         extend_layout.setContentsMargins(2, 2, 2, 2)
         
-        self.extend_cb0 = QCheckBox("Col 0")
+        self.extend_cb0 = QCheckBox("Column 0")
         self.extend_cb1 = QCheckBox("Column 1")
         self.extend_cb2 = QCheckBox("Column 2")
         self.extend_cb3 = QCheckBox("Column 3")
@@ -163,7 +163,7 @@ class PBOQToolsPane(QWidget):
         summary_layout.setSpacing(1)
         summary_layout.setContentsMargins(2, 2, 2, 2)
         
-        summary_layout.addWidget(QLabel("Summarize (Case Sens.):"))
+        summary_layout.addWidget(QLabel("Summarize (Case Sensitive):"))
         
         s_check_row = QHBoxLayout()
         self.summary_desc_cb = QCheckBox("Description")
@@ -219,12 +219,22 @@ class PBOQToolsPane(QWidget):
 
     def populate_column_combos(self, num_columns):
         explicit_columns = [f"Column {i}" for i in range(num_columns)]
-        for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
-                   self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+        combos = [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
+                  self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]
+        
+        for cb in combos:
             cb.blockSignals(True)
             cb.clear()
             cb.addItem("-- Select Column --")
             cb.addItems(explicit_columns)
+            
+        # Set default mappings if columns exist
+        if num_columns > 4: self.cb_bill_rate.setCurrentIndex(5)   # Column 4
+        if num_columns > 5: self.cb_bill_amount.setCurrentIndex(6) # Column 5
+        if num_columns > 6: self.cb_rate.setCurrentIndex(7)        # Column 6
+        if num_columns > 7: self.cb_rate_code.setCurrentIndex(8)   # Column 7
+        
+        for cb in combos:
             cb.blockSignals(False)
 
     def get_mappings(self):

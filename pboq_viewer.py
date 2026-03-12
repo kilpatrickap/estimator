@@ -55,7 +55,9 @@ class PBOQDialog(QDialog):
         
         if self.main_window:
             self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+            self.tools_dock.show()
             self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+            self.destroyed.connect(self._cleanup_tools_dock)
             
         # Connect Tools Pane signals
         self.tools_pane.stateChanged.connect(self._save_pboq_state)
@@ -645,18 +647,21 @@ class PBOQDialog(QDialog):
         return None
 
     def closeEvent(self, event):
-        if self.main_window:
-            try: 
-                self.main_window.mdi_area.subWindowActivated.disconnect(self._on_mdi_subwindow_activated)
-            except: 
-                pass
+        # Ensure the tools dock is hidden when the window is closed
+        try:
+            if hasattr(self, 'tools_dock') and self.tools_dock:
+                self.tools_dock.hide()
+        except RuntimeError:
+            pass
             
+        super().closeEvent(event)
+
+    def _cleanup_tools_dock(self):
+        """Cleanup dock widget when the dialog is actually destroyed."""
+        if self.main_window:
             try:
                 if hasattr(self, 'tools_dock') and self.tools_dock:
                     self.main_window.removeDockWidget(self.tools_dock)
                     self.tools_dock.deleteLater()
             except RuntimeError:
-                # Object already deleted
                 pass
-        
-        super().closeEvent(event)
