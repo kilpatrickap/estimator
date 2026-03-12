@@ -132,12 +132,7 @@ class PBOQDialog(QDialog):
         main_layout.addLayout(top_bar)
 
         
-        # Main splitter: Left (Excel-style table) | Right (Column Mapping + Stats)
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.setHandleWidth(4)
-        splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
-        
-        # LEFT PANE: Excel-style tabbed table
+        # LEFT PANE: Excel-style tabbed table (Now takes full window)
         left_widget = QWidget()
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
@@ -186,16 +181,25 @@ class PBOQDialog(QDialog):
         nav_layout.addWidget(next_btn)
         nav_layout.addWidget(last_btn)
         
-        self.tabs.setCornerWidget(nav_widget, Qt.Corner.BottomLeftCorner)
         
+        self.tabs.setCornerWidget(nav_widget, Qt.Corner.BottomLeftCorner)
         left_layout.addWidget(self.tabs)
         
-        splitter.addWidget(left_widget)
+        # RIGHT PANE is moved to a DockWidget in the main window
+        from PyQt6.QtWidgets import QDockWidget, QScrollArea
         
-        # RIGHT PANE: Column Mapping + Stats + Search
+        # Tools Pane
+        self.tools_dock = QDockWidget("PBOQ Tools", self.main_window)
+        self.tools_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        self.tools_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetFloatable | QDockWidget.DockWidgetFeature.DockWidgetMovable)
+        
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QScrollArea.Shape.NoFrame)
+        
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setContentsMargins(5, 5, 5, 5)
         
         # Column Mapping Group
         col_group = QGroupBox("Column Mapping")
@@ -381,13 +385,44 @@ class PBOQDialog(QDialog):
         
         right_layout.addStretch()
         
-        splitter.addWidget(right_widget)
+        scroll_area.setWidget(right_widget)
+        self.tools_dock.setWidget(scroll_area)
         
-        # Give the Excel-style table most of the space
-        splitter.setStretchFactor(0, 7)
-        splitter.setStretchFactor(1, 3)
+        # Add to main window
+        if self.main_window:
+            self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+            # Make sure it appears below the Project dock by tabifying or just adding it
+            try:
+                self.main_window.splitDockWidget(self.main_window.project_dock, self.tools_dock, Qt.Orientation.Vertical)
+            except AttributeError:
+                pass
+            
+            # Connect to context switching
+            self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
         
-        main_layout.addWidget(splitter)
+        # The main layout is just the Excel table now
+        main_layout.addWidget(left_widget)
+
+    def closeEvent(self, event):
+        try:
+            if self.main_window:
+                self.main_window.mdi_area.subWindowActivated.disconnect(self._on_mdi_subwindow_activated)
+        except (TypeError, AttributeError):
+            pass
+        if hasattr(self, 'tools_dock') and self.tools_dock:
+            if self.main_window:
+                self.main_window.removeDockWidget(self.tools_dock)
+            self.tools_dock.deleteLater()
+            self.tools_dock = None
+        super().closeEvent(event)
+
+    def _on_mdi_subwindow_activated(self, subwindow):
+        if not hasattr(self, 'tools_dock') or not self.tools_dock:
+            return
+        if subwindow and subwindow.widget() is self:
+            self.tools_dock.show()
+        else:
+            self.tools_dock.hide()
 
     def _load_pboq_db(self, index):
         """Loads a PBOQ .db file and renders it in Excel-style tabs."""
