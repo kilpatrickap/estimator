@@ -342,17 +342,18 @@ class PBOQDialog(QDialog):
         keywords_layout.addWidget(self.collect_search_bar)
         collect_layout.addLayout(keywords_layout)
         
+        collect_checks_layout = QHBoxLayout()
         self.collect_desc_cb = QCheckBox("Description")
         self.collect_amount_cb = QCheckBox("Bill Amount")
         self.collect_desc_cb.setChecked(True)
         self.collect_amount_cb.setChecked(True)
-
         
         self.collect_desc_cb.toggled.connect(self._save_pboq_state)
         self.collect_amount_cb.toggled.connect(self._save_pboq_state)
         
-        collect_layout.addWidget(self.collect_desc_cb)
-        collect_layout.addWidget(self.collect_amount_cb)
+        collect_checks_layout.addWidget(self.collect_desc_cb)
+        collect_checks_layout.addWidget(self.collect_amount_cb)
+        collect_layout.addLayout(collect_checks_layout)
         
         self.collect_btn = QPushButton("Collect")
         self.collect_btn.clicked.connect(self._run_collect_logic)
