@@ -32,11 +32,13 @@ class PBOQToolsPane(QWidget):
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
-        container_layout.setSpacing(10)
+        container_layout.setSpacing(5)
 
         # 1. Column Mapping
         col_group = QGroupBox("Column Mapping")
         col_layout = QFormLayout(col_group)
+        col_layout.setSpacing(1)
+        col_layout.setContentsMargins(2, 2, 2, 2)
         self.cb_ref = QComboBox()
         self.cb_desc = QComboBox()
         self.cb_qty = QComboBox()
@@ -46,14 +48,14 @@ class PBOQToolsPane(QWidget):
         self.cb_rate = QComboBox()
         self.cb_rate_code = QComboBox()
         
-        col_layout.addRow("Ref / Item No:", self.cb_ref)
-        col_layout.addRow("Description:", self.cb_desc)
-        col_layout.addRow("Quantity:", self.cb_qty)
+        col_layout.addRow("Ref:", self.cb_ref)
+        col_layout.addRow("Desc:", self.cb_desc)
+        col_layout.addRow("Qty:", self.cb_qty)
         col_layout.addRow("Unit:", self.cb_unit)
-        col_layout.addRow("Bill Rate:", self.cb_bill_rate)
-        col_layout.addRow("Bill Amount:", self.cb_bill_amount)
-        col_layout.addRow("Gross Rate:", self.cb_rate)
-        col_layout.addRow("Rate Code:", self.cb_rate_code)
+        col_layout.addRow("B.Rate:", self.cb_bill_rate)
+        col_layout.addRow("B.Amt:", self.cb_bill_amount)
+        col_layout.addRow("G.Rate:", self.cb_rate)
+        col_layout.addRow("R.Code:", self.cb_rate_code)
         
         # Connect signals
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
@@ -66,6 +68,8 @@ class PBOQToolsPane(QWidget):
         # 2. Format
         format_group = QGroupBox("Format")
         format_layout = QVBoxLayout(format_group)
+        format_layout.setSpacing(1)
+        format_layout.setContentsMargins(2, 2, 2, 2)
         self.wrap_text_btn = QPushButton("Wrap Text")
         self.wrap_text_btn.setCheckable(True)
         self.wrap_text_btn.clicked.connect(lambda checked: self.wrapTextToggled.emit(checked))
@@ -83,8 +87,10 @@ class PBOQToolsPane(QWidget):
         # 3. Extend
         extend_group = QGroupBox("Extend")
         extend_layout = QVBoxLayout(extend_group)
+        extend_layout.setSpacing(1)
+        extend_layout.setContentsMargins(2, 2, 2, 2)
         
-        self.extend_cb0 = QCheckBox("Column 0")
+        self.extend_cb0 = QCheckBox("Col 0")
         self.extend_cb1 = QCheckBox("Column 1")
         self.extend_cb2 = QCheckBox("Column 2")
         self.extend_cb3 = QCheckBox("Column 3")
@@ -115,6 +121,8 @@ class PBOQToolsPane(QWidget):
         # 4. Collect
         collect_group = QGroupBox("Collect")
         collect_layout = QVBoxLayout(collect_group)
+        collect_layout.setSpacing(1)
+        collect_layout.setContentsMargins(2, 2, 2, 2)
         
         kw_row = QHBoxLayout()
         kw_row.addWidget(QLabel("Keywords :"))
@@ -152,8 +160,10 @@ class PBOQToolsPane(QWidget):
         # 5. Summary
         summary_group = QGroupBox("Summary")
         summary_layout = QVBoxLayout(summary_group)
+        summary_layout.setSpacing(1)
+        summary_layout.setContentsMargins(2, 2, 2, 2)
         
-        summary_layout.addWidget(QLabel("Summarize Collections (Case Sensitive) :"))
+        summary_layout.addWidget(QLabel("Summarize (Case Sens.):"))
         
         s_check_row = QHBoxLayout()
         self.summary_desc_cb = QCheckBox("Description")
@@ -174,6 +184,33 @@ class PBOQToolsPane(QWidget):
         self.summarize_btn.clicked.connect(self.summarizeRequested)
         summary_layout.addWidget(self.summarize_btn)
         container_layout.addWidget(summary_group)
+
+        # Apply Balanced Compact Stylesheet
+        self.setStyleSheet("""
+            QGroupBox {
+                margin-top: 12px;
+                padding-top: 4px;
+                font-weight: 600;
+                font-size: 8pt;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 2px;
+                top: 2px;
+            }
+            QLabel, QComboBox, QLineEdit, QPushButton, QCheckBox, QDoubleSpinBox {
+                font-size: 8pt;
+                margin: 0px;
+                padding: 1px;
+            }
+            QPushButton {
+                padding: 2px 5px;
+            }
+        """)
 
         container_layout.addStretch()
         scroll_area.setWidget(container)
