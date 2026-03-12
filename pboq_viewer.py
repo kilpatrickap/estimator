@@ -394,6 +394,9 @@ class PBOQDialog(QDialog):
             # Make sure it appears below the Project dock by tabifying or just adding it
             try:
                 self.main_window.splitDockWidget(self.main_window.project_dock, self.tools_dock, Qt.Orientation.Vertical)
+                # Resize the docks to give Project pane ~15% height and Tools pane ~85% height of the main window
+                h = self.main_window.height()
+                self.main_window.resizeDocks([self.main_window.project_dock, self.tools_dock], [int(h * 0.15), int(h * 0.85)], Qt.Orientation.Vertical)
             except AttributeError:
                 pass
             

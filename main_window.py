@@ -218,7 +218,7 @@ class MainWindow(QMainWindow):
             }
             QPushButton {
                 background-color: transparent;
-                color: white;
+                color: #ffff00;
                 border: none;
                 font-weight: 600;
                 padding: 5px 15px;
@@ -238,7 +238,7 @@ class MainWindow(QMainWindow):
                 background-color: rgba(255, 255, 255, 0.25);
             }
             QLabel {
-                color: white;
+                color: #ffff00;
                 font-weight: bold;
             }
         """)
@@ -251,7 +251,7 @@ class MainWindow(QMainWindow):
         # Branding
         branding_label = QLabel("Estimator Pro")
         
-        branding_label.setStyleSheet("font-size: 14px;")
+        branding_label.setStyleSheet("font-size: 14px; color: #ffff00;")
         layout.addWidget(branding_label)
         
         line = QFrame()

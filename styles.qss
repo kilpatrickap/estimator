@@ -74,7 +74,7 @@ QLabel#SectionHeader {
 /* Standard Buttons (for dialogs etc) */
 QPushButton {
     background-color: #2e7d32;
-    color: white;
+    color: #ffff00;
     padding: 4px 10px;
     border: none;
     border-radius: 3px;
