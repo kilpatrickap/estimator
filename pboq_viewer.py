@@ -620,9 +620,10 @@ class PBOQDialog(QDialog):
                         col_val = row_data[c_idx] if c_idx < len(row_data) else ""
                         t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
                         
-                        # Store rowid in the first column's item for later reference
+                        # Store rowid and global_row_idx for later reference and DB persistence
                         if c_idx == 0:
                             t_item.setData(Qt.ItemDataRole.UserRole, row_id)
+                        t_item.setData(Qt.ItemDataRole.UserRole + 1, global_row_idx)
                         
                         # Apply column-based identification color as base layer
                         if c_idx < 4:
@@ -913,24 +914,25 @@ class PBOQDialog(QDialog):
                 for row in range(table.rowCount()):
                     # Find Orange cells in the bill amount column and revert to base background
                     amount_item = table.item(row, amount_idx)
-                    if amount_item and amount_item.background().color().name().lower() == "#ffa500":  # Orange
+                    if amount_item and amount_item.background().color().name().lower() in ("#ffa500", "orange"):  # Orange
                         # Revert background to column color (Blue: <4, Yellow: <6, Red: <8)
-                        if amount_idx < 4:
-                            amount_item.setBackground(self.COL_COLOR_BLUE)
-                        elif amount_idx < 6:
-                            amount_item.setBackground(self.COL_COLOR_YELLOW)
-                        elif amount_idx < 8:
-                            amount_item.setBackground(self.COL_COLOR_RED)
-                        else:
-                            amount_item.setBackground(QColor("#ffffff"))
+                        base_bg = QColor("#ffffff")
+                        if amount_idx < 4: base_bg = self.COL_COLOR_BLUE
+                        elif amount_idx < 6: base_bg = self.COL_COLOR_YELLOW
+                        elif amount_idx < 8: base_bg = self.COL_COLOR_RED
+                        
+                        amount_item.setBackground(base_bg)
                         
                         # Clear text
                         amount_item.setText("")
                         
                         # Prepare DB update
                         rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                         if rowid is not None:
                             updates_to_db.append((rowid, None))
+                        if global_idx is not None:
+                            self._clear_cell_formatting(global_idx, amount_idx)
                             
                         updated_count += 1
             
@@ -971,8 +973,11 @@ class PBOQDialog(QDialog):
                             
                             # Prepare DB update
                             rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                             if rowid is not None:
                                 updates_to_db.append((rowid, formatted_sum))
+                            if global_idx is not None:
+                                self._persist_cell_formatting(global_idx, amount_idx, bg_color="orange", fg_color="#777777")
                                 
                             updated_count += 1
                         
@@ -1024,6 +1029,10 @@ class PBOQDialog(QDialog):
                         amount_item.setBackground(QColor("orange"))
                         amount_item.setForeground(QColor("#777777"))
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        # Persist for consistency if not already there
+                        global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
+                        if global_idx is not None:
+                            self._persist_cell_formatting(global_idx, amount_idx, bg_color="orange", fg_color="#777777")
         
         self.collect_btn.setText("Revert")
     
@@ -1227,7 +1236,8 @@ class PBOQDialog(QDialog):
             orange_values = []
             for row in range(table.rowCount()):
                 amount_item = table.item(row, amount_idx)
-                if amount_item and amount_item.background().color().name().lower() == "#ffa500": # Orange
+                # Robust color check (hex match or explicit Orange)
+                if amount_item and amount_item.background().color().name().lower() in ("#ffa500", "orange"): # Orange
                     val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
                     try:
                         if val_str:
@@ -1244,37 +1254,52 @@ class PBOQDialog(QDialog):
                 for row in range(table.rowCount()):
                     # Skip the target matching row itself if it already has a value to avoid circular accumulation
                     is_target = False
-                    if self.summary_desc_cb.isChecked() and desc_idx >= 0:
+                    row_desc = ""
+                    row_amt_txt = ""
+                    
+                    if desc_idx >= 0:
                         desc_item = table.item(row, desc_idx)
-                        if desc_item and target_text in desc_item.text():
-                            is_target = True
-                    if not is_target and self.summary_amount_cb.isChecked():
-                        amt_item = table.item(row, amount_idx)
-                        if amt_item and target_text in amt_item.text():
-                            is_target = True
+                        if desc_item: row_desc = desc_item.text()
+                    
+                    amt_item = table.item(row, amount_idx)
+                    if amt_item: row_amt_txt = amt_item.text()
+                    
+                    # Case-insensitive target matching for robustness
+                    if self.summary_desc_cb.isChecked() and target_text.lower() in row_desc.lower():
+                        is_target = True
+                    if not is_target and self.summary_amount_cb.isChecked() and target_text.lower() in row_amt_txt.lower():
+                        is_target = True
                     
                     if not is_target:
                         amount_item = table.item(row, amount_idx)
                         if amount_item:
-                            val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
-                            try:
-                                if val_str:
-                                    sheet_sum += float(val_str)
-                            except ValueError:
-                                pass
+                            # Skip Orange cells here as they are intermediate sums
+                            if amount_item.background().color().name().lower() not in ("#ffa500", "orange"):
+                                val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
+                                try:
+                                    if val_str:
+                                        sheet_sum += float(val_str)
+                                except ValueError:
+                                    pass
             
             # Step 2: Find target rows and update
             updates_to_db = []
             for row in range(table.rowCount()):
                 match = False
-                if self.summary_desc_cb.isChecked() and desc_idx >= 0:
-                    item = table.item(row, desc_idx)
-                    if item and target_text in item.text():
-                        match = True
-                if not match and self.summary_amount_cb.isChecked():
-                    item = table.item(row, amount_idx)
-                    if item and target_text in item.text():
-                        match = True
+                row_desc = ""
+                row_amt_txt = ""
+                
+                if desc_idx >= 0:
+                    desc_item = table.item(row, desc_idx)
+                    if desc_item: row_desc = desc_item.text()
+                
+                amt_item = table.item(row, amount_idx)
+                if amt_item: row_amt_txt = amt_item.text()
+
+                if self.summary_desc_cb.isChecked() and target_text.lower() in row_desc.lower():
+                    match = True
+                if not match and self.summary_amount_cb.isChecked() and target_text.lower() in row_amt_txt.lower():
+                    match = True
                 
                 if match:
                     amount_item = table.item(row, amount_idx)
@@ -1289,8 +1314,13 @@ class PBOQDialog(QDialog):
                     amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     
                     rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                    global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
+                    
                     if rowid is not None:
                         updates_to_db.append((rowid, formatted_sum))
+                    if global_idx is not None:
+                        self._persist_cell_formatting(global_idx, amount_idx, bg_color="lime", fg_color="#777777")
+                        
                     overall_updated += 1
                     overall_sum = sheet_sum # Store the last sheet sum for the message
             
@@ -1299,7 +1329,7 @@ class PBOQDialog(QDialog):
 
         if overall_updated > 0:
             self._save_pboq_state()
-            QMessageBox.information(self, "Summary Complete", f"Successfully updated {overall_updated} summary cells.")
+            QMessageBox.information(self, "Summary Complete", f"Successfully updated {overall_updated} summary cells matching '{target_text}'.")
         else:
             QMessageBox.information(self, "Nothing Found", f"Target text '{target_text}' not found in the ticked columns.")
 
@@ -1318,21 +1348,31 @@ class PBOQDialog(QDialog):
             
             for row in range(table.rowCount()):
                 match = False
-                if self.summary_desc_cb.isChecked() and desc_idx >= 0:
-                    item = table.item(row, desc_idx)
-                    if item and target_text in item.text():
-                        match = True
-                if not match and self.summary_amount_cb.isChecked():
-                    item = table.item(row, amount_idx)
-                    if item and target_text in item.text():
-                        match = True
+                row_desc = ""
+                row_amt_txt = ""
+                
+                if desc_idx >= 0:
+                    desc_item = table.item(row, desc_idx)
+                    if desc_item: row_desc = desc_item.text()
+                
+                amt_item = table.item(row, amount_idx)
+                if amt_item: row_amt_txt = amt_item.text()
+
+                if self.summary_desc_cb.isChecked() and target_text.lower() in row_desc.lower():
+                    match = True
+                if not match and self.summary_amount_cb.isChecked() and target_text.lower() in row_amt_txt.lower():
+                    match = True
                 
                 if match:
                     amount_item = table.item(row, amount_idx)
-                    if amount_item and amount_item.text().strip():
+                    if amount_item:
                         amount_item.setBackground(QColor("lime"))
                         amount_item.setForeground(QColor("#777777"))
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        # Persist for consistency if not already there
+                        global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
+                        if global_idx is not None:
+                            self._persist_cell_formatting(global_idx, amount_idx, bg_color="lime", fg_color="#777777")
 
 
 
@@ -1676,6 +1716,47 @@ class PBOQDialog(QDialog):
 
         except Exception as e:
             print(f"Error persisting batch updates: {e}")
+
+    def _persist_cell_formatting(self, global_row_idx, col_idx, bg_color=None, fg_color=None, bold=None):
+        """Persists cell-level formatting (colors, bold) to the pboq_formatting table."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path): return
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            # Fetch existing JSON if any
+            cursor.execute("SELECT fmt_json FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
+            row = cursor.fetchone()
+            fmt = json.loads(row[0]) if row else {}
+            
+            # Update values
+            if bg_color: fmt['bg_color'] = bg_color if isinstance(bg_color, str) else bg_color.name()
+            if fg_color: fmt['font_color'] = fg_color if isinstance(fg_color, str) else fg_color.name()
+            if bold is not None: fmt['bold'] = bold
+            
+            # Use REPLACE (UPSERT simulation for older SQLite or simple replacement)
+            cursor.execute("DELETE FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
+            cursor.execute("INSERT INTO pboq_formatting (row_idx, col_idx, fmt_json) VALUES (?, ?, ?)", 
+                         (global_row_idx, col_idx, json.dumps(fmt)))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error persisting cell formatting: {e}")
+
+    def _clear_cell_formatting(self, global_row_idx, col_idx):
+        """Removes formatting for a specific cell from the DB."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path or not os.path.exists(file_path): return
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
+            conn.commit()
+            conn.close()
+        except: pass
 
     def _sync_live_links(self, updates):
         """Propagates changes from source cells to destination cells."""
