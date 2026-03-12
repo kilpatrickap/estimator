@@ -1805,7 +1805,6 @@ class PBOQDialog(QDialog):
                     return
 
     def _clear_gross_and_code(self):
-
         """Globally clears all Gross Rate and Rate Code data from the UI and Database."""
         reply = QMessageBox.question(self, "Confirm Clear", 
                                    "Are you sure you want to clear ALL Gross Rates and Rate Codes from every sheet?\n\nThis action cannot be undone.",
@@ -1818,6 +1817,9 @@ class PBOQDialog(QDialog):
         if not file_path or not os.path.exists(file_path):
             return
 
+        rate_idx = self.cb_rate.currentIndex() - 1
+        code_idx = self.cb_rate_code.currentIndex() - 1
+
         # 1. Update Database
         try:
             conn = sqlite3.connect(file_path)
@@ -1825,15 +1827,27 @@ class PBOQDialog(QDialog):
             
             # Check if columns exist before updating
             cursor.execute("PRAGMA table_info(pboq_items)")
-            cols = [info[1] for info in cursor.fetchall()]
+            cols_info = cursor.fetchall()
+            cols = [info[1] for info in cols_info]
             
-            if "GrossRate" in cols or "RateCode" in cols:
-                updates = []
-                if "GrossRate" in cols: updates.append("GrossRate = ''")
-                if "RateCode" in cols: updates.append("RateCode = ''")
-                
+            updates = []
+            if "GrossRate" in cols: updates.append('"GrossRate" = NULL')
+            if "RateCode" in cols: updates.append('"RateCode" = NULL')
+            
+            if updates:
                 sql = f"UPDATE pboq_items SET {', '.join(updates)}"
                 cursor.execute(sql)
+                
+                # Also clear formatting and links if they was stored
+                # We clear formatting for the mapped column indices
+                if rate_idx >= 0 or code_idx >= 0:
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting';")
+                    if cursor.fetchone():
+                        if rate_idx >= 0:
+                            cursor.execute("DELETE FROM pboq_formatting WHERE col_idx = ?", (rate_idx,))
+                        if code_idx >= 0:
+                            cursor.execute("DELETE FROM pboq_formatting WHERE col_idx = ?", (code_idx,))
+                
                 conn.commit()
             conn.close()
         except Exception as e:
@@ -1841,9 +1855,6 @@ class PBOQDialog(QDialog):
             return
 
         # 2. Update UI (All Tabs)
-        rate_idx = self.cb_rate.currentIndex() - 1
-        code_idx = self.cb_rate_code.currentIndex() - 1
-        
         for tab_idx in range(self.tabs.count()):
             table = self.tabs.widget(tab_idx)
             if not isinstance(table, QTableWidget):
@@ -1852,13 +1863,20 @@ class PBOQDialog(QDialog):
             for row in range(table.rowCount()):
                 if rate_idx >= 0:
                     item = table.item(row, rate_idx)
-                    if item: item.setText("")
+                    if item: 
+                        item.setText("")
+                        # Reset background to base column color (Red for Gross Rate/Code usually > 6)
+                        item.setBackground(self.COL_COLOR_RED if rate_idx >= 6 else QColor("#ffffff"))
                 if code_idx >= 0:
                     item = table.item(row, code_idx)
-                    if item: item.setText("")
+                    if item: 
+                        item.setText("")
+                        item.setBackground(self.COL_COLOR_RED if code_idx >= 6 else QColor("#ffffff"))
 
         self._update_stats()
-        QMessageBox.information(self, "Success", "All Gross Rates and Rate Codes have been cleared.")
+        # Save state to reflect that items are unpriced
+        self._save_pboq_state()
+        QMessageBox.information(self, "Success", "All Gross Rates and Rate Codes have been cleared and persisted.")
 
     def _get_mapped_values(self, table, row):
         """Returns a dict of mapped column values for a given row."""
