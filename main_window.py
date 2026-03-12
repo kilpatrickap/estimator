@@ -118,6 +118,7 @@ class MainWindow(QMainWindow):
         self.project_tree.setHeaderHidden(True)
         
         self.project_dock.setWidget(self.project_tree)
+        self.project_dock.setMaximumHeight(120)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
 
     def _update_project_pane_directory(self, project_dir):

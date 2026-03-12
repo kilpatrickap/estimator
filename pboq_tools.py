@@ -178,9 +178,7 @@ class PBOQToolsPane(QWidget):
         container_layout.addStretch()
         scroll_area.setWidget(container)
         
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.addWidget(scroll_area)
+        layout.addWidget(scroll_area)
 
     def populate_column_combos(self, num_columns):
         explicit_columns = [f"Column {i}" for i in range(num_columns)]

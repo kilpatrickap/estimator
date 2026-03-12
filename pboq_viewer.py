@@ -144,46 +144,57 @@ class PBOQDialog(QDialog):
         
         progress = QProgressDialog("Loading Sheets...", None, 0, len(rows), self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
-        rows_loaded = 0
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
         
-        for sheet_name, sheet_entries in sheet_groups.items():
-            table = PBOQTable(self)
-            table.setRowCount(len(sheet_entries))
-            table.setColumnCount(num_display_cols)
-            table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
-            table.cellClicked.connect(self._handle_table_cell_click)
-            
-            for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
-                for c_idx in range(num_display_cols):
-                    val = row_data[c_idx] if c_idx < len(row_data) else ""
-                    item = QTableWidgetItem(str(val) if val is not None else "")
-                    
-                    if c_idx == 0:
-                        item.setData(Qt.ItemDataRole.UserRole, row_id)
-                        self.rowid_to_item0[row_id] = item
-                    item.setData(Qt.ItemDataRole.UserRole + 1, global_row_idx)
-                    
-                    # Apply Formatting
-                    fmt = formatting_data.get((global_row_idx, c_idx))
-                    if fmt:
-                        self._apply_item_format(item, fmt)
-                    
-                    if item.text() == "0.00":
-                        item.setForeground(const.COLOR_GRAY_TEXT)
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                        
-                    table.setItem(r_idx, c_idx, item)
+        rows_loaded = 0
+        try:
+            for sheet_name, sheet_entries in sheet_groups.items():
+                table = PBOQTable(self)
+                table.setRowCount(len(sheet_entries))
+                table.setColumnCount(num_display_cols)
+                table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
+                table.cellClicked.connect(self._handle_table_cell_click)
                 
-                rows_loaded += 1
-                if rows_loaded % 100 == 0:
-                    progress.setValue(rows_loaded)
-                    QApplication.processEvents()
+                for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
+                    for c_idx in range(num_display_cols):
+                        val = row_data[c_idx] if c_idx < len(row_data) else ""
+                        item = QTableWidgetItem(str(val) if val is not None else "")
+                        
+                        if c_idx == 0:
+                            item.setData(Qt.ItemDataRole.UserRole, row_id)
+                            self.rowid_to_item0[row_id] = item
+                        item.setData(Qt.ItemDataRole.UserRole + 1, global_row_idx)
+                        
+                        # Apply Formatting
+                        fmt = formatting_data.get((global_row_idx, c_idx))
+                        if fmt:
+                            self._apply_item_format(item, fmt)
+                        
+                        if item.text() == "0.00":
+                            item.setForeground(const.COLOR_GRAY_TEXT)
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            
+                        table.setItem(r_idx, c_idx, item)
+                    
+                    rows_loaded += 1
+                    if rows_loaded % 100 == 0:
+                        progress.setValue(rows_loaded)
+                        QApplication.processEvents()
+                    if progress.wasCanceled():
+                        break
+                
+                table.apply_column_colors(num_display_cols)
+                table.resizeColumnsToContents()
+                self.tabs.addTab(table, sheet_name)
+                if progress.wasCanceled():
+                    break
             
-            table.apply_column_colors(num_display_cols)
-            table.resizeColumnsToContents()
-            self.tabs.addTab(table, sheet_name)
+            progress.setValue(len(rows))
+        finally:
+            progress.close()
+            self.tabs.blockSignals(False)
             
-        self.tabs.blockSignals(False)
         self._load_pboq_state(index)
         self._update_column_headers()
         self._update_stats()
@@ -313,8 +324,15 @@ class PBOQDialog(QDialog):
         self._save_pboq_state()
 
     def _on_mdi_subwindow_activated(self, sub):
-        if sub and sub.widget() is self: self.tools_dock.show()
-        else: self.tools_dock.hide()
+        try:
+            if hasattr(self, 'tools_dock') and self.tools_dock:
+                if sub and sub.widget() is self: 
+                    self.tools_dock.show()
+                else: 
+                    self.tools_dock.hide()
+        except RuntimeError:
+            # Object already deleted, ignore
+            pass
 
     def _toggle_wrap_text(self, enabled):
         m = self.tools_pane.get_mappings()
@@ -628,8 +646,17 @@ class PBOQDialog(QDialog):
 
     def closeEvent(self, event):
         if self.main_window:
-            try: self.main_window.mdi_area.subWindowActivated.disconnect(self._on_mdi_subwindow_activated)
-            except: pass
-            self.main_window.removeDockWidget(self.tools_dock)
-        self.tools_dock.deleteLater()
+            try: 
+                self.main_window.mdi_area.subWindowActivated.disconnect(self._on_mdi_subwindow_activated)
+            except: 
+                pass
+            
+            try:
+                if hasattr(self, 'tools_dock') and self.tools_dock:
+                    self.main_window.removeDockWidget(self.tools_dock)
+                    self.tools_dock.deleteLater()
+            except RuntimeError:
+                # Object already deleted
+                pass
+        
         super().closeEvent(event)
