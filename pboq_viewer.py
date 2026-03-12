@@ -1217,21 +1217,51 @@ class PBOQDialog(QDialog):
         overall_updated = 0
         overall_sum = 0.0
         
+        qty_idx = self.cb_qty.currentIndex() - 1
+        
         for tab_idx in range(total_sheets):
             table = self.tabs.widget(tab_idx)
             if not isinstance(table, QTableWidget): continue
             
-            # Step 1: Sum all Orange cells in this sheet
-            sheet_sum = 0.0
+            # Step 1: Collect values from Orange cells
+            orange_values = []
             for row in range(table.rowCount()):
                 amount_item = table.item(row, amount_idx)
                 if amount_item and amount_item.background().color().name().lower() == "#ffa500": # Orange
                     val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
                     try:
                         if val_str:
-                            sheet_sum += float(val_str)
+                            orange_values.append(float(val_str))
                     except ValueError:
                         pass
+            
+            sheet_sum = 0.0
+            if orange_values:
+                # Use Orange collections if they exist
+                sheet_sum = sum(orange_values)
+            else:
+                # SMART FALLBACK: Sum all numeric items in the Bill Amount column
+                for row in range(table.rowCount()):
+                    # Skip the target matching row itself if it already has a value to avoid circular accumulation
+                    is_target = False
+                    if self.summary_desc_cb.isChecked() and desc_idx >= 0:
+                        desc_item = table.item(row, desc_idx)
+                        if desc_item and target_text in desc_item.text():
+                            is_target = True
+                    if not is_target and self.summary_amount_cb.isChecked():
+                        amt_item = table.item(row, amount_idx)
+                        if amt_item and target_text in amt_item.text():
+                            is_target = True
+                    
+                    if not is_target:
+                        amount_item = table.item(row, amount_idx)
+                        if amount_item:
+                            val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
+                            try:
+                                if val_str:
+                                    sheet_sum += float(val_str)
+                            except ValueError:
+                                pass
             
             # Step 2: Find target rows and update
             updates_to_db = []
