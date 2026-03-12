@@ -137,8 +137,6 @@ class PBOQDialog(QDialog):
         left_layout = QVBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         
-        left_layout.addWidget(QLabel("Priced BOQ Data:"))
-        
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.South)
         self.tabs.currentChanged.connect(self._on_tab_changed)
