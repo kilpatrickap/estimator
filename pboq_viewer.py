@@ -1285,7 +1285,7 @@ class PBOQDialog(QDialog):
                     formatted_sum = "{:,.2f}".format(sheet_sum)
                     amount_item.setText(formatted_sum)
                     amount_item.setBackground(QColor("lime"))
-                    amount_item.setForeground(QColor("#000000")) 
+                    amount_item.setForeground(QColor("#777777")) 
                     amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     
                     rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -1331,7 +1331,7 @@ class PBOQDialog(QDialog):
                     amount_item = table.item(row, amount_idx)
                     if amount_item and amount_item.text().strip():
                         amount_item.setBackground(QColor("lime"))
-                        amount_item.setForeground(QColor("#000000"))
+                        amount_item.setForeground(QColor("#777777"))
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
 
