@@ -1,14 +1,14 @@
 import os
 import sqlite3
+import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
                              QLineEdit, QWidget, QCheckBox, QComboBox, QTabWidget,
-                             QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton, QDoubleSpinBox)
+                             QGroupBox, QFormLayout, QAbstractItemView, QMenu, QPushButton, 
+                             QDoubleSpinBox, QDockWidget, QScrollArea, QApplication, QProgressDialog)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont, QAction, QBrush
-
-import json
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Excel-style tabbed view with column mapping."""
@@ -29,9 +29,18 @@ class PBOQDialog(QDialog):
         self.COL_COLOR_BLUE = QColor("#e3f2fd")
         self.COL_COLOR_YELLOW = QColor("#fff9c4")
         self.COL_COLOR_RED = QColor("#ffebee")
+
+        # Feature Colors
+        self.COLOR_COLLECT = QColor("orange")
+        self.COLOR_POPULATE = QColor("yellow")
+        self.COLOR_SUMMARY = QColor("lime")
+        self.COLOR_GRAY_TEXT = QColor("#777777")
+        self.COLOR_LINK_CYAN = QColor("#00FFFF")
+
         self.linking_source = None # Stores (table, item, original_bg)
         self.active_links = {}     # source_rowid -> list of dest_rowids
         self.is_syncing_links = False
+        self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
 
 
         
@@ -183,8 +192,8 @@ class PBOQDialog(QDialog):
         self.tabs.setCornerWidget(nav_widget, Qt.Corner.BottomLeftCorner)
         left_layout.addWidget(self.tabs)
         
-        # RIGHT PANE is moved to a DockWidget in the main window
-        from PyQt6.QtWidgets import QDockWidget, QScrollArea
+        # The main layout is just the Excel table now
+        main_layout.addWidget(left_widget)
         
         # Tools Pane
         self.tools_dock = QDockWidget("PBOQ Tools", self.main_window)
@@ -488,8 +497,7 @@ class PBOQDialog(QDialog):
             self.populate_btn.setText("Populate")
 
             
-            self.tabs.clear()
-
+            self.rowid_to_item0 = {} # Reset mapping
             
             from PyQt6.QtWidgets import QApplication, QProgressDialog
             
@@ -553,8 +561,7 @@ class PBOQDialog(QDialog):
                         self.active_links[src] = []
                     self.active_links[src].append(dst)
                 
-            except Exception as e:
-
+            except sqlite3.Error as e:
                 QMessageBox.critical(self, "Database Error", f"Failed to load PBOQ database:\n{e}")
                 return
             finally:
@@ -655,10 +662,12 @@ class PBOQDialog(QDialog):
                         
                         # Special Case: Extended dummy rates (0.00) show as gray text by default
                         if t_item.text() == "0.00":
-                            t_item.setForeground(QColor("#777777"))
+                            t_item.setForeground(self.COLOR_GRAY_TEXT)
                             t_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
                         table.setItem(r_idx, c_idx, t_item)
+                        if c_idx == 0:
+                            self.rowid_to_item0[row_id] = t_item
                     
                     # Count stats
                     if qty_mapped >= 0 and qty_mapped < len(row_data):
@@ -917,10 +926,7 @@ class PBOQDialog(QDialog):
                     amount_item = table.item(row, amount_idx)
                     if amount_item and amount_item.background().color().name().lower() in ("#ffa500", "orange"):  # Orange
                         # Revert background to column color (Blue: <4, Yellow: <6, Red: <8)
-                        base_bg = QColor("#ffffff")
-                        if amount_idx < 4: base_bg = self.COL_COLOR_BLUE
-                        elif amount_idx < 6: base_bg = self.COL_COLOR_YELLOW
-                        elif amount_idx < 8: base_bg = self.COL_COLOR_RED
+                        base_bg = self._get_base_column_color(amount_idx)
                         
                         amount_item.setBackground(base_bg)
                         
@@ -928,7 +934,8 @@ class PBOQDialog(QDialog):
                         amount_item.setText("")
                         
                         # Prepare DB update
-                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                        item0 = table.item(row, 0)
+                        rowid = item0.data(Qt.ItemDataRole.UserRole) if item0 else None
                         global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                         if rowid is not None:
                             updates_to_db.append((rowid, None))
@@ -966,19 +973,20 @@ class PBOQDialog(QDialog):
                     if desc_item and keyword in desc_item.text().lower():
                         # Highlight the intersecting bill amount cell
                         if amount_item:
-                            amount_item.setBackground(QColor("orange"))
+                            amount_item.setBackground(self.COLOR_COLLECT)
                             # Store and display sum
                             formatted_sum = "{:,.2f}".format(current_sum)
                             amount_item.setText(formatted_sum)
-                            amount_item.setForeground(QColor("#777777")) # Gray out color
+                            amount_item.setForeground(self.COLOR_GRAY_TEXT)
                             
                             # Prepare DB update
-                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            item0 = table.item(row, 0)
+                            rowid = item0.data(Qt.ItemDataRole.UserRole) if item0 else None
                             global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                             if rowid is not None:
                                 updates_to_db.append((rowid, formatted_sum))
                             if global_idx is not None:
-                                self._persist_cell_formatting(global_idx, amount_idx, bg_color="orange", fg_color="#777777")
+                                self._persist_cell_formatting(global_idx, amount_idx, bg_color=self.COLOR_COLLECT.name(), fg_color=self.COLOR_GRAY_TEXT.name())
                                 
                             updated_count += 1
                         
@@ -1027,13 +1035,13 @@ class PBOQDialog(QDialog):
                 if keyword in desc_item.text().lower():
                     amount_item = table.item(row, amount_idx)
                     if amount_item:
-                        amount_item.setBackground(QColor("orange"))
-                        amount_item.setForeground(QColor("#777777"))
+                        amount_item.setBackground(self.COLOR_COLLECT)
+                        amount_item.setForeground(self.COLOR_GRAY_TEXT)
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         # Persist for consistency if not already there
                         global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                         if global_idx is not None:
-                            self._persist_cell_formatting(global_idx, amount_idx, bg_color="orange", fg_color="#777777")
+                            self._persist_cell_formatting(global_idx, amount_idx, bg_color=self.COLOR_COLLECT.name(), fg_color=self.COLOR_GRAY_TEXT.name())
         
         self.collect_btn.setText("Revert")
     
@@ -1074,8 +1082,8 @@ class PBOQDialog(QDialog):
                 
                 amount_item = table.item(row, amount_idx)
                 if desc_text.strip() and not has_qty and amount_item and amount_item.text().strip():
-                    if amount_item.foreground().color().name().lower() == "#777777":
-                        amount_item.setBackground(QColor("yellow"))
+                    if amount_item.foreground().color().name().lower() == self.COLOR_GRAY_TEXT.name().lower():
+                        amount_item.setBackground(self.COLOR_POPULATE)
 
 
     def _run_populate_collection(self):
@@ -1110,9 +1118,10 @@ class PBOQDialog(QDialog):
                 for row in range(table.rowCount()):
                     item = table.item(row, amount_idx)
                     # We identify collected values by their Orange background
-                    if item and item.background().color().name().lower() == "#ffa500": # Orange
+                    item0 = table.item(row, 0)
+                    rowid = item0.data(Qt.ItemDataRole.UserRole) if item0 else None
+                    if item and item.background().color().name().lower() == self.COLOR_COLLECT.name().lower(): # Orange
                         val_str = item.text().strip()
-                        rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
                         if val_str and rowid is not None:
                             bucket.append((rowid, val_str))
                 if not bucket:
@@ -1149,10 +1158,11 @@ class PBOQDialog(QDialog):
                     # REVERT MODE: Clear values that were likely populated (Gray text, no qty)
                     if desc_text.strip() and not has_qty and amount_item:
                         # Check if it has gray text (our signature)
-                        if amount_item.foreground().color().name().lower() == "#777777":
+                        if amount_item.foreground().color().name().lower() == self.COLOR_GRAY_TEXT.name().lower():
                             amount_item.setText("")
                             amount_item.setBackground(QBrush()) # Clear yellow
-                            rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
+                            item0 = table.item(row, 0)
+                            rowid = item0.data(Qt.ItemDataRole.UserRole) if item0 else None
 
                             if rowid is not None:
                                 self._remove_link_from_db(rowid) # Break link on Un-Populate
@@ -1177,8 +1187,8 @@ class PBOQDialog(QDialog):
                                 updates_to_db.append((dest_rowid, val_to_fill))
                             
                             amount_item.setText(val_to_fill)
-                            amount_item.setForeground(QColor("#777777")) 
-                            amount_item.setBackground(QColor("yellow"))
+                            amount_item.setForeground(self.COLOR_GRAY_TEXT) 
+                            amount_item.setBackground(self.COLOR_POPULATE)
                             amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             
                             bucket_idx += 1
@@ -1238,7 +1248,7 @@ class PBOQDialog(QDialog):
             for row in range(table.rowCount()):
                 amount_item = table.item(row, amount_idx)
                 # Robust color check (hex match or explicit Orange)
-                if amount_item and amount_item.background().color().name().lower() in ("#ffa500", "orange"): # Orange
+                if amount_item and amount_item.background().color().name().lower() == self.COLOR_COLLECT.name().lower(): # Orange
                     val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
                     try:
                         if val_str:
@@ -1275,7 +1285,7 @@ class PBOQDialog(QDialog):
                         amount_item = table.item(row, amount_idx)
                         if amount_item:
                             # Skip Orange cells here as they are intermediate sums
-                            if amount_item.background().color().name().lower() not in ("#ffa500", "orange"):
+                            if amount_item.background().color().name().lower() != self.COLOR_COLLECT.name().lower():
                                 val_str = amount_item.text().strip().replace(',', '').replace(' ', '')
                                 try:
                                     if val_str:
@@ -1310,8 +1320,8 @@ class PBOQDialog(QDialog):
                     
                     formatted_sum = "{:,.2f}".format(sheet_sum)
                     amount_item.setText(formatted_sum)
-                    amount_item.setBackground(QColor("lime"))
-                    amount_item.setForeground(QColor("#777777")) 
+                    amount_item.setBackground(self.COLOR_SUMMARY)
+                    amount_item.setForeground(self.COLOR_GRAY_TEXT) 
                     amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                     
                     rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -1320,7 +1330,7 @@ class PBOQDialog(QDialog):
                     if rowid is not None:
                         updates_to_db.append((rowid, formatted_sum))
                     if global_idx is not None:
-                        self._persist_cell_formatting(global_idx, amount_idx, bg_color="lime", fg_color="#777777")
+                        self._persist_cell_formatting(global_idx, amount_idx, bg_color=self.COLOR_SUMMARY.name(), fg_color=self.COLOR_GRAY_TEXT.name())
                         
                     overall_updated += 1
                     overall_sum = sheet_sum # Store the last sheet sum for the message
@@ -1367,13 +1377,13 @@ class PBOQDialog(QDialog):
                 if match:
                     amount_item = table.item(row, amount_idx)
                     if amount_item:
-                        amount_item.setBackground(QColor("lime"))
-                        amount_item.setForeground(QColor("#777777"))
+                        amount_item.setBackground(self.COLOR_SUMMARY)
+                        amount_item.setForeground(self.COLOR_GRAY_TEXT)
                         amount_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         # Persist for consistency if not already there
                         global_idx = amount_item.data(Qt.ItemDataRole.UserRole + 1)
                         if global_idx is not None:
-                            self._persist_cell_formatting(global_idx, amount_idx, bg_color="lime", fg_color="#777777")
+                            self._persist_cell_formatting(global_idx, amount_idx, bg_color=self.COLOR_SUMMARY.name(), fg_color=self.COLOR_GRAY_TEXT.name())
 
 
 
@@ -1409,7 +1419,7 @@ class PBOQDialog(QDialog):
                 item.setText("")
                 if rowid is not None:
                     # Remove any links where this row is a destination
-                    self._remove_link_from_db(dest_rowid=rowid)
+                    self._remove_link_from_db(rowid)
                     self._persist_batch_updates(amount_idx, [(rowid, "")])
                 self._update_stats()
         
@@ -1427,7 +1437,7 @@ class PBOQDialog(QDialog):
             
             # Start Link Mode
             orig_bg = item.background()
-            item.setBackground(QColor("#00FFFF")) # Distinctive Cyan highlight
+            item.setBackground(self.COLOR_LINK_CYAN) # Distinctive Cyan highlight
             self.linking_source = {
                 'table': table,
                 'row': row,
@@ -1437,7 +1447,6 @@ class PBOQDialog(QDialog):
                 'item': item,
                 'orig_bg': orig_bg
             }
-
 
     def _handle_table_cell_click(self, row, col):
         """Handles cell clicks for the Link to Collection logic."""
@@ -1471,8 +1480,8 @@ class PBOQDialog(QDialog):
                 self._save_link_to_db(source_rowid, dest_rowid)
 
                 item.setText(val)
-                item.setForeground(QColor("#777777"))
-                item.setBackground(QColor("yellow"))
+                item.setForeground(self.COLOR_GRAY_TEXT)
+                item.setBackground(self.COLOR_POPULATE)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
                 
@@ -1502,7 +1511,7 @@ class PBOQDialog(QDialog):
                 self.active_links[source_rowid] = []
             if dest_rowid not in self.active_links[source_rowid]:
                 self.active_links[source_rowid].append(dest_rowid)
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error saving link to DB: {e}")
 
     def _remove_link_from_db(self, dest_rowid):
@@ -1521,7 +1530,7 @@ class PBOQDialog(QDialog):
             for src in self.active_links:
                 if dest_rowid in self.active_links[src]:
                     self.active_links[src].remove(dest_rowid)
-        except Exception as e:
+        except sqlite3.Error as e:
             print(f"Error removing link from DB: {e}")
 
     def _clear_link_mode(self):
@@ -1566,7 +1575,7 @@ class PBOQDialog(QDialog):
                 for row in range(table.rowCount()):
                     rate_item = table.item(row, rate_idx)
                     # Identify dummy rates by their gray color AND matching the current dummy rate value
-                    if rate_item and rate_item.foreground().color().name().lower() == "#777777" and rate_item.text() == d_rate_str:
+                    if rate_item and rate_item.foreground().color().name().lower() == self.COLOR_GRAY_TEXT.name().lower() and rate_item.text() == d_rate_str:
                         # Clear Rate
                         rate_item.setText("")
                         
@@ -1650,11 +1659,9 @@ class PBOQDialog(QDialog):
                         dummy_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         
                         # Apply background color
-                        if rate_idx < 4: dummy_item.setBackground(self.COL_COLOR_BLUE)
-                        elif rate_idx < 6: dummy_item.setBackground(self.COL_COLOR_YELLOW)
-                        elif rate_idx < 8: dummy_item.setBackground(self.COL_COLOR_RED)
+                        dummy_item.setBackground(self._get_base_column_color(rate_idx))
                             
-                        dummy_item.setForeground(QColor("#777777"))
+                        dummy_item.setForeground(self.COLOR_GRAY_TEXT)
                         table.setItem(row, rate_idx, dummy_item)
                         
                         # Calculation: Bill Amount = Qty * Custom Dummy Rate
@@ -1665,11 +1672,9 @@ class PBOQDialog(QDialog):
                             amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             
                             # Apply background color based on column index (to match theme)
-                            if amount_idx < 4: amt_item.setBackground(self.COL_COLOR_BLUE)
-                            elif amount_idx < 6: amt_item.setBackground(self.COL_COLOR_YELLOW)
-                            elif amount_idx < 8: amt_item.setBackground(self.COL_COLOR_RED)
+                            amt_item.setBackground(self._get_base_column_color(amount_idx))
                             
-                            amt_item.setForeground(QColor("#777777")) # Match dummy color
+                            amt_item.setForeground(self.COLOR_GRAY_TEXT) # Match dummy color
                             table.setItem(row, amount_idx, amt_item)
 
                         rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
@@ -1693,7 +1698,7 @@ class PBOQDialog(QDialog):
                 QMessageBox.information(self, "No Items Found", 
                                       "No aligned items without rates were found with valid numeric quantities.")
 
-    def _persist_batch_updates(self, rate_idx, updates):
+    def _persist_batch_updates(self, col_idx_in_display, updates):
         """Helper to batch update PBOQ items in the database by rowid."""
         file_path = self.pboq_file_selector.currentData()
         if not file_path or not os.path.exists(file_path): return
@@ -1702,7 +1707,12 @@ class PBOQDialog(QDialog):
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
             db_cols = getattr(self, 'db_columns', [])
-            db_col_to_update = db_cols[rate_idx + 1] if rate_idx + 1 < len(db_cols) else None
+            
+            # col_idx_in_display is 0-based index of the column in the displayed table (e.g., 0-7)
+            # db_cols includes 'Sheet' at index 0, then 'Column 0', 'Column 1', etc.
+            # So, to get the actual DB column name, we need to add 1 to the display index.
+            db_col_index = col_idx_in_display + 1 
+            db_col_to_update = db_cols[db_col_index] if db_col_index < len(db_cols) else None
             
             if db_col_to_update:
                 for rowid, val in updates:
@@ -1712,11 +1722,18 @@ class PBOQDialog(QDialog):
             
             # If this update was on the Bill Amount column, trigger live sync
             amount_idx = self.cb_bill_amount.currentIndex() - 1
-            if rate_idx == amount_idx:
+            if col_idx_in_display == amount_idx:
                 self._sync_live_links(updates)
 
-        except Exception as e:
-            print(f"Error persisting batch updates: {e}")
+        except sqlite3.Error as e:
+            QMessageBox.critical(self, "Update Error", f"Failed to persist batch updates:\n{e}")
+
+    def _get_base_column_color(self, col_idx):
+        """Returns the theme-consistent background color for a given column index."""
+        if col_idx < 4: return self.COL_COLOR_BLUE
+        if col_idx < 6: return self.COL_COLOR_YELLOW
+        if col_idx < 8: return self.COL_COLOR_RED
+        return QColor("#ffffff")
 
     def _persist_cell_formatting(self, global_row_idx, col_idx, bg_color=None, fg_color=None, bold=None):
         """Persists cell-level formatting (colors, bold) to the pboq_formatting table."""
@@ -1757,7 +1774,8 @@ class PBOQDialog(QDialog):
             cursor.execute("DELETE FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
             conn.commit()
             conn.close()
-        except: pass
+        except Exception: # Broad exception for file operations, as it's non-critical
+            pass
 
     def _sync_live_links(self, updates):
         """Propagates changes from source cells to destination cells."""
@@ -1785,25 +1803,25 @@ class PBOQDialog(QDialog):
         self.is_syncing_links = False
 
     def _update_cell_by_rowid(self, rowid, col_idx, val):
-        """Finds a cell by rowid across all tabs and updates its value and style."""
-        for tab_idx in range(self.tabs.count()):
-            table = self.tabs.widget(tab_idx)
-            if not isinstance(table, QTableWidget): continue
+        """Finds a cell by rowid using the optimized mapping and updates its value and style."""
+        item0 = self.rowid_to_item0.get(rowid)
+        if not item0:
+            return
             
-            for row in range(table.rowCount()):
-                item0 = table.item(row, 0)
-                if item0 and item0.data(Qt.ItemDataRole.UserRole) == rowid:
-                    item = table.item(row, col_idx)
-                    if not item:
-                        item = QTableWidgetItem()
-                        table.setItem(row, col_idx, item)
-                    
-                    item.setText(str(val) if val is not None else "")
-                    item.setForeground(QColor("#777777"))
-                    item.setBackground(QColor("yellow"))
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-
-                    return
+        table = item0.tableWidget()
+        if not table:
+            return
+            
+        row = table.row(item0)
+        item = table.item(row, col_idx)
+        if not item:
+            item = QTableWidgetItem()
+            table.setItem(row, col_idx, item)
+        
+        item.setText(str(val) if val is not None else "")
+        item.setForeground(self.COLOR_GRAY_TEXT)
+        item.setBackground(self.COLOR_POPULATE)
+        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
     def _clear_gross_and_code(self):
         """Globally clears all Gross Rate and Rate Code data from the UI and Database."""
@@ -2048,24 +2066,24 @@ class PBOQDialog(QDialog):
             self.main_window.show_rate_in_database(rate_code)
 
     def _persist_to_pboq_db(self, table, row, gross_rate, rate_code):
-        """Persists the Gross Rate and Rate Code back to the PBOQ SQLite database."""
+        """Persists the Gross Rate and Rate Code back to the PBOQ SQLite database using rowid."""
         file_path = self.pboq_file_selector.currentData()
         if not file_path or not os.path.exists(file_path):
             return
         
-        # Get the sheet name from the current tab
-        current_tab_idx = self.tabs.indexOf(table)
-        sheet_name = self.tabs.tabText(current_tab_idx) if current_tab_idx >= 0 else ""
-        
-        # Get the DB column names (db_columns[1:] = display columns)
-        db_cols = getattr(self, 'db_columns', [])
-        display_cols = db_cols[1:] if len(db_cols) > 1 else []
+        # Get the rowid from the first column (Column 0 usually)
+        item0 = table.item(row, 0)
+        if not item0:
+            return
+        rowid = item0.data(Qt.ItemDataRole.UserRole)
+        if rowid is None:
+            return
         
         try:
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
             
-            # Ensure columns exist
+            # Ensure columns exist (Sanity check)
             cursor.execute("PRAGMA table_info(pboq_items)")
             cols = [info[1] for info in cursor.fetchall()]
             
@@ -2074,25 +2092,11 @@ class PBOQDialog(QDialog):
             if "RateCode" not in cols:
                 cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
             
-            # Build WHERE clause using Sheet + all data columns (excluding GrossRate and RateCode)
-            where_parts = ["Sheet = ?"]
-            where_values = [sheet_name]
-            
-            for c_idx, col_name in enumerate(display_cols):
-                if col_name in ("GrossRate", "RateCode"):
-                    continue
-                item = table.item(row, c_idx)
-                val = item.text() if item else ""
-                where_parts.append(f'"{col_name}" = ?')
-                where_values.append(val)
-            
-            where_clause = " AND ".join(where_parts)
-            
-            cursor.execute(f"""
+            cursor.execute("""
                 UPDATE pboq_items 
                 SET GrossRate = ?, RateCode = ? 
-                WHERE {where_clause}
-            """, [gross_rate, rate_code] + where_values)
+                WHERE rowid = ?
+            """, (gross_rate, rate_code, rowid))
             
             conn.commit()
             conn.close()
