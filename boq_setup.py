@@ -22,11 +22,12 @@ class BOQSetupWindow(QWidget):
         self.concat_descriptions = False
         
         # Color codes for visual feedback
-        self.COLOR_HEADING = QColor("#e8f5e9") # Light green
-        self.COLOR_ITEM = QColor("#fff9c4")    # Pale yellow
+        self.COLOR_HEADING = const.COLOR_HEADING 
+        self.COLOR_ITEM = const.COLOR_ITEM    
         self.COLOR_IGNORE = QColor("#ffebee")  # Light red
 
         self.setWindowTitle(f"BOQ Setup - {os.path.basename(boq_file_path)}")
+        self.setMinimumSize(950, 450)
         self._init_ui()
         self._load_excel()
 
@@ -323,6 +324,16 @@ class BOQSetupWindow(QWidget):
                 
                 columns = [f"Column {i}" for i in range(len(df.columns))]
                 table.setHorizontalHeaderLabels(columns)
+                
+                # Apply heading color and blue text to the header using Palette
+                header = table.horizontalHeader()
+                header.setAutoFillBackground(True)
+                palette = header.palette()
+                palette.setColor(header.backgroundRole(), const.COLOR_HEADING)
+                palette.setColor(header.foregroundRole(), Qt.GlobalColor.blue)
+                palette.setColor(palette.ColorRole.Button, const.COLOR_HEADING)
+                palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.blue)
+                header.setPalette(palette)
                 
                 ws = None
                 if wb and is_xlsx and sheet_name in wb.sheetnames:

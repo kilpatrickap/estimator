@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
                              QLineEdit, QWidget, QCheckBox)
 from PyQt6.QtCore import Qt
+import pboq_constants as const
 
 class SORDialog(QDialog):
     def __init__(self, project_dir, parent=None):
@@ -15,7 +16,7 @@ class SORDialog(QDialog):
         self.clipboard_data = None  # Store copied rate data
         
         self.setWindowTitle("Schedules of Rate (SOR)")
-        self.setMinimumSize(900, 600)
+        self.setMinimumSize(950, 450)
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
@@ -96,6 +97,15 @@ class SORDialog(QDialog):
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
         header.setMinimumSectionSize(20)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        
+        # Apply heading color and blue text using Palette
+        header.setAutoFillBackground(True)
+        palette = header.palette()
+        palette.setColor(header.backgroundRole(), const.COLOR_HEADING)
+        palette.setColor(header.foregroundRole(), Qt.GlobalColor.blue)
+        palette.setColor(palette.ColorRole.Button, const.COLOR_HEADING)
+        palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.blue)
+        header.setPalette(palette)
         
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self._show_context_menu)
