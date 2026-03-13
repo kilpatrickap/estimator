@@ -71,6 +71,7 @@ class BOQToolsPane(QWidget):
         c_layout.addWidget(level_group)
 
         # 4. Actions
+        action_group = QGroupBox("Actions")
         action_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
         action_layout = QVBoxLayout(action_group)
         action_layout.setContentsMargins(5, 5, 5, 5)
