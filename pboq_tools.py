@@ -285,3 +285,47 @@ class PBOQToolsPane(QWidget):
         self.extend_cb1.setText(roles.get(1, "Column 1"))
         self.extend_cb2.setText(roles.get(2, "Column 2"))
         self.extend_cb3.setText(roles.get(3, "Column 3"))
+
+    def get_tools_state(self):
+        """Returns the full state of all tools for persistence."""
+        return {
+            'mappings': self.get_mappings(),
+            'extend_cb0': self.extend_cb0.isChecked(),
+            'extend_cb1': self.extend_cb1.isChecked(),
+            'extend_cb2': self.extend_cb2.isChecked(),
+            'extend_cb3': self.extend_cb3.isChecked(),
+            'dummy_rate': self.dummy_rate_spin.value(),
+            'collect_kw': self.collect_search_bar.text(),
+            'collect_desc': self.collect_desc_cb.isChecked(),
+            'collect_amount': self.collect_amount_cb.isChecked(),
+            'collect_target': self.collection_target_bar.text(),
+            'summary_desc': self.summary_desc_cb.isChecked(),
+            'summary_amount': self.summary_amount_cb.isChecked(),
+            'summary_target': self.summary_target_bar.text(),
+            'wrap_text': self.wrap_text_btn.isChecked()
+        }
+
+    def set_tools_state(self, state):
+        """Restores the state of all tools from a dictionary."""
+        if 'mappings' in state: self.set_mappings(state['mappings'])
+        
+        # Block signals to avoid redundant saves while loading
+        self.blockSignals(True)
+        try:
+            if 'extend_cb0' in state: self.extend_cb0.setChecked(state['extend_cb0'])
+            if 'extend_cb1' in state: self.extend_cb1.setChecked(state['extend_cb1'])
+            if 'extend_cb2' in state: self.extend_cb2.setChecked(state['extend_cb2'])
+            if 'extend_cb3' in state: self.extend_cb3.setChecked(state['extend_cb3'])
+            if 'dummy_rate' in state: self.dummy_rate_spin.setValue(state['dummy_rate'])
+            if 'collect_kw' in state: self.collect_search_bar.setText(state['collect_kw'])
+            if 'collect_desc' in state: self.collect_desc_cb.setChecked(state['collect_desc'])
+            if 'collect_amount' in state: self.collect_amount_cb.setChecked(state['collect_amount'])
+            if 'collect_target' in state: self.collection_target_bar.setText(state['collect_target'])
+            if 'summary_desc' in state: self.summary_desc_cb.setChecked(state['summary_desc'])
+            if 'summary_amount' in state: self.summary_amount_cb.setChecked(state['summary_amount'])
+            if 'summary_target' in state: self.summary_target_bar.setText(state['summary_target'])
+            if 'wrap_text' in state: self.wrap_text_btn.setChecked(state['wrap_text'])
+        finally:
+            self.blockSignals(False)
+        
+        self.update_extend_labels()

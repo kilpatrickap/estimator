@@ -615,11 +615,8 @@ class PBOQDialog(QDialog):
         state_dir = os.path.join(self.project_dir, "PBOQ States")
         os.makedirs(state_dir, exist_ok=True)
         
-        state = {
-            'mappings': self.tools_pane.get_mappings(),
-            'active_tab': self.tabs.currentIndex(),
-            'wrap_text': self.tools_pane.wrap_text_btn.isChecked()
-        }
+        state = self.tools_pane.get_tools_state()
+        state['active_tab'] = self.tabs.currentIndex()
         
         state_file = os.path.join(state_dir, os.path.basename(file_path) + ".json")
         with open(state_file, 'w') as f:
@@ -631,9 +628,8 @@ class PBOQDialog(QDialog):
         if os.path.exists(state_file):
             with open(state_file, 'r') as f:
                 state = json.load(f)
-                self.tools_pane.set_mappings(state.get('mappings', {}))
+                self.tools_pane.set_tools_state(state)
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
-                self.tools_pane.wrap_text_btn.setChecked(state.get('wrap_text', False))
                 # Apply word wrap state after loading
                 self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
 
