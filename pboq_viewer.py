@@ -338,12 +338,14 @@ class PBOQDialog(QDialog):
 
     def _toggle_wrap_text(self, enabled):
         m = self.tools_pane.get_mappings()
+        desc_col = m.get('desc', -1)
         for i in range(self.tabs.count()):
-            t = self.tabs.widget(i)
-            t.setWordWrap(enabled)
-            if enabled: t.resizeRowsToContents()
-            else:
-                for r in range(t.rowCount()): t.setRowHeight(r, 24)
+            table = self.tabs.widget(i)
+            if enabled and desc_col >= 0:
+                # Ensure description column is not too wide for wrapping to be effective
+                if table.columnWidth(desc_col) > 400:
+                    table.setColumnWidth(desc_col, 400)
+            table.set_word_wrap_enabled(enabled)
 
     def _update_column_headers(self):
         m = self.tools_pane.get_mappings()
@@ -632,6 +634,8 @@ class PBOQDialog(QDialog):
                 self.tools_pane.set_mappings(state.get('mappings', {}))
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
                 self.tools_pane.wrap_text_btn.setChecked(state.get('wrap_text', False))
+                # Apply word wrap state after loading
+                self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
 
     def _save_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")

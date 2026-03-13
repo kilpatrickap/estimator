@@ -67,3 +67,18 @@ class PBOQTable(QTableWidget):
             
             full_row_text = " ".join(row_texts)
             self.setRowHidden(row, search_text not in full_row_text if search_text else False)
+
+    def set_word_wrap_enabled(self, enabled):
+        """Toggles word wrap and updates row heights accordingly."""
+        self.setWordWrap(enabled)
+        vh = self.verticalHeader()
+        if enabled:
+            # Allow rows to be resized by content
+            vh.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            self.resizeRowsToContents()
+        else:
+            # Revert to fixed 24px height
+            vh.setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+            vh.setDefaultSectionSize(24)
+            for r in range(self.rowCount()):
+                self.setRowHeight(r, 24)
