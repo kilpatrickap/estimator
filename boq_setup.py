@@ -206,7 +206,6 @@ class BOQSetupWindow(QWidget):
         right_layout = QVBoxLayout(right_widget)
         right_layout.setContentsMargins(0, 0, 0, 0)
         
-        right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Level", "Type"])
         self.tree.header().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
