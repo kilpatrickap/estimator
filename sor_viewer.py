@@ -1,11 +1,77 @@
 import os
 import sqlite3
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
-                             QLineEdit, QWidget, QCheckBox)
-from PyQt6.QtCore import Qt
+                             QLineEdit, QWidget, QCheckBox, QDockWidget, QScrollArea,
+                             QFrame)
 import pboq_constants as const
+
+class SORToolsPane(QWidget):
+    """Encapsulates the search, list, and stats for SOR into a dockable pane."""
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        
+        container = QWidget()
+        container.setStyleSheet("font-size: 8pt;") # Smaller font for compact look
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(5, 5, 5, 5)
+        c_layout.setSpacing(8)
+
+        # 1. Search Box
+        search_group = QFrame()
+        search_group.setFrameShape(QFrame.Shape.StyledPanel)
+        s_layout = QVBoxLayout(search_group)
+        s_layout.setContentsMargins(5, 5, 5, 5)
+        s_layout.setSpacing(2)
+        s_layout.addWidget(QLabel("<b>Universal Search:</b>"))
+        self.owner.search_bar.setMaximumHeight(20)
+        s_layout.addWidget(self.owner.search_bar)
+        self.owner.similar_checkbox.setStyleSheet("margin-bottom: -4px;")
+        s_layout.addWidget(self.owner.similar_checkbox)
+        s_layout.addWidget(QLabel("<b>Keywords (csv):</b>"))
+        self.owner.keywords_input.setMaximumHeight(20)
+        s_layout.addWidget(self.owner.keywords_input)
+        c_layout.addWidget(search_group)
+
+        # 2. Stats
+        stats_group = QFrame()
+        stats_group.setFrameShape(QFrame.Shape.StyledPanel)
+        st_layout = QVBoxLayout(stats_group)
+        st_layout.setContentsMargins(5, 5, 5, 5)
+        st_layout.setSpacing(2)
+        st_layout.addWidget(QLabel("<b>Price Statistics:</b>"))
+        st_layout.addWidget(self.owner.total_rates_label)
+        st_layout.addWidget(self.owner.found_rates_label)
+        st_layout.addWidget(self.owner.priced_rates_label)
+        st_layout.addWidget(self.owner.outstanding_rates_label)
+        c_layout.addWidget(stats_group)
+
+        # 3. SOR Files
+        list_group = QFrame()
+        list_group.setFrameShape(QFrame.Shape.StyledPanel)
+        l_layout = QVBoxLayout(list_group)
+        l_layout.setContentsMargins(5, 5, 5, 5)
+        l_layout.setSpacing(2)
+        l_layout.addWidget(QLabel("<b>Available SORs:</b>"))
+        self.owner.list_widget.setMinimumHeight(150)
+        l_layout.addWidget(self.owner.list_widget)
+        c_layout.addWidget(list_group)
+        
+        c_layout.addStretch()
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
 class SORDialog(QDialog):
     def __init__(self, project_dir, parent=None):
@@ -18,84 +84,44 @@ class SORDialog(QDialog):
         self.setWindowTitle("Schedules of Rate (SOR)")
         self.setMinimumSize(950, 450)
         
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Splitter to hold Left (List) and Right (Table)
-        self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        self.splitter.setHandleWidth(4)
-        self.splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
-        
-        # Left Panel (List of SORs)
-        self.list_widget = QListWidget()
-        self.list_widget.setStyleSheet("QListWidget::item { height: 20px; font-size: 8pt; padding: 0px; }")
-        self.list_widget.itemChanged.connect(self._load_selected_sor)
-        self.splitter.addWidget(self.list_widget)
-        
-        # Right Panel (Layout containing Search Bar and Table)
-        right_widget = QWidget()
-        right_layout = QVBoxLayout(right_widget)
-        right_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Search controls layout
-        search_layout = QHBoxLayout()
-        
+    def _init_ui(self):
+        # Create all tools first
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search...")
+        self.search_bar.setPlaceholderText("Search all columns...")
         self.search_bar.textChanged.connect(self._filter_table)
-        search_layout.addWidget(self.search_bar)
-        
-        self.similar_checkbox = QCheckBox("Similar rates")
-        self.similar_checkbox.stateChanged.connect(self._filter_table)
-        search_layout.addWidget(self.similar_checkbox)
-        
-        self.keywords_label = QLabel("Keywords:")
-        search_layout.addWidget(self.keywords_label)
         
         self.keywords_input = QLineEdit()
-        self.keywords_input.setPlaceholderText("e.g. wall, brick, 150mm")
+        self.keywords_input.setPlaceholderText("e.g. wall, brick")
         self.keywords_input.textChanged.connect(self._filter_table)
-        search_layout.addWidget(self.keywords_input)
         
-        right_layout.addLayout(search_layout)
+        self.similar_checkbox = QCheckBox("Similar rates (OR logic)")
+        self.similar_checkbox.stateChanged.connect(self._filter_table)
         
-        # Stats layout
-        stats_layout = QVBoxLayout()
-        stats_layout.setSpacing(2)
-        stats_row = QHBoxLayout()
-        self.total_rates_label = QLabel("Total Rates : 0")
-        self.found_rates_label = QLabel("Found Rates : 0")
-        self.priced_rates_label = QLabel("Priced Rates : 0")
-        self.outstanding_rates_label = QLabel("Outstanding Rates : 0")
+        label_style = "font-weight: bold; font-size: 9pt;"
+        self.total_rates_label = QLabel("Total: 0")
+        self.found_rates_label = QLabel("Found: 0")
+        self.priced_rates_label = QLabel("Priced: 0")
+        self.outstanding_rates_label = QLabel("Outstanding: 0")
         
-        # Style labels with smaller font for compact look
-        label_style = "font-weight: bold; font-size: 8pt;"
-        self.total_rates_label.setStyleSheet(f"{label_style} color: blue;")
-        self.found_rates_label.setStyleSheet(f"{label_style} color: green; margin-left: 15px;")
-        self.priced_rates_label.setStyleSheet(f"{label_style} color: orange; margin-left: 15px;")
-        self.outstanding_rates_label.setStyleSheet(f"{label_style} color: red; margin-left: 10px;")
+        self.total_rates_label.setStyleSheet(f"{label_style} color: #1565C0;")
+        self.found_rates_label.setStyleSheet(f"{label_style} color: #2E7D32;")
+        self.priced_rates_label.setStyleSheet(f"{label_style} color: #EF6C00;")
+        self.outstanding_rates_label.setStyleSheet(f"{label_style} color: #C62828;")
+
+        self.list_widget = QListWidget()
+        self.list_widget.itemChanged.connect(self._load_selected_sor)
         
-        stats_row.addWidget(self.total_rates_label)
-        stats_row.addWidget(self.found_rates_label)
-        stats_row.addWidget(self.priced_rates_label)
-        stats_row.addWidget(self.outstanding_rates_label)
-        stats_row.addStretch()
-        
-        stats_layout.addLayout(stats_row)
-        right_layout.addLayout(stats_layout)
-        
+        # Main Table
         self.table_widget = QTableWidget()
         self.table_widget.setColumnCount(8)
         self.table_widget.setHorizontalHeaderLabels(["SOR", "Sheet", "Ref", "Description", "Quantity", "Unit", "Gross Rate", "Rate Code"])
         self.table_widget.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.verticalHeader().setDefaultSectionSize(22)
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setShowGrid(False)
         
         header = self.table_widget.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
-        header.setMinimumSectionSize(20)
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         
         # Apply heading color and blue text using Palette
@@ -109,14 +135,20 @@ class SORDialog(QDialog):
         
         self.table_widget.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.table_widget.customContextMenuRequested.connect(self._show_context_menu)
-        
-        right_layout.addWidget(self.table_widget)
-        self.splitter.addWidget(right_widget)
-        
-        # Set initial splitter sizes
-        self.splitter.setSizes([200, 700])
-        
-        layout.addWidget(self.splitter)
+
+        # Layout
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 10)
+        layout.addWidget(self.table_widget)
+
+        # Tools Pane in Dock
+        self.tools_pane = SORToolsPane(self)
+        if self.main_window:
+            self.tools_dock = QDockWidget("SOR Tools", self.main_window)
+            self.tools_dock.setWidget(self.tools_pane)
+            self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+            self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+            self.destroyed.connect(self._cleanup_tools_dock)
         
         self._populate_list()
 
@@ -591,3 +623,34 @@ class SORDialog(QDialog):
             self.table_widget.resizeColumnToContents(6)
             self.table_widget.resizeColumnToContents(7)
         return found_count
+
+    def _on_mdi_subwindow_activated(self, sub):
+        """Toggle dock visibility based on whether THIS window is active."""
+        if not hasattr(self, 'tools_dock') or not self.tools_dock:
+            return
+        
+        if sub and sub.widget() == self:
+            self.tools_dock.show()
+            self.tools_dock.raise_()
+        else:
+            self.tools_dock.hide()
+
+    def closeEvent(self, event):
+        """Ensure the dock is hidden when closing."""
+        try:
+            if hasattr(self, 'tools_dock') and self.tools_dock:
+                self.tools_dock.hide()
+        except RuntimeError:
+            pass
+        super().closeEvent(event)
+
+    def _cleanup_tools_dock(self):
+        """Cleanup dock widget when viewer is destroyed."""
+        if self.main_window:
+            try:
+                if hasattr(self, 'tools_dock') and self.tools_dock:
+                    self.main_window.removeDockWidget(self.tools_dock)
+                    self.tools_dock.deleteLater()
+                    self.tools_dock = None
+            except RuntimeError:
+                pass

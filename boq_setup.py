@@ -3,15 +3,113 @@ import pandas as pd
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTableWidget, QTableWidgetItem,
     QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QHeaderView,
-    QMessageBox, QInputDialog, QMenu, QFormLayout, QTabWidget
+    QMessageBox, QInputDialog, QMenu, QFormLayout, QTabWidget, QDockWidget,
+    QScrollArea, QGroupBox, QListWidget, QAbstractItemView, QSizePolicy, QCheckBox,
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
+
+import pboq_constants as const
+
+class BOQToolsPane(QWidget):
+    """Encapsulates the tools for BOQ Setup into a scrollable pane."""
+    def __init__(self, owner):
+        super().__init__()
+        self.owner = owner
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        
+        container = QWidget()
+        container.setStyleSheet("font-size: 8pt;") # Slightly smaller font for compact look
+        c_layout = QVBoxLayout(container)
+        c_layout.setContentsMargins(5, 5, 5, 5)
+        c_layout.setSpacing(5)
+
+        # 1. Column Mapping
+        col_group = QGroupBox("Column Mapping")
+        col_layout = QFormLayout(col_group)
+        col_layout.setContentsMargins(5, 5, 5, 5)
+        col_layout.setSpacing(2)
+        
+        for cb in [self.owner.cb_ref, self.owner.cb_desc, self.owner.cb_qty, self.owner.cb_unit, self.owner.cb_rate]:
+            cb.setMaximumHeight(20)
+            
+        col_layout.addRow("Ref / Item No:", self.owner.cb_ref)
+        col_layout.addRow("Description:", self.owner.cb_desc)
+        col_layout.addRow("Quantity:", self.owner.cb_qty)
+        col_layout.addRow("Unit:", self.owner.cb_unit)
+        col_layout.addRow("Rate (Optional):", self.owner.cb_rate)
+        c_layout.addWidget(col_group)
+
+        # 2. Sheet Selection
+        sheet_group = QGroupBox("Sheets to Process")
+        sheet_layout = QVBoxLayout(sheet_group)
+        sheet_layout.setContentsMargins(5, 5, 5, 5)
+        
+        self.owner.sheet_selector.setMinimumHeight(120)
+        sheet_layout.addWidget(self.owner.sheet_selector)
+        c_layout.addWidget(sheet_group)
+
+        # 3. Level Filter
+        level_group = QGroupBox("Level Filter")
+        level_layout = QVBoxLayout(level_group)
+        level_layout.setContentsMargins(5, 2, 5, 5)
+        level_layout.setSpacing(0)
+        
+        for i in range(1, 6):
+            cb = self.owner.level_checkboxes[i]
+            cb.setStyleSheet("margin-bottom: -2px;")
+            level_layout.addWidget(cb)
+        c_layout.addWidget(level_group)
+
+        # 4. Actions
+        action_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
+        action_layout = QVBoxLayout(action_group)
+        action_layout.setContentsMargins(5, 5, 5, 5)
+        action_layout.setSpacing(4)
+        
+        # Apply Map Button (Greenish)
+        self.owner.apply_map_btn.setMinimumHeight(30)
+        self.owner.apply_map_btn.setStyleSheet("background-color: #2E7D32; color: white; font-weight: bold;")
+        action_layout.addWidget(self.owner.apply_map_btn)
+        
+        self.owner.concat_btn.setMinimumHeight(30)
+        action_layout.addWidget(self.owner.concat_btn)
+        
+        save_state_btn = QPushButton("Save State")
+        save_state_btn.setMinimumHeight(30)
+        save_state_btn.clicked.connect(self.owner._save_state)
+        action_layout.addWidget(save_state_btn)
+        
+        save_sor_btn = QPushButton("Save to SOR")
+        save_sor_btn.setMinimumHeight(30)
+        save_sor_btn.clicked.connect(self.owner._save_to_sor)
+        action_layout.addWidget(save_sor_btn)
+        
+        # Save PBOQ (Blue)
+        self.owner.save_pboq_btn.setMinimumHeight(35)
+        self.owner.save_pboq_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
+        action_layout.addWidget(self.owner.save_pboq_btn)
+        
+        c_layout.addWidget(action_group)
+        c_layout.addStretch()
+        
+        scroll.setWidget(container)
+        layout.addWidget(scroll)
 
 class BOQSetupWindow(QWidget):
     """Parses Excel BOQs, allows mapping, and formats them into an Estimate struct."""
     def __init__(self, boq_file_path, active_est_window=None, parent=None, project_dir=None):
         super().__init__(parent)
+        self.main_window = parent
         self.boq_file_path = boq_file_path
         self.active_est_window = active_est_window
         self.project_dir = project_dir
@@ -32,7 +130,36 @@ class BOQSetupWindow(QWidget):
         self._load_excel()
 
     def _init_ui(self):
-        main_layout = QVBoxLayout(self)
+        # Create all tools first so they can be referenced
+        self.cb_ref = QComboBox()
+        self.cb_desc = QComboBox()
+        self.cb_qty = QComboBox()
+        self.cb_unit = QComboBox()
+        self.cb_rate = QComboBox()
+        
+        self.sheet_selector = QListWidget()
+        self.sheet_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
+        self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
+        
+        self.level_checkboxes = {}
+        for i in range(1, 6):
+            cb = QCheckBox(f"Level {i}")
+            cb.setChecked(True if i <= 2 else False)
+            cb.stateChanged.connect(self._build_tree_preview)
+            self.level_checkboxes[i] = cb
+            
+        self.apply_map_btn = QPushButton("Apply Mapping")
+        self.apply_map_btn.clicked.connect(self._apply_mapping)
+        
+        self.concat_btn = QPushButton("Concatenate\nDescriptions")
+        self.concat_btn.clicked.connect(self._toggle_concatenate)
+        
+        self.save_pboq_btn = QPushButton("Save to\nPriced BOQ")
+        self.save_pboq_btn.clicked.connect(self._save_to_priced_boq)
+        
+        # Main Layout
+        self.main_layout = QVBoxLayout(self)
+        self.main_layout.setContentsMargins(10, 5, 10, 10)
         
         splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.setHandleWidth(4)
@@ -46,6 +173,7 @@ class BOQSetupWindow(QWidget):
         file_layout = QHBoxLayout()
         file_layout.addWidget(QLabel("Select BOQ File:"))
         self.boq_file_selector = QComboBox()
+        self.boq_file_selector.setMinimumWidth(250)
         
         project_folder = getattr(self, 'project_dir', None)
         if not project_folder:
@@ -54,171 +182,59 @@ class BOQSetupWindow(QWidget):
                 project_folder = os.path.dirname(project_folder)
                 
         boq_dir = os.path.join(project_folder, "Imported BOQs")
-        
         if os.path.exists(boq_dir):
             for f in os.listdir(boq_dir):
                 if f.lower().endswith(('.xlsx', '.xls')):
                     self.boq_file_selector.addItem(f, os.path.join(boq_dir, f))
                     
-        # Ensure current loaded BOQ is selected
         idx = self.boq_file_selector.findData(self.boq_file_path)
-        if idx >= 0:
-            self.boq_file_selector.setCurrentIndex(idx)
+        if idx >= 0: self.boq_file_selector.setCurrentIndex(idx)
         else:
             self.boq_file_selector.addItem(os.path.basename(self.boq_file_path), self.boq_file_path)
             self.boq_file_selector.setCurrentIndex(self.boq_file_selector.count() - 1)
             
-        self.boq_file_selector.activated.connect(self._on_boq_file_changed) # Only triggers on user click, avoiding programmatic loops
+        self.boq_file_selector.activated.connect(self._on_boq_file_changed)
         file_layout.addWidget(self.boq_file_selector, stretch=1)
-        
         left_layout.addLayout(file_layout)
-        left_layout.addWidget(QLabel("Raw BOQ Data (from Excel):"))
         
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.South)
         self.tabs.currentChanged.connect(self._on_tab_changed)
         left_layout.addWidget(self.tabs)
         
-        # RIGHT PANE: Mapping and Preview
+        # RIGHT PANE: Formatted Preview (Expanded)
         right_widget = QWidget()
         right_layout = QVBoxLayout(right_widget)
+        right_layout.setContentsMargins(0, 0, 0, 0)
         
-        from PyQt6.QtWidgets import QGroupBox, QListWidget, QAbstractItemView, QSizePolicy, QCheckBox
-        
-        # Top right layout for settings
-        settings_layout = QHBoxLayout()
-        
-        # 1. Column Selection Group
-        col_group = QGroupBox("Column Mapping")
-        col_layout = QFormLayout(col_group)
-        col_layout.setContentsMargins(5, 5, 5, 5)
-        col_layout.setSpacing(5)
-        
-        self.cb_ref = QComboBox()
-        self.cb_desc = QComboBox()
-        self.cb_qty = QComboBox()
-        self.cb_unit = QComboBox()
-        self.cb_rate = QComboBox()
-        
-        col_layout.addRow("Ref / Item No:", self.cb_ref)
-        col_layout.addRow("Description:", self.cb_desc)
-        col_layout.addRow("Quantity:", self.cb_qty)
-        col_layout.addRow("Unit:", self.cb_unit)
-        col_layout.addRow("Rate (Optional):", self.cb_rate)
-        
-        # 2. Sheet Selection Group
-        sheet_group = QGroupBox("Sheets to Process")
-        sheet_layout = QVBoxLayout(sheet_group)
-        sheet_layout.setContentsMargins(5, 5, 5, 5)
-        sheet_layout.setSpacing(5)
-        
-        self.sheet_selector = QListWidget()
-        # Ensure the sheet_selector matches the height of col_group perfectly
-        self.sheet_selector.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)
-        self.sheet_selector.setSelectionMode(QAbstractItemView.SelectionMode.MultiSelection)
-        self.sheet_selector.itemSelectionChanged.connect(self._build_tree_preview)
-        
-        sheet_layout.addWidget(self.sheet_selector)
-        
-        # 3. Level Filter Group
-        level_group = QGroupBox("Level Filter")
-        level_layout = QVBoxLayout(level_group)
-        level_layout.setContentsMargins(5, 5, 5, 5)
-        level_layout.setSpacing(5)
-        
-        self.level_checkboxes = {}
-        for i in range(1, 6):
-            cb = QCheckBox(f"Level {i}")
-            cb.setChecked(True if i <= 2 else False) # Check 1 and 2 by default
-            cb.stateChanged.connect(self._build_tree_preview)
-            level_layout.addWidget(cb)
-            self.level_checkboxes[i] = cb
-            
-        level_layout.addStretch()
-        
-        # 4. Action Buttons Group (Right Side)
-        action_layout = QVBoxLayout()
-        action_layout.setContentsMargins(5, 5, 5, 5)
-        action_layout.setSpacing(10)
-        
-        apply_map_btn = QPushButton("Apply Mapping\nto Selected Sheets")
-        apply_map_btn.setMinimumHeight(40)
-        apply_map_btn.clicked.connect(self._apply_mapping)
-        action_layout.addWidget(apply_map_btn)
-        
-        self.concat_btn = QPushButton("Concatenate\nDescriptions")
-        self.concat_btn.setMinimumHeight(40)
-        self.concat_btn.clicked.connect(self._toggle_concatenate)
-        action_layout.addWidget(self.concat_btn)
-        
-        save_state_btn = QPushButton("Save State")
-        save_state_btn.setMinimumHeight(40)
-        save_state_btn.clicked.connect(self._save_state)
-        action_layout.addWidget(save_state_btn)
-        
-        save_sor_btn = QPushButton("Save to SOR")
-        save_sor_btn.setMinimumHeight(40)
-        save_sor_btn.clicked.connect(self._save_to_sor)
-        action_layout.addWidget(save_sor_btn)
-        
-        save_pboq_btn = QPushButton("Save to\nPriced BOQ")
-        save_pboq_btn.setMinimumHeight(50)
-        save_pboq_btn.setStyleSheet("background-color: #1976D2; color: white; font-weight: bold;")
-        save_pboq_btn.clicked.connect(self._save_to_priced_boq)
-        action_layout.addWidget(save_pboq_btn)
-        action_layout.addStretch()
-        
-        # Add groups side-by-side without AlignTop so they stretch to equal heights
-        settings_layout.addWidget(col_group, stretch=4)
-        settings_layout.addWidget(sheet_group, stretch=3)
-        settings_layout.addWidget(level_group, stretch=2)
-        settings_layout.addLayout(action_layout, stretch=2)
-        
-        # Create a vertical splitter for the right pane (horizontal divider)
-        right_splitter = QSplitter(Qt.Orientation.Vertical)
-        right_splitter.setHandleWidth(4)
-        right_splitter.setStyleSheet("QSplitter::handle { background-color: #cccccc; border-radius: 2px; }")
-        
-        # Top half of right pane: Settings
-        top_right_widget = QWidget()
-        top_right_layout = QVBoxLayout(top_right_widget)
-        top_right_layout.setContentsMargins(0, 0, 0, 0)
-        
-        top_right_layout.addLayout(settings_layout)
-        
-        # Bottom half of right pane: Preview
-        bottom_right_widget = QWidget()
-        bottom_right_layout = QVBoxLayout(bottom_right_widget)
-        bottom_right_layout.setContentsMargins(0, 0, 0, 0)
-        
-        bottom_right_layout.addWidget(QLabel("Formatted Preview:"))
+        right_layout.addWidget(QLabel("Formatted Preview:"))
         self.tree = QTreeWidget()
         self.tree.setHeaderLabels(["Sheet", "Ref", "Description", "Quantity", "Unit", "Level", "Type"])
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents) # Sheet
-        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents) # Ref
-        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)          # Description gets remaining width
-        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents) # Quantity
-        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents) # Unit
-        self.tree.header().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents) # Level
-        self.tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents) # Type
+        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.tree.header().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(4, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(5, QHeaderView.ResizeMode.ResizeToContents)
+        self.tree.header().setSectionResizeMode(6, QHeaderView.ResizeMode.ResizeToContents)
         self.tree.header().setStretchLastSection(False)
-        bottom_right_layout.addWidget(self.tree)
-        
-        right_splitter.addWidget(top_right_widget)
-        right_splitter.addWidget(bottom_right_widget)
-        # Allocate more space to the preview by default
-        right_splitter.setStretchFactor(0, 3)
-        right_splitter.setStretchFactor(1, 7)
-        
-        right_layout.addWidget(right_splitter)
+        right_layout.addWidget(self.tree)
         
         splitter.addWidget(left_widget)
         splitter.addWidget(right_widget)
+        splitter.setStretchFactor(0, 5)
+        splitter.setStretchFactor(1, 5)
         
-        splitter.setStretchFactor(0, 6)
-        splitter.setStretchFactor(1, 4)
-        
-        main_layout.addWidget(splitter)
+        self.main_layout.addWidget(splitter)
+
+        # Setup Tools Pane in Dock
+        self.tools_pane = BOQToolsPane(self)
+        if self.main_window:
+            self.tools_dock = QDockWidget("BOQ Setup Tools", self.main_window)
+            self.tools_dock.setWidget(self.tools_pane)
+            self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+            self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+            self.destroyed.connect(self._cleanup_tools_dock)
 
     def _on_boq_file_changed(self, index):
         if index < 0: return
@@ -954,3 +970,36 @@ class BOQSetupWindow(QWidget):
         except Exception as e:
             print(f"Error loading state: {e}")
             return False
+
+    def _on_mdi_subwindow_activated(self, sub):
+        """Toggle dock visibility based on whether THIS window is active."""
+        if not hasattr(self, 'tools_dock') or not self.tools_dock:
+            return
+        
+        # 'sub' is the QMdiSubWindow. Its widget should be 'self' if it's active.
+        if sub and sub.widget() == self:
+            self.tools_dock.show()
+            self.tools_dock.raise_()
+        else:
+            self.tools_dock.hide()
+
+    def closeEvent(self, event):
+        """Ensure the dock is hidden when closing the window."""
+        try:
+            if hasattr(self, 'tools_dock') and self.tools_dock:
+                self.tools_dock.hide()
+        except RuntimeError:
+            pass
+        super().closeEvent(event)
+
+    def _cleanup_tools_dock(self):
+        """Cleanup dock widget when the viewer is destroyed."""
+        if self.main_window:
+            try:
+                if hasattr(self, 'tools_dock') and self.tools_dock:
+                    # Remove it from the main window's layout
+                    self.main_window.removeDockWidget(self.tools_dock)
+                    self.tools_dock.deleteLater()
+                    self.tools_dock = None
+            except RuntimeError:
+                pass
