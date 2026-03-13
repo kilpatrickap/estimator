@@ -195,6 +195,7 @@ class PBOQDialog(QDialog):
                 
                 table.resizeColumnsToContents()
                 self.tabs.addTab(table, sheet_name)
+                self._update_column_headers()
                 if progress.wasCanceled():
                     break
             
@@ -355,16 +356,37 @@ class PBOQDialog(QDialog):
 
     def _update_column_headers(self):
         m = self.tools_pane.get_mappings()
-        headers = ["Column 0", "Column 1", "Column 2", "Column 3", 
-                   "Column 4", "Column 5", "Column 6", "Column 7"]
+        friends = {
+            'ref': "Ref/Item", 'desc': "Description", 'qty': "Quantity", 'unit': "Unit",
+            'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
+            'rate': "Gross Rate", 'rate_code': "Rate Code"
+        }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
-        for i in range(8):
-            if i in map_inv:
-                headers[i] = f"[{map_inv[i].upper()}] Col {i}"
+        h_color = const.COLOR_HEADING.name()
         
         for idx in range(self.tabs.count()):
-            self.tabs.widget(idx).setHorizontalHeaderLabels(headers)
+            table = self.tabs.widget(idx)
+            headers = []
+            for i in range(table.columnCount()):
+                name = friends.get(map_inv.get(i), f"Column {i}")
+                headers.append(name)
+            
+            table.setHorizontalHeaderLabels(headers)
+            
+            # Apply heading color to the header using Palette (avoiding QSS as requested)
+            header = table.horizontalHeader()
+            header.setAutoFillBackground(True)
+            palette = header.palette()
+            palette.setColor(header.backgroundRole(), const.COLOR_HEADING)
+            palette.setColor(header.foregroundRole(), Qt.GlobalColor.blue)
+            # In many styles, we also need to set the Button role for headers
+            palette.setColor(palette.ColorRole.Button, const.COLOR_HEADING)
+            palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.blue)
+            header.setPalette(palette)
+            
+            # Update columns identifying colors across sheets
+            table.apply_column_colors(m, table.columnCount())
 
     # --- Worker Logic Methods ---
 
@@ -493,7 +515,10 @@ class PBOQDialog(QDialog):
                 if is_revert:
                     if item_amt and item_amt.background().color() == const.COLOR_COLLECT:
                         item_amt.setText("")
-                        item_amt.setBackground(QBrush()) # Table will reset to alternating color
+                        # Restore default column color instead of white/null
+                        def_color = t.get_column_default_color(m['bill_amount'])
+                        item_amt.setBackground(def_color if def_color else QBrush())
+                        item_amt.setForeground(Qt.GlobalColor.black)
                         updates.append((rowid, ""))
                         if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
                 else:
@@ -562,23 +587,31 @@ class PBOQDialog(QDialog):
                 if is_revert:
                     if desc_text.strip() and not has_qty and amt_item and amt_item.background().color() == const.COLOR_POPULATE:
                         amt_item.setText("")
-                        amt_item.setBackground(QBrush())
+                        # Restore default column color instead of white/null
+                        def_color = t.get_column_default_color(m['bill_amount'])
+                        amt_item.setBackground(def_color if def_color else QBrush())
+                        amt_item.setForeground(Qt.GlobalColor.black)
                         updates.append((rowid, ""))
                         self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
                 else:
-                    if desc_text.strip() and not has_qty and (not amt_item or not amt_item.text().strip()):
+                    if desc_text.strip() and not has_qty:
                         if b_idx < len(bucket):
-                            src_id, val = bucket[b_idx]
-                            if not amt_item:
-                                amt_item = QTableWidgetItem()
-                                t.setItem(r, m['bill_amount'], amt_item)
-                            amt_item.setText(val)
-                            amt_item.setBackground(const.COLOR_POPULATE)
-                            amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                            updates.append((rowid, val))
-                            self.logic.save_link(self.pboq_file_selector.currentData(), src_id, rowid)
+                            if not amt_item or not amt_item.text().strip():
+                                src_id, val = bucket[b_idx]
+                                if not amt_item:
+                                    amt_item = QTableWidgetItem()
+                                    t.setItem(r, m['bill_amount'], amt_item)
+                                amt_item.setText(val)
+                                amt_item.setBackground(const.COLOR_POPULATE)
+                                amt_item.setForeground(const.COLOR_GRAY_TEXT)
+                                updates.append((rowid, val))
+                                self.logic.save_link(self.pboq_file_selector.currentData(), src_id, rowid)
+                            
+                            # Always move to next bucket item if we found a potential slot, 
+                            # whether we filled it now or it was already filled.
                             b_idx += 1
-                        else: break
+                        else: 
+                            break
         
         if updates:
             self._persist_updates(m['bill_amount'], updates)
@@ -601,12 +634,31 @@ class PBOQDialog(QDialog):
         
         for i in range(self.tabs.count()):
             t = self.tabs.widget(i)
-            total_val = 0.0
+            
+            # Check if any collection exists on this sheet
+            collected_found = False
             for r in range(t.rowCount()):
                 item = t.item(r, m['bill_amount'])
                 if item and item.background().color() == const.COLOR_COLLECT:
-                    try: total_val += float(item.text().replace(',', ''))
-                    except ValueError: pass
+                    collected_found = True
+                    break
+            
+            total_val = 0.0
+            for r in range(t.rowCount()):
+                item = t.item(r, m['bill_amount'])
+                if not item: continue
+                
+                if collected_found:
+                    # Sum only collected cells
+                    if item.background().color() == const.COLOR_COLLECT:
+                        try: total_val += float(item.text().replace(',', ''))
+                        except ValueError: pass
+                else:
+                    # Fallback: Sum all numeric items, excluding existing summaries and the target row itself
+                    row_desc = t.item(r, m['desc']).text().lower() if t.item(r, m['desc']) else ""
+                    if tgt not in row_desc and item.background().color() != const.COLOR_SUMMARY:
+                        try: total_val += float(item.text().replace(',', ''))
+                        except ValueError: pass
             
             updates = []
             f_sum = "{:,.2f}".format(total_val)

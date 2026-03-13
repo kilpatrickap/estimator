@@ -13,6 +13,7 @@ class PBOQTable(QTableWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.main_dialog = parent
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
         self.setWordWrap(False)
@@ -43,7 +44,8 @@ class PBOQTable(QTableWidget):
         
         # Pass the context menu request to the parent to check if it's the right column
         # Or let the table know which column it's supposed to handle
-        self.parent()._handle_context_menu(self, pos, row, col, rowid)
+        if self.main_dialog and hasattr(self.main_dialog, '_handle_context_menu'):
+            self.main_dialog._handle_context_menu(self, pos, row, col, rowid)
 
     def get_column_default_color(self, col_idx):
         if col_idx < 4: return const.COL_COLOR_BLUE
@@ -51,15 +53,35 @@ class PBOQTable(QTableWidget):
         if col_idx < 8: return const.COL_COLOR_RED
         return None
 
-    def apply_column_colors(self, num_display_cols):
+    def get_role_color(self, role):
+        if role in ['ref', 'desc', 'qty', 'unit']: return const.COL_COLOR_BLUE
+        if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
+        if role in ['rate', 'rate_code']: return const.COL_COLOR_RED
+        return None
+
+    def apply_column_colors(self, mappings, num_display_cols):
+        """Applies identifying pastel colors based on column roles from mappings."""
+        map_inv = {v: k for k, v in mappings.items() if v >= 0}
         for r in range(self.rowCount()):
             for c in range(min(num_display_cols, self.columnCount())):
-                color = self.get_column_default_color(c)
+                role = map_inv.get(c)
+                color = self.get_role_color(role) if role else self.get_column_default_color(c)
+                
                 if color:
                     item = self.item(r, c)
                     if not item:
                         item = QTableWidgetItem()
                         self.setItem(r, c, item)
+                    
+                    # Don't overwrite special formatting (Orange/Lime/Yellow features)
+                    existing_bg = item.background().color()
+                    if existing_bg.isValid() and existing_bg.name().lower() not in ["#ffffff", "#000000", "#f5f7f9"]:
+                        # If it's one of the other PASTEL colors, we CAN overwrite it (in case mapping changed)
+                        is_pastel = existing_bg.name().lower() in [const.COL_COLOR_BLUE.name().lower(), 
+                                                                    const.COL_COLOR_YELLOW.name().lower(), 
+                                                                    const.COL_COLOR_RED.name().lower()]
+                        if not is_pastel: continue # Keep feature colors
+                        
                     item.setBackground(color)
 
     def set_row_hidden_by_text(self, search_text):
