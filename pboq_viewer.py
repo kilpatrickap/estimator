@@ -29,7 +29,7 @@ class PBOQDialog(QDialog):
         self.linking_source = None
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
-        self.setMinimumSize(950, 450)
+        self.setMinimumSize(950, 400)
         
         self._init_ui()
         self._load_initial_configuration()

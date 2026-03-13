@@ -82,7 +82,7 @@ class SORDialog(QDialog):
         self.clipboard_data = None  # Store copied rate data
         
         self.setWindowTitle("Schedules of Rate (SOR)")
-        self.setMinimumSize(950, 450)
+        self.setMinimumSize(950, 400)
         
     def _init_ui(self):
         # Create all tools first

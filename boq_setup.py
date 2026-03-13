@@ -61,20 +61,18 @@ class BOQToolsPane(QWidget):
         # 3. Level Filter
         level_group = QGroupBox("Level Filter")
         level_layout = QVBoxLayout(level_group)
-        level_layout.setContentsMargins(5, 2, 5, 5)
-        level_layout.setSpacing(0)
+        level_layout.setContentsMargins(5, 5, 5, 5)
+        level_layout.setSpacing(2)
         
         for i in range(1, 6):
             cb = self.owner.level_checkboxes[i]
-            cb.setStyleSheet("margin-bottom: -2px;")
             level_layout.addWidget(cb)
         c_layout.addWidget(level_group)
 
         # 4. Actions
         action_group = QGroupBox("Actions")
-        action_group.setStyleSheet("QGroupBox { margin-top: 5px; }")
         action_layout = QVBoxLayout(action_group)
-        action_layout.setContentsMargins(5, 5, 5, 5)
+        action_layout.setContentsMargins(5, 12, 5, 5) # Increased top margin to prevent title overlap
         action_layout.setSpacing(4)
         
         # Apply Map Button (Greenish)
@@ -126,7 +124,7 @@ class BOQSetupWindow(QWidget):
         self.COLOR_IGNORE = QColor("#ffebee")  # Light red
 
         self.setWindowTitle(f"BOQ Setup - {os.path.basename(boq_file_path)}")
-        self.setMinimumSize(950, 450)
+        self.setMinimumSize(950, 400)
         self._init_ui()
         self._load_excel()
 
@@ -152,10 +150,10 @@ class BOQSetupWindow(QWidget):
         self.apply_map_btn = QPushButton("Apply Mapping")
         self.apply_map_btn.clicked.connect(self._apply_mapping)
         
-        self.concat_btn = QPushButton("Concatenate\nDescriptions")
+        self.concat_btn = QPushButton("Concatenate Descriptions")
         self.concat_btn.clicked.connect(self._toggle_concatenate)
         
-        self.save_pboq_btn = QPushButton("Save to\nPriced BOQ")
+        self.save_pboq_btn = QPushButton("Save to Priced BOQ")
         self.save_pboq_btn.clicked.connect(self._save_to_priced_boq)
         
         # Main Layout
@@ -560,9 +558,9 @@ class BOQSetupWindow(QWidget):
     def _toggle_concatenate(self):
         self.concat_descriptions = not self.concat_descriptions
         if self.concat_descriptions:
-            self.concat_btn.setText("Un-Catenate\nDescriptions")
+            self.concat_btn.setText("Un-Catenate Descriptions")
         else:
-            self.concat_btn.setText("Concatenate\nDescriptions")
+            self.concat_btn.setText("Concatenate Descriptions")
         self._build_tree_preview()
 
     def _build_tree_preview(self):
