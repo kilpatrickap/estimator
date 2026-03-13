@@ -125,6 +125,29 @@ class PBOQLogic:
             print(f"Error persisting cell formatting: {e}")
 
     @staticmethod
+    def persist_batch_cell_formatting(file_path, col_idx, updates):
+        """Batch persist formatting for multiple rows in one column. 
+        Updates is a list of (global_row_idx, {fmt_dict})"""
+        if not file_path or not os.path.exists(file_path): return
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            for g_idx, fmt in updates:
+                cursor.execute("SELECT fmt_json FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (g_idx, col_idx))
+                row = cursor.fetchone()
+                existing_fmt = json.loads(row[0]) if row else {}
+                existing_fmt.update(fmt)
+                
+                cursor.execute("INSERT OR REPLACE INTO pboq_formatting (row_idx, col_idx, fmt_json) VALUES (?, ?, ?)", 
+                             (g_idx, col_idx, json.dumps(existing_fmt)))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error batch persisting formatting: {e}")
+
+    @staticmethod
     def clear_cell_formatting(file_path, global_row_idx, col_idx):
         if not file_path or not os.path.exists(file_path): return
         try:

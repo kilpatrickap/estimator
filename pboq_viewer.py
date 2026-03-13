@@ -163,12 +163,16 @@ class PBOQDialog(QDialog):
                         val = row_data[c_idx] if c_idx < len(row_data) else ""
                         item = QTableWidgetItem(str(val) if val is not None else "")
                         
+                        # Apply Default Column Color
+                        def_color = table.get_column_default_color(c_idx)
+                        if def_color: item.setBackground(def_color)
+
                         if c_idx == 0:
                             item.setData(Qt.ItemDataRole.UserRole, row_id)
                             self.rowid_to_item0[row_id] = item
                         item.setData(Qt.ItemDataRole.UserRole + 1, global_row_idx)
                         
-                        # Apply Formatting
+                        # Apply Specific Saved Formatting (overwrites default)
                         fmt = formatting_data.get((global_row_idx, c_idx))
                         if fmt:
                             self._apply_item_format(item, fmt)
@@ -186,7 +190,9 @@ class PBOQDialog(QDialog):
                     if progress.wasCanceled():
                         break
                 
-                table.apply_column_colors(num_display_cols)
+                    if progress.wasCanceled():
+                        break
+                
                 table.resizeColumnsToContents()
                 self.tabs.addTab(table, sheet_name)
                 if progress.wasCanceled():
@@ -385,15 +391,21 @@ class PBOQDialog(QDialog):
             for r in range(table.rowCount()):
                 rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
                 rate_item = table.item(r, m['bill_rate'])
+                g_idx = table.item(r, 0).data(Qt.ItemDataRole.UserRole + 1)
                 
                 if is_revert:
                     if rate_item and rate_item.text() == d_rate_str and rate_item.foreground().color().name().lower() == const.COLOR_GRAY_TEXT.name().lower():
                         rate_item.setText("")
+                        rate_item.setForeground(Qt.GlobalColor.black)
                         rate_updates.append((rowid, ""))
+                        if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_rate'])
                         if m['bill_amount'] >= 0:
                             amt_item = table.item(r, m['bill_amount'])
-                            if amt_item: amt_item.setText("")
+                            if amt_item: 
+                                amt_item.setText("")
+                                amt_item.setForeground(Qt.GlobalColor.black)
                             amt_updates.append((rowid, ""))
+                            if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
                 else:
                     # Extend Logic
                     if not checked_cols: continue
@@ -434,7 +446,16 @@ class PBOQDialog(QDialog):
 
         if rate_updates:
             self._persist_updates(m['bill_rate'], rate_updates)
-            if amt_updates: self._persist_updates(m['bill_amount'], amt_updates)
+            # Persist gray color for rates
+            fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), {'font_color': const.COLOR_GRAY_TEXT.name()}) for rid, _ in rate_updates]
+            self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_rate'], fmt_updates)
+
+            if amt_updates: 
+                self._persist_updates(m['bill_amount'], amt_updates)
+                # Persist gray color for amounts
+                fmt_amt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), {'font_color': const.COLOR_GRAY_TEXT.name()}) for rid, _ in amt_updates]
+                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_amt_updates)
+            
             self.tools_pane.extend_btn.setText("Extend" if is_revert else "Revert")
             QMessageBox.information(self, "Success", f"Processed {len(rate_updates)} rows.")
 
@@ -487,8 +508,6 @@ class PBOQDialog(QDialog):
                         item_amt.setBackground(const.COLOR_COLLECT)
                         item_amt.setForeground(const.COLOR_GRAY_TEXT)
                         updates.append((rowid, f_sum))
-                        if g_idx is not None: 
-                            self.logic.persist_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'], bg_color=const.COLOR_COLLECT.name(), fg_color=const.COLOR_GRAY_TEXT.name())
                         cur_sum = 0.0
                     else:
                         if item_amt and item_amt.text().strip():
@@ -497,6 +516,16 @@ class PBOQDialog(QDialog):
         
         if updates:
             self._persist_updates(m['bill_amount'], updates)
+            if is_revert:
+                for rid, _ in updates:
+                    g_idx = self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1)
+                    if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
+            else:
+                fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), 
+                               {'bg_color': const.COLOR_COLLECT.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}) 
+                              for rid, _ in updates]
+                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
+            
             self.tools_pane.collect_btn.setText("Collect" if is_revert else "Revert")
 
     def _run_populate_collection(self):
@@ -553,6 +582,16 @@ class PBOQDialog(QDialog):
         
         if updates:
             self._persist_updates(m['bill_amount'], updates)
+            if is_revert:
+                for rid, _ in updates:
+                    g_idx = self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1)
+                    if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
+            else:
+                fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), 
+                               {'bg_color': const.COLOR_POPULATE.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}) 
+                              for rid, _ in updates]
+                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
+            
             self.tools_pane.populate_btn.setText("Populate" if is_revert else "Un-Populate")
 
     def _run_summary_logic(self):
@@ -583,10 +622,14 @@ class PBOQDialog(QDialog):
                     item.setForeground(const.COLOR_GRAY_TEXT)
                     rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
                     updates.append((rowid, f_sum))
-                    g_idx = item.data(Qt.ItemDataRole.UserRole + 1)
-                    if g_idx is not None: self.logic.persist_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'], bg_color=const.COLOR_SUMMARY.name(), fg_color=const.COLOR_GRAY_TEXT.name())
             
-            if updates: self._persist_updates(m['bill_amount'], updates)
+            if updates: 
+                self._persist_updates(m['bill_amount'], updates)
+                # Persist summary formatting
+                fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), 
+                               {'bg_color': const.COLOR_SUMMARY.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}) 
+                              for rid, _ in updates]
+                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
 
     def _clear_gross_and_code(self):
         m = self.tools_pane.get_mappings()

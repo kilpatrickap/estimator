@@ -45,17 +45,22 @@ class PBOQTable(QTableWidget):
         # Or let the table know which column it's supposed to handle
         self.parent()._handle_context_menu(self, pos, row, col, rowid)
 
+    def get_column_default_color(self, col_idx):
+        if col_idx < 4: return const.COL_COLOR_BLUE
+        if col_idx < 6: return const.COL_COLOR_YELLOW
+        if col_idx < 8: return const.COL_COLOR_RED
+        return None
+
     def apply_column_colors(self, num_display_cols):
         for r in range(self.rowCount()):
             for c in range(min(num_display_cols, self.columnCount())):
-                item = self.item(r, c)
-                if item:
-                    if c < 4:
-                        item.setBackground(const.COL_COLOR_BLUE)
-                    elif c < 6:
-                        item.setBackground(const.COL_COLOR_YELLOW)
-                    elif c < 8:
-                        item.setBackground(const.COL_COLOR_RED)
+                color = self.get_column_default_color(c)
+                if color:
+                    item = self.item(r, c)
+                    if not item:
+                        item = QTableWidgetItem()
+                        self.setItem(r, c, item)
+                    item.setBackground(color)
 
     def set_row_hidden_by_text(self, search_text):
         for row in range(self.rowCount()):
