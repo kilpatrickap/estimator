@@ -585,7 +585,6 @@ class SORDialog(QDialog):
             return -1 # Special code for missing keywords
             
         found_count = 0
-        similar_checked = self.similar_checkbox.isChecked()
         
         for row in range(self.table_widget.rowCount()):
             # We match against the full row text just like the filter does
@@ -598,9 +597,6 @@ class SORDialog(QDialog):
             full_row_text = " ".join(row_texts)
             
             if all(kw in full_row_text for kw in keywords):
-                match = True
-                    
-            if match:
                 # Update UI
                 gross_item = QTableWidgetItem(f"{gross_rate:,.2f}")
                 gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
