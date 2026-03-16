@@ -190,9 +190,8 @@ class SORDialog(QDialog):
 
     def _save_sor_state(self):
         """Saves current ticked items to a state file."""
-        state_dir = os.path.join(self.project_dir, "SOR States")
-        os.makedirs(state_dir, exist_ok=True)
-        state_file = os.path.join(state_dir, "sor_selection.json")
+        os.makedirs(self.sor_folder, exist_ok=True)
+        state_file = os.path.join(self.sor_folder, "sor_selection.json")
         
         checked_items = []
         for index in range(self.list_widget.count()):
@@ -208,7 +207,13 @@ class SORDialog(QDialog):
 
     def _load_sor_state(self):
         """Returns the list of previously ticked SOR filenames."""
-        state_file = os.path.join(self.project_dir, "SOR States", "sor_selection.json")
+        state_file = os.path.join(self.sor_folder, "sor_selection.json")
+        
+        # Fallback for old path
+        old_state_file = os.path.join(self.project_dir, "SOR States", "sor_selection.json")
+        if not os.path.exists(state_file) and os.path.exists(old_state_file):
+            state_file = old_state_file
+
         if os.path.exists(state_file):
             try:
                 with open(state_file, 'r') as f:
