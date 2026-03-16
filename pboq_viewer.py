@@ -4,7 +4,7 @@ import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QMessageBox, QComboBox, QTabWidget, QWidget,
                              QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu,
-                             QLineEdit)
+                             QLineEdit, QPushButton)
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QColor, QBrush, QAction
 
@@ -58,6 +58,7 @@ class PBOQDialog(QDialog):
             self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
             self.tools_dock.show()
             self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+            self.tools_dock.visibilityChanged.connect(self._sync_pane_button_text)
             self.destroyed.connect(self._cleanup_tools_dock)
             
         # Connect Tools Pane signals
@@ -92,6 +93,12 @@ class PBOQDialog(QDialog):
         self.search_bar.setMinimumWidth(250)
         self.search_bar.textChanged.connect(self._run_global_search)
         top_bar.addWidget(self.search_bar)
+        
+        # Pane Toggle Button
+        self.toggle_pane_btn = QPushButton("Hide Pane")
+        self.toggle_pane_btn.setFixedWidth(100)
+        self.toggle_pane_btn.clicked.connect(self._toggle_tools_pane)
+        top_bar.addWidget(self.toggle_pane_btn)
         
         # Stats
         self.stats_label = QLabel("Items: 0 | Priced: 0 | Outstanding: 0")
@@ -396,6 +403,20 @@ class PBOQDialog(QDialog):
         except RuntimeError:
             # Object already deleted, ignore
             pass
+
+    def _toggle_tools_pane(self):
+        """Toggles the visibility of the tools dock widget."""
+        if not hasattr(self, 'tools_dock') or not self.tools_dock:
+            return
+            
+        is_visible = self.tools_dock.isVisible()
+        self.tools_dock.setVisible(not is_visible)
+        # Button text will be synced by the visibilityChanged signal
+        
+    def _sync_pane_button_text(self, visible):
+        """Syncs the toggle button text with the actual visibility of the pane."""
+        if hasattr(self, 'toggle_pane_btn'):
+            self.toggle_pane_btn.setText("Hide Pane" if visible else "Show Pane")
 
     def _toggle_wrap_text(self, enabled):
         m = self.tools_pane.get_mappings()
