@@ -373,3 +373,13 @@ class PBOQToolsPane(QWidget):
             w.setEnabled(not frozen)
             
         self.stateChanged.emit()
+    def get_mapping(self):
+        """Returns current column mappings for key fields."""
+        return {
+            'ref': self.cb_ref.currentIndex() - 1,
+            'desc': self.cb_desc.currentIndex() - 1,
+            'qty': self.cb_qty.currentIndex() - 1,
+            'unit': self.cb_unit.currentIndex() - 1,
+            'gross_rate': self.cb_rate.currentIndex() - 1,
+            'rate_code': self.cb_rate_code.currentIndex() - 1
+        }

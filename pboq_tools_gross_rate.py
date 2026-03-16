@@ -6,6 +6,7 @@ class GrossRateTool(QWidget):
     
     visibilityChanged = pyqtSignal(bool)
     stateChanged = pyqtSignal()
+    priceSOPRequested = pyqtSignal(bool) # True for Price, False for Revert
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -31,8 +32,10 @@ class GrossRateTool(QWidget):
     def _on_price_sop_clicked(self):
         if self.price_sop_btn.text() == "Price with SOP":
             self.price_sop_btn.setText("Revert Price")
+            self.priceSOPRequested.emit(True)
         else:
             self.price_sop_btn.setText("Price with SOP")
+            self.priceSOPRequested.emit(False)
 
     def get_state(self):
         return {"show_gross": self.show_gross_cb.isChecked()}

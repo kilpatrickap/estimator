@@ -7,6 +7,7 @@ class PBOQPricePane(QWidget):
     
     stateChanged = pyqtSignal()
     grossRateVisibilityChanged = pyqtSignal(bool)
+    priceSOPRequested = pyqtSignal(bool)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,6 +51,7 @@ class PBOQPricePane(QWidget):
         self.gross_rate_tool = GrossRateTool()
         self.gross_rate_tool.visibilityChanged.connect(self.grossRateVisibilityChanged.emit)
         self.gross_rate_tool.stateChanged.connect(self.stateChanged.emit)
+        self.gross_rate_tool.priceSOPRequested.connect(self.priceSOPRequested.emit)
         self.stack_layout.addWidget(self.gross_rate_tool)
         
         # Apply Balanced Compact Stylesheet
