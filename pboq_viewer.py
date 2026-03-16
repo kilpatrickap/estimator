@@ -889,13 +889,12 @@ class PBOQDialog(QDialog):
         # 1. Identify SOR file
         pboq_filename = self.pboq_file_selector.currentText()
         if pboq_filename.startswith("PBOQ_"):
-            sor_filename = pboq_filename[5:]
+            sor_filename = "SOR_" + pboq_filename[5:]
         else:
-            sor_filename = pboq_filename
+            sor_filename = "SOR_" + pboq_filename
             
         sor_path = os.path.join(self.project_dir, "SOR", sor_filename)
-        if not os.path.exists(sor_path):
-            if not sor_path.endswith(".db"): sor_path += ".db"
+        if not sor_path.endswith(".db"): sor_path += ".db"
             
         if not os.path.exists(sor_path):
             QMessageBox.warning(self, "SOR Not Found", f"Could not find matching SOR file for Bill: {sor_filename}")
@@ -905,7 +904,21 @@ class PBOQDialog(QDialog):
             self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
             return
 
-        # 2. Get Mappings
+        # 2. Helper functions for robust matching
+        def normalize_desc(d):
+            if not d: return ""
+            return str(d).rsplit(':', 1)[-1].strip().lower()
+
+        def normalize_qty(q):
+            try:
+                # Remove commas and convert to float for comparison
+                clean = str(q).replace(',', '').strip()
+                if not clean: return "0.00"
+                return "{:.2f}".format(float(clean))
+            except (ValueError, TypeError):
+                return str(q).strip().lower()
+
+        # 3. Get Mappings
         mapping = self.tools_pane.get_mapping()
         if mapping['desc'] < 0 or mapping['qty'] < 0 or mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
             QMessageBox.warning(self, "Mapping Error", "Please ensure Description, Quantity, Gross Rate, and Rate Code columns are mapped in the Tools Pane first.")
@@ -914,7 +927,7 @@ class PBOQDialog(QDialog):
             self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
             return
 
-        # 3. Load SOR data into a lookup map
+        # 4. Load SOR data into a lookup map
         sor_lookup = {}
         try:
             conn = sqlite3.connect(sor_path)
@@ -935,8 +948,8 @@ class PBOQDialog(QDialog):
                 # Normalize key
                 key = (str(sheet).strip().lower(), 
                        str(ref).strip().lower(), 
-                       str(desc).strip().lower(), 
-                       str(qty).strip().lower(), 
+                       normalize_desc(desc), 
+                       normalize_qty(qty), 
                        str(unit).strip().lower())
                 sor_lookup[key] = (gross, code)
             conn.close()
@@ -944,7 +957,7 @@ class PBOQDialog(QDialog):
             QMessageBox.critical(self, "SOR Error", f"Failed to load SOR database for cross-referencing:\n{e}")
             return
 
-        # 4. Iterate PBOQ tabs and price
+        # 5. Iterate PBOQ tabs and price
         priced_count = 0
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         price_updates = []
@@ -962,11 +975,11 @@ class PBOQDialog(QDialog):
                 # Extract PBOQ values
                 p_ref = table.item(r, mapping['ref']).text().strip().lower() if mapping['ref'] >= 0 else ""
                 p_desc_full = table.item(r, mapping['desc']).text().strip()
-                p_qty = table.item(r, mapping['qty']).text().strip().lower()
+                p_qty_raw = table.item(r, mapping['qty']).text().strip()
                 p_unit = table.item(r, mapping['unit']).text().strip().lower() if mapping['unit'] >= 0 else ""
                 
-                # Strategy: only the last part of description (after last colon)
-                p_desc_tail = p_desc_full.rsplit(':', 1)[-1].strip().lower()
+                p_desc_tail = normalize_desc(p_desc_full)
+                p_qty = normalize_qty(p_qty_raw)
                 
                 key = (sheet_name, p_ref, p_desc_tail, p_qty, p_unit)
                 
@@ -975,7 +988,7 @@ class PBOQDialog(QDialog):
                     gross_item = table.item(r, mapping['gross_rate'])
                     code_item = table.item(r, mapping['rate_code'])
                     
-                    # Store original values for revert
+                    # Store original values for revert if not already stored
                     if not gross_item.data(Qt.ItemDataRole.UserRole + 10):
                         gross_item.setData(Qt.ItemDataRole.UserRole + 11, gross_item.text())
                         code_item.setData(Qt.ItemDataRole.UserRole + 11, code_item.text())
@@ -994,7 +1007,7 @@ class PBOQDialog(QDialog):
                     price_updates.append((row_id, gross, code))
                     priced_count += 1
 
-        # 5. Persist to PBOQ DB
+        # 6. Persist to PBOQ DB
         if price_updates:
             try:
                 conn = sqlite3.connect(pboq_db_path)
@@ -1013,7 +1026,7 @@ class PBOQDialog(QDialog):
         if priced_count > 0:
             QMessageBox.information(self, "Pricing Successful", f"Found and applied matching rates for {priced_count} items using the project SOR.")
         else:
-            QMessageBox.information(self, "No Matches", "No matching items were found in the SOR for the current PBOQ view using strict validation.")
+            QMessageBox.information(self, "No Matches", "No matching items were found in the SOR for the current PBOQ view using strict validation.\n\nTips:\n- Ensure the 'Sheet' names in SOR match the PBOQ tab names.\n- Ensure Quantity values are identical (including decimal precision).")
             # Reset button state
             self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(True)
             self.price_pane.gross_rate_tool.price_sop_btn.setText("Price with SOP")
@@ -1024,6 +1037,10 @@ class PBOQDialog(QDialog):
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         mapping = self.tools_pane.get_mapping()
         
+        if mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
+            QMessageBox.warning(self, "Mapping Error", "Gross Rate or Rate Code columns are not mapped. Cannot revert correctly.")
+            return
+
         revert_count = 0
         db_updates = []
 
@@ -1034,15 +1051,21 @@ class PBOQDialog(QDialog):
             for r in range(table.rowCount()):
                 gross_item = table.item(r, mapping['gross_rate'])
                 if gross_item and gross_item.data(Qt.ItemDataRole.UserRole + 10):
-                    row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    row_id_item = table.item(r, 0)
+                    if not row_id_item: continue
+                    row_id = row_id_item.data(Qt.ItemDataRole.UserRole)
                     code_item = table.item(r, mapping['rate_code'])
                     
                     # Restore original values
                     orig_gross = gross_item.data(Qt.ItemDataRole.UserRole + 11)
                     orig_code = code_item.data(Qt.ItemDataRole.UserRole + 11)
                     
-                    gross_item.setText(str(orig_gross) if orig_gross is not None else "")
-                    code_item.setText(str(orig_code) if orig_code is not None else "")
+                    # Ensure we handle None/empty correctly for "clearing"
+                    new_gross = str(orig_gross) if orig_gross is not None else ""
+                    new_code = str(orig_code) if orig_code is not None else ""
+                    
+                    gross_item.setText(new_gross)
+                    code_item.setText(new_code)
                     
                     # Clear SOP flags
                     gross_item.setData(Qt.ItemDataRole.UserRole + 10, None)
@@ -1050,11 +1073,11 @@ class PBOQDialog(QDialog):
                     
                     # Reset colors
                     for c in range(table.columnCount()):
-                        table.item(r, c).setBackground(Qt.BrushStyle.NoBrush)
+                        table.item(r, c).setBackground(QBrush(Qt.BrushStyle.NoBrush))
                         def_color = table.get_column_default_color(c)
                         if def_color: table.item(r, c).setBackground(def_color)
                         
-                    db_updates.append((row_id, orig_gross, orig_code))
+                    db_updates.append((row_id, new_gross, new_code))
                     revert_count += 1
 
         if db_updates:
@@ -1072,6 +1095,8 @@ class PBOQDialog(QDialog):
                 QMessageBox.information(self, "Reverted", f"Successfully reverted {revert_count} items to their original pricing.")
             except Exception as e:
                 QMessageBox.critical(self, "DB Revert Error", f"UI was reverted but database update failed:\n{e}")
+        else:
+             QMessageBox.information(self, "Revert", "No SOP-priced items found to revert in the current view.")
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed
