@@ -95,7 +95,6 @@ class PBOQDialog(QDialog):
         self.search_bar.textChanged.connect(self._run_global_search)
         top_bar.addWidget(self.search_bar)
         
-        # Pane Toggle Button
         self.toggle_pane_btn = QPushButton("Hide Pane")
         self.toggle_pane_btn.setFixedWidth(100)
         self.toggle_pane_btn.clicked.connect(self._toggle_tools_pane)
@@ -121,9 +120,6 @@ class PBOQDialog(QDialog):
         if 'pane_visible' in state:
             self.pane_requested_visible = state['pane_visible']
             if hasattr(self, 'tools_dock') and self.tools_dock:
-                # Only show if not just hidden by state, and we are the active window
-                # Actually, _on_mdi_subwindow_activated will handle the show/hide
-                # but we need to set the initial state correctly.
                 self.tools_dock.setVisible(self.pane_requested_visible)
         
         if self.pboq_file_selector.count() > 0:
@@ -433,9 +429,8 @@ class PBOQDialog(QDialog):
         """Syncs the toggle button text with the actual visibility of the pane."""
         if hasattr(self, 'toggle_pane_btn'):
             self.toggle_pane_btn.setText("Hide Pane" if visible else "Show Pane")
-        
-        # Persist viewer-level visibility state
         self._save_viewer_state()
+
 
     def _toggle_wrap_text(self, enabled):
         m = self.tools_pane.get_mappings()
@@ -840,7 +835,10 @@ class PBOQDialog(QDialog):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
         if os.path.exists(settings_file):
             with open(settings_file, 'r') as f:
-                return json.load(f)
+                state_data = json.load(f)
+                if isinstance(state_data, dict):
+                    return state_data
+                return {'last_bill': state_data}
         return {}
 
     def closeEvent(self, event):
