@@ -3,7 +3,8 @@ import sqlite3
 import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QMessageBox, QComboBox, QTabWidget, QWidget,
-                             QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu)
+                             QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu,
+                             QLineEdit)
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QColor, QBrush, QAction
 
@@ -83,6 +84,13 @@ class PBOQDialog(QDialog):
         self.pboq_file_selector.activated.connect(self._load_pboq_db)
         top_bar.addWidget(QLabel("Select PBOQ:"))
         top_bar.addWidget(self.pboq_file_selector)
+        
+        # Search Bar
+        self.search_bar = QLineEdit()
+        self.search_bar.setPlaceholderText("Search for items in sheet(s).")
+        self.search_bar.setMinimumWidth(250)
+        self.search_bar.textChanged.connect(self._run_global_search)
+        top_bar.addWidget(self.search_bar)
         
         # Stats
         self.stats_label = QLabel("Items: 0 | Priced: 0 | Outstanding: 0")
@@ -207,6 +215,27 @@ class PBOQDialog(QDialog):
         self._load_pboq_state(index)
         self._update_column_headers()
         self._update_stats()
+        self._run_global_search(self.search_bar.text())
+
+    def _run_global_search(self, text):
+        """Filters rows in all sheets based on the search text."""
+        text = text.lower()
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            for r in range(table.rowCount()):
+                match = False
+                if not text:
+                    match = True
+                else:
+                    # Search in all visible columns
+                    for c in range(table.columnCount()):
+                        item = table.item(r, c)
+                        if item and text in item.text().lower():
+                            match = True
+                            break
+                table.setRowHidden(r, not match)
 
     def _apply_item_format(self, item, fmt):
         font = item.font()
