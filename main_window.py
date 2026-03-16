@@ -767,7 +767,7 @@ class MainWindow(QMainWindow):
                 
         dialog = BOQSetupWindow(full_path, active_est, self, project_dir=project_dir)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(1000, 700)
+        sub.resize(1050, 500)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
@@ -805,7 +805,7 @@ class MainWindow(QMainWindow):
                 
         dialog = SORDialog(project_dir, self)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(950, 600)
+        sub.resize(1050, 500)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
         
@@ -843,7 +843,7 @@ class MainWindow(QMainWindow):
                 
         dialog = PBOQDialog(project_dir, self)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(950, 600)
+        sub.resize(1050, 500)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 

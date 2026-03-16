@@ -17,6 +17,8 @@ class BOQToolsPane(QWidget):
     def __init__(self, owner):
         super().__init__()
         self.owner = owner
+        self.setMinimumWidth(250)
+        self.setMaximumWidth(280)
         self._init_ui()
 
     def _init_ui(self):
@@ -55,6 +57,7 @@ class BOQToolsPane(QWidget):
         sheet_layout.setContentsMargins(5, 5, 5, 5)
         
         self.owner.sheet_selector.setMinimumHeight(120)
+        self.owner.sheet_selector.setFixedWidth(240)
         sheet_layout.addWidget(self.owner.sheet_selector)
         c_layout.addWidget(sheet_group)
 

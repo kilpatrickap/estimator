@@ -13,6 +13,8 @@ class SORToolsPane(QWidget):
     def __init__(self, owner):
         super().__init__()
         self.owner = owner
+        self.setMinimumWidth(250)
+        self.setMaximumWidth(280)
         self._init_ui()
 
     def _init_ui(self):
@@ -45,6 +47,7 @@ class SORToolsPane(QWidget):
         l_layout.setContentsMargins(2, 2, 2, 2)
         l_layout.setSpacing(1)
         self.owner.list_widget.setMinimumHeight(150)
+        self.owner.list_widget.setFixedWidth(240) # Ensure list doesn't push width
         l_layout.addWidget(self.owner.list_widget)
         c_layout.addWidget(list_group)
         
