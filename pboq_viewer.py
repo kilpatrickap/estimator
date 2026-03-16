@@ -348,11 +348,12 @@ class PBOQDialog(QDialog):
         if display_col == m['bill_amount'] and not self.is_syncing_links:
             self._sync_live_links(updates)
             
-        # Trigger Live Collection and Summary
+        # Trigger Live Collection, Populate, and Summary
         if display_col == m['bill_amount'] and not self.is_updating_logic:
             self.is_updating_logic = True
             try:
                 self._run_collect_logic()
+                self._run_populate_collection()
                 self._run_summary_logic()
             finally:
                 self.is_updating_logic = False
@@ -651,7 +652,7 @@ class PBOQDialog(QDialog):
                 g_idx = item_amt.data(Qt.ItemDataRole.UserRole + 1) if item_amt else None
                 
                 if is_revert:
-                    if item_amt and item_amt.background().color() == const.COLOR_COLLECT:
+                    if item_amt and item_amt.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
                         item_amt.setText("")
                         # Restore default column color instead of white/null
                         def_color = t.get_column_default_color(m['bill_amount'])
@@ -704,7 +705,7 @@ class PBOQDialog(QDialog):
             if not is_revert:
                 for r in range(t.rowCount()):
                     item = t.item(r, m['bill_amount'])
-                    if item and item.background().color() == const.COLOR_COLLECT:
+                    if item and item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
                         rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
                         bucket.append((rowid, item.text()))
             
@@ -719,11 +720,15 @@ class PBOQDialog(QDialog):
                     if tgt in desc_text: found = True
                     continue
                 
+                # Once found, we still skip any row that contains the target marker text
+                if tgt in desc_text:
+                    continue
+                
                 has_qty = t.item(r, m['qty']) and t.item(r, m['qty']).text().strip()
                 amt_item = t.item(r, m['bill_amount'])
                 
                 if is_revert:
-                    if desc_text.strip() and not has_qty and amt_item and amt_item.background().color() == const.COLOR_POPULATE:
+                    if desc_text.strip() and not has_qty and amt_item and amt_item.background().color().name().lower() == const.COLOR_POPULATE.name().lower():
                         amt_item.setText("")
                         # Restore default column color instead of white/null
                         def_color = t.get_column_default_color(m['bill_amount'])
@@ -777,7 +782,7 @@ class PBOQDialog(QDialog):
             collected_found = False
             for r in range(t.rowCount()):
                 item = t.item(r, m['bill_amount'])
-                if item and item.background().color() == const.COLOR_COLLECT:
+                if item and item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
                     collected_found = True
                     break
             
@@ -788,13 +793,13 @@ class PBOQDialog(QDialog):
                 
                 if collected_found:
                     # Sum only collected cells
-                    if item.background().color() == const.COLOR_COLLECT:
+                    if item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
                         try: total_val += float(item.text().replace(',', ''))
                         except ValueError: pass
                 else:
                     # Fallback: Sum all numeric items, excluding existing summaries and the target row itself
                     row_desc = t.item(r, m['desc']).text().lower() if t.item(r, m['desc']) else ""
-                    if tgt not in row_desc and item.background().color() != const.COLOR_SUMMARY:
+                    if tgt not in row_desc and item.background().color().name().lower() != const.COLOR_SUMMARY.name().lower():
                         try: total_val += float(item.text().replace(',', ''))
                         except ValueError: pass
             
