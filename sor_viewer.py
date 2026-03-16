@@ -84,6 +84,8 @@ class SORDialog(QDialog):
         self.setWindowTitle("Schedules of Rate (SOR)")
         self.setMinimumSize(950, 400)
         
+        self._init_ui()
+        
     def _init_ui(self):
         # Create all tools first
         self.search_bar = QLineEdit()
