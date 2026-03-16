@@ -1032,6 +1032,8 @@ class PBOQDialog(QDialog):
             self.price_pane.gross_rate_tool.price_sop_btn.setText("Price with SOP")
             self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
 
+        self._update_stats()
+
     def _revert_sop_pricing(self):
         """Reverts Gross Rate and Rate Code to their original state before SOP pricing."""
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
@@ -1097,6 +1099,8 @@ class PBOQDialog(QDialog):
                 QMessageBox.critical(self, "DB Revert Error", f"UI was reverted but database update failed:\n{e}")
         else:
              QMessageBox.information(self, "Revert", "No SOP-priced items found to revert in the current view.")
+
+        self._update_stats()
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed

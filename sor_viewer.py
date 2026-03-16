@@ -130,6 +130,7 @@ class SORDialog(QDialog):
         self.table_widget.setAlternatingRowColors(True)
         self.table_widget.verticalHeader().setVisible(False)
         self.table_widget.setShowGrid(False)
+        self.table_widget.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         
         header = self.table_widget.horizontalHeader()
         header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -282,6 +283,7 @@ class SORDialog(QDialog):
         for row_idx, row_data in enumerate(all_rows):
             for col_idx, col_val in enumerate(row_data):
                 t_item = QTableWidgetItem(str(col_val) if col_val is not None else "")
+                t_item.setFlags(t_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 if col_idx == 6: # Gross Rate
                     t_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table_widget.setItem(row_idx, col_idx, t_item)
