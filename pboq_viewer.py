@@ -28,6 +28,7 @@ class PBOQDialog(QDialog):
         self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
         self.db_columns = []
         self.linking_source = None
+        self.pane_requested_visible = True # Track user preference for pane visibility
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
@@ -109,11 +110,21 @@ class PBOQDialog(QDialog):
         self.main_layout.addLayout(top_bar)
 
     def _load_initial_configuration(self):
-        last_bill = self._load_viewer_state()
+        state = self._load_viewer_state()
+        last_bill = state.get('last_bill')
         if last_bill:
             index = self.pboq_file_selector.findText(last_bill)
             if index >= 0:
                 self.pboq_file_selector.setCurrentIndex(index)
+        
+        # Apply pane visibility state
+        if 'pane_visible' in state:
+            self.pane_requested_visible = state['pane_visible']
+            if hasattr(self, 'tools_dock') and self.tools_dock:
+                # Only show if not just hidden by state, and we are the active window
+                # Actually, _on_mdi_subwindow_activated will handle the show/hide
+                # but we need to set the initial state correctly.
+                self.tools_dock.setVisible(self.pane_requested_visible)
         
         if self.pboq_file_selector.count() > 0:
             self._load_pboq_db(self.pboq_file_selector.currentIndex())
@@ -121,6 +132,7 @@ class PBOQDialog(QDialog):
     def _load_pboq_db(self, index):
         if index < 0: return
         file_path = self.pboq_file_selector.itemData(index)
+        self._save_viewer_state() # Save selection change
         
         self.tabs.blockSignals(True)
         # Clear existing tabs
@@ -397,7 +409,11 @@ class PBOQDialog(QDialog):
         try:
             if hasattr(self, 'tools_dock') and self.tools_dock:
                 if sub and sub.widget() is self: 
-                    self.tools_dock.show()
+                    # Only show if the user hasn't explicitly hidden it
+                    if self.pane_requested_visible:
+                        self.tools_dock.show()
+                    else:
+                        self.tools_dock.hide()
                 else: 
                     self.tools_dock.hide()
         except RuntimeError:
@@ -409,14 +425,17 @@ class PBOQDialog(QDialog):
         if not hasattr(self, 'tools_dock') or not self.tools_dock:
             return
             
-        is_visible = self.tools_dock.isVisible()
-        self.tools_dock.setVisible(not is_visible)
+        self.pane_requested_visible = not self.pane_requested_visible
+        self.tools_dock.setVisible(self.pane_requested_visible)
         # Button text will be synced by the visibilityChanged signal
         
     def _sync_pane_button_text(self, visible):
         """Syncs the toggle button text with the actual visibility of the pane."""
         if hasattr(self, 'toggle_pane_btn'):
             self.toggle_pane_btn.setText("Hide Pane" if visible else "Show Pane")
+        
+        # Persist viewer-level visibility state
+        self._save_viewer_state()
 
     def _toggle_wrap_text(self, enabled):
         m = self.tools_pane.get_mappings()
@@ -808,15 +827,21 @@ class PBOQDialog(QDialog):
     def _save_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
         os.makedirs(os.path.dirname(settings_file), exist_ok=True)
+        
+        state = {
+            'last_bill': self.pboq_file_selector.currentText(),
+            'pane_visible': self.pane_requested_visible
+        }
+        
         with open(settings_file, 'w') as f:
-            json.dump({'last_bill': self.pboq_file_selector.currentText()}, f)
+            json.dump(state, f)
 
     def _load_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
         if os.path.exists(settings_file):
             with open(settings_file, 'r') as f:
-                return json.load(f).get('last_bill')
-        return None
+                return json.load(f)
+        return {}
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed
