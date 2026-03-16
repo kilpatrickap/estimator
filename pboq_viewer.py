@@ -454,27 +454,33 @@ class PBOQDialog(QDialog):
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
-        h_color = const.COLOR_HEADING.name()
         
         for idx in range(self.tabs.count()):
             table = self.tabs.widget(idx)
+            if not isinstance(table, PBOQTable): continue
+            
             headers = []
             for i in range(table.columnCount()):
-                name = friends.get(map_inv.get(i), f"Column {i}")
+                role = map_inv.get(i)
+                name = friends.get(role, f"Column {i}")
                 headers.append(name)
             
             table.setHorizontalHeaderLabels(headers)
             
-            # Apply heading color to the header using Palette (avoiding QSS as requested)
-            header = table.horizontalHeader()
-            header.setAutoFillBackground(True)
-            palette = header.palette()
-            palette.setColor(header.backgroundRole(), const.COLOR_HEADING)
-            palette.setColor(header.foregroundRole(), Qt.GlobalColor.blue)
-            # In many styles, we also need to set the Button role for headers
-            palette.setColor(palette.ColorRole.Button, const.COLOR_HEADING)
-            palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.blue)
-            header.setPalette(palette)
+            # Apply heading color and blue text to the header items directly
+            # This is more robust than Palette when a global stylesheet is present
+            for i in range(table.columnCount()):
+                item = table.horizontalHeaderItem(i)
+                if item:
+                    item.setBackground(const.COLOR_HEADING)
+                    # Only use blue (COLOR_HEADER_TEXT) for mapped columns
+                    if map_inv.get(i) is not None:
+                        item.setForeground(const.COLOR_HEADER_TEXT)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    else:
+                        item.setForeground(Qt.GlobalColor.black)
             
             # Update columns identifying colors across sheets
             table.apply_column_colors(m, table.columnCount())

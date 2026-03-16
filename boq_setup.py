@@ -333,15 +333,16 @@ class BOQSetupWindow(QWidget):
                 columns = [f"Column {i}" for i in range(len(df.columns))]
                 table.setHorizontalHeaderLabels(columns)
                 
-                # Apply heading color and blue text to the header using Palette
-                header = table.horizontalHeader()
-                header.setAutoFillBackground(True)
-                palette = header.palette()
-                palette.setColor(header.backgroundRole(), const.COLOR_HEADING)
-                palette.setColor(header.foregroundRole(), Qt.GlobalColor.blue)
-                palette.setColor(palette.ColorRole.Button, const.COLOR_HEADING)
-                palette.setColor(palette.ColorRole.ButtonText, Qt.GlobalColor.blue)
-                header.setPalette(palette)
+                # Apply heading color and blue text to the header items directly
+                # This is more robust than Palette when a global stylesheet is present
+                for i in range(table.columnCount()):
+                    item = table.horizontalHeaderItem(i)
+                    if item:
+                        item.setBackground(const.COLOR_HEADING)
+                        item.setForeground(const.COLOR_HEADER_TEXT)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
                 
                 ws = None
                 if wb and is_xlsx and sheet_name in wb.sheetnames:

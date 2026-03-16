@@ -4,6 +4,7 @@ from PyQt6.QtGui import QColor
 COLOR_HEADING = QColor("#e8f5e9")
 COLOR_ITEM = QColor("#fff9c4")
 COLOR_IGNORE = QColor("#ffffff")
+COLOR_HEADER_TEXT = QColor("#1976D2") # High-contrast blue for headers
 
 # Column identifying colors (Soft pastels for high readability)
 COL_COLOR_BLUE = QColor("#e3f2fd")
