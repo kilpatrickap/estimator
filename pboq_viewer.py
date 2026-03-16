@@ -12,6 +12,7 @@ import pboq_constants as const
 from pboq_logic import PBOQLogic
 from pboq_table import PBOQTable
 from pboq_tools import PBOQToolsPane
+from pboq_price import PBOQPricePane
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Modularized and Maintainable."""
@@ -59,7 +60,6 @@ class PBOQDialog(QDialog):
             self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
             self.tools_dock.show()
             self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
-            self.tools_dock.visibilityChanged.connect(self._sync_pane_button_text)
             self.destroyed.connect(self._cleanup_tools_dock)
             
         # Connect Tools Pane signals
@@ -95,10 +95,10 @@ class PBOQDialog(QDialog):
         self.search_bar.textChanged.connect(self._run_global_search)
         top_bar.addWidget(self.search_bar)
         
-        self.toggle_pane_btn = QPushButton("Hide Pane")
-        self.toggle_pane_btn.setFixedWidth(100)
-        self.toggle_pane_btn.clicked.connect(self._toggle_tools_pane)
-        top_bar.addWidget(self.toggle_pane_btn)
+        self.tool_toggle_btn = QPushButton("Price Tools")
+        self.tool_toggle_btn.setFixedWidth(100)
+        self.tool_toggle_btn.clicked.connect(self._switch_tool_pane)
+        top_bar.addWidget(self.tool_toggle_btn)
         
         # Stats
         self.stats_label = QLabel("Items: 0 | Priced: 0 | Outstanding: 0")
@@ -124,6 +124,10 @@ class PBOQDialog(QDialog):
         
         if self.pboq_file_selector.count() > 0:
             self._load_pboq_db(self.pboq_file_selector.currentIndex())
+
+        # Restore tool pane selection
+        if state.get('active_pane') == 'price':
+            self._switch_tool_pane()
 
     def _load_pboq_db(self, index):
         if index < 0: return
@@ -416,19 +420,24 @@ class PBOQDialog(QDialog):
             # Object already deleted, ignore
             pass
 
-    def _toggle_tools_pane(self):
-        """Toggles the visibility of the tools dock widget."""
-        if not hasattr(self, 'tools_dock') or not self.tools_dock:
-            return
+    def _switch_tool_pane(self):
+        """Switches between PBOQ Tools and Price Tools panes."""
+        if self.tools_dock.widget() == self.tools_pane:
+            if not hasattr(self, 'price_pane'):
+                self.price_pane = PBOQPricePane(self)
             
-        self.pane_requested_visible = not self.pane_requested_visible
-        self.tools_dock.setVisible(self.pane_requested_visible)
-        # Button text will be synced by the visibilityChanged signal
+            self.tools_dock.setWidget(self.price_pane)
+            self.tools_dock.setWindowTitle("Price Tools")
+            self.tool_toggle_btn.setText("PBOQ Tools")
+        else:
+            self.tools_dock.setWidget(self.tools_pane)
+            self.tools_dock.setWindowTitle("PBOQ Tools")
+            self.tool_toggle_btn.setText("Price Tools")
         
-    def _sync_pane_button_text(self, visible):
-        """Syncs the toggle button text with the actual visibility of the pane."""
-        if hasattr(self, 'toggle_pane_btn'):
-            self.toggle_pane_btn.setText("Hide Pane" if visible else "Show Pane")
+        # Ensure dock is visible
+        if not self.tools_dock.isVisible():
+            self.tools_dock.show()
+        
         self._save_viewer_state()
 
 
@@ -825,7 +834,8 @@ class PBOQDialog(QDialog):
         
         state = {
             'last_bill': self.pboq_file_selector.currentText(),
-            'pane_visible': self.pane_requested_visible
+            'pane_visible': self.pane_requested_visible,
+            'active_pane': 'price' if self.tools_dock.widget() != self.tools_pane else 'tools'
         }
         
         with open(settings_file, 'w') as f:
