@@ -418,10 +418,15 @@ class PBOQDialog(QDialog):
         if self.tools_dock.widget() == self.tools_pane:
             if not hasattr(self, 'price_pane'):
                 self.price_pane = PBOQPricePane(self)
+                self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
+                self.price_pane.stateChanged.connect(self._save_pboq_state)
             
             self.tools_dock.setWidget(self.price_pane)
             self.tools_dock.setWindowTitle("Price Tools")
             self.tool_toggle_btn.setText("PBOQ Tools")
+            
+            # Apply current state of the price pane
+            self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
         else:
             self.tools_dock.setWidget(self.tools_pane)
             self.tools_dock.setWindowTitle("PBOQ Tools")
@@ -432,6 +437,20 @@ class PBOQDialog(QDialog):
             self.tools_dock.show()
         
         self._save_viewer_state()
+
+    def _toggle_gross_rate_visibility(self, visible):
+        """Hides or shows the Gross Rate and Rate Code columns in all tables."""
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('rate', -1)
+        code_col = m.get('rate_code', -1)
+
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if isinstance(table, PBOQTable):
+                if rate_col >= 0:
+                    table.setColumnHidden(rate_col, not visible)
+                if code_col >= 0:
+                    table.setColumnHidden(code_col, not visible)
 
 
     def _toggle_wrap_text(self, enabled):
@@ -811,6 +830,8 @@ class PBOQDialog(QDialog):
         
         state = self.tools_pane.get_tools_state()
         state['active_tab'] = self.tabs.currentIndex()
+        if hasattr(self, 'price_pane'):
+            state['price_tools'] = self.price_pane.get_state()
         
         state_file = os.path.join(state_dir, os.path.basename(file_path) + ".json")
         with open(state_file, 'w') as f:
@@ -823,6 +844,11 @@ class PBOQDialog(QDialog):
             with open(state_file, 'r') as f:
                 state = json.load(f)
                 self.tools_pane.set_tools_state(state)
+                if 'price_tools' in state and hasattr(self, 'price_pane'):
+                    self.price_pane.set_state(state['price_tools'])
+                    # Apply initial visibility
+                    self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
+                
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
                 # Apply word wrap state after loading
                 self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
