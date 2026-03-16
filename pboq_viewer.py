@@ -70,6 +70,7 @@ class PBOQDialog(QDialog):
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
         self.tools_pane.populateRequested.connect(self._run_populate_collection)
         self.tools_pane.summarizeRequested.connect(self._run_summary_logic)
+        self.tools_pane.stateChanged.connect(self._update_stats) # Update stats when mapping changes
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -347,16 +348,39 @@ class PBOQDialog(QDialog):
     def _update_stats(self):
         m = self.tools_pane.get_mappings()
         total, priced = 0, 0
+        
+        # Guard against unmapped columns
+        if m['qty'] < 0:
+            self.stats_label.setText("Map 'Quantity' column to see stats")
+            return
+
         for i in range(self.tabs.count()):
             t = self.tabs.widget(i)
+            if not isinstance(t, PBOQTable): continue
+            
             for r in range(t.rowCount()):
                 qty_item = t.item(r, m['qty'])
                 if qty_item and qty_item.text().strip():
                     total += 1
-                    rate_item = t.item(r, m['rate'])
-                    if rate_item and rate_item.text().strip():
-                        priced += 1
-        self.stats_label.setText(f"Items: {total} | Priced: {priced} | Outstanding: {total - priced}")
+                    # Check if priced - using rate (Gross Rate) column
+                    if m['rate'] >= 0:
+                        rate_item = t.item(r, m['rate'])
+                        if rate_item and rate_item.text().strip():
+                            priced += 1
+        
+        outstanding = total - priced
+        
+        # Format with HTML for colors
+        blue = const.COLOR_STATS_BLUE.name()
+        green = const.COLOR_STATS_GREEN.name()
+        
+        # User requested: Items: blue, Priced: green, Outstanding: green
+        stats_text = (
+            f"Items: <span style='color:{blue}'>{total}</span> | "
+            f"Priced: <span style='color:{green}'>{priced}</span> | "
+            f"Outstanding: <span style='color:{green}'>{outstanding}</span>"
+        )
+        self.stats_label.setText(stats_text)
 
     def _on_tab_changed(self, index):
         self._save_pboq_state()
@@ -416,6 +440,8 @@ class PBOQDialog(QDialog):
             
             # Update columns identifying colors across sheets
             table.apply_column_colors(m, table.columnCount())
+        
+        self._update_stats()
 
     # --- Worker Logic Methods ---
 

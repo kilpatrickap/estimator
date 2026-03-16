@@ -16,3 +16,8 @@ COLOR_POPULATE = QColor("yellow")
 COLOR_SUMMARY = QColor("lime")
 COLOR_GRAY_TEXT = QColor("#777777")
 COLOR_LINK_CYAN = QColor("#00FFFF")
+
+# Stats Colors
+COLOR_STATS_BLUE = QColor("#1976D2")
+COLOR_STATS_GREEN = QColor("#388E3C")
+COLOR_STATS_RED = QColor("#D32F2F")
