@@ -362,10 +362,10 @@ class PBOQDialog(QDialog):
                 qty_item = t.item(r, m['qty'])
                 if qty_item and qty_item.text().strip():
                     total += 1
-                    # Check if priced - using rate (Gross Rate) column
+                    # Check if priced - using Gross Rate column
                     if m['rate'] >= 0:
-                        rate_item = t.item(r, m['rate'])
-                        if rate_item and rate_item.text().strip():
+                        gross_rate_item = t.item(r, m['rate'])
+                        if gross_rate_item and gross_rate_item.text().strip():
                             priced += 1
         
         outstanding = total - priced
@@ -373,12 +373,13 @@ class PBOQDialog(QDialog):
         # Format with HTML for colors
         blue = const.COLOR_STATS_BLUE.name()
         green = const.COLOR_STATS_GREEN.name()
+        red = const.COLOR_STATS_RED.name()
         
-        # User requested: Items: blue, Priced: green, Outstanding: green
+        # User requested: Items: blue, Priced: green, Outstanding: red
         stats_text = (
             f"Items: <span style='color:{blue}'>{total}</span> | "
             f"Priced: <span style='color:{green}'>{priced}</span> | "
-            f"Outstanding: <span style='color:{green}'>{outstanding}</span>"
+            f"Outstanding: <span style='color:{red}'>{outstanding}</span>"
         )
         self.stats_label.setText(stats_text)
 
