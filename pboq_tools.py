@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QForm
                              QComboBox, QCheckBox, QPushButton, QDoubleSpinBox, QLineEdit, 
                              QLabel, QScrollArea)
 from PyQt6.QtCore import Qt, pyqtSignal
+import pboq_constants as const
 
 class PBOQToolsPane(QWidget):
     """The side panel for PBOQ tools like Column Mapping, Extend, Collect, and Summary."""
@@ -185,6 +186,14 @@ class PBOQToolsPane(QWidget):
         self.summarize_btn.clicked.connect(self.summarizeRequested)
         summary_layout.addWidget(self.summarize_btn)
         container_layout.addWidget(summary_group)
+        
+        # 6. Freeze Tools
+        self.freeze_btn = QPushButton("Freeze Tools")
+        self.freeze_btn.setCheckable(True)
+        self.freeze_btn.clicked.connect(self._toggle_freeze)
+        # Style will be handled by styles.qss initially (green/yellow)
+        self.freeze_btn.setContentsMargins(0, 5, 0, 0) # Just add some spacing
+        container_layout.addWidget(self.freeze_btn)
 
         # Apply Balanced Compact Stylesheet
         self.setStyleSheet("""
@@ -302,7 +311,8 @@ class PBOQToolsPane(QWidget):
             'summary_desc': self.summary_desc_cb.isChecked(),
             'summary_amount': self.summary_amount_cb.isChecked(),
             'summary_target': self.summary_target_bar.text(),
-            'wrap_text': self.wrap_text_btn.isChecked()
+            'wrap_text': self.wrap_text_btn.isChecked(),
+            'frozen': self.freeze_btn.isChecked()
         }
 
     def set_tools_state(self, state):
@@ -325,7 +335,39 @@ class PBOQToolsPane(QWidget):
             if 'summary_amount' in state: self.summary_amount_cb.setChecked(state['summary_amount'])
             if 'summary_target' in state: self.summary_target_bar.setText(state['summary_target'])
             if 'wrap_text' in state: self.wrap_text_btn.setChecked(state['wrap_text'])
+            if 'frozen' in state:
+                self.freeze_btn.setChecked(state['frozen'])
+                self._toggle_freeze(state['frozen'])
         finally:
             self.blockSignals(False)
         
         self.update_extend_labels()
+
+    def _toggle_freeze(self, frozen):
+        """Freezes/Unfreezes all tool inputs to prevent accidental changes."""
+        if frozen:
+            self.freeze_btn.setText("Un-Freeze Tools")
+            self.freeze_btn.setStyleSheet(f"background-color: {const.COLOR_FREEZE_GRAY.name()}; color: #555555; font-weight: bold;")
+        else:
+            self.freeze_btn.setText("Freeze Tools")
+            # Clear stylesheet to revert to styles.qss defaults
+            self.freeze_btn.setStyleSheet("")
+        
+        # Determine items to disable
+        # We want to disable almost everything EXCEPT the freeze button itself
+        widgets_to_toggle = [
+            self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
+            self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
+            self.wrap_text_btn, self.clear_all_btn,
+            self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
+            self.dummy_rate_spin, self.extend_btn, self.clear_bill_btn,
+            self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
+            self.collect_btn, self.collection_target_bar, self.populate_btn,
+            self.summary_desc_cb, self.summary_amount_cb, self.summary_target_bar,
+            self.summarize_btn
+        ]
+        
+        for w in widgets_to_toggle:
+            w.setEnabled(not frozen)
+            
+        self.stateChanged.emit()
