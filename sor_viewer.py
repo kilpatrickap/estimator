@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import json
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter, 
                              QListWidget, QTableWidget, QTableWidgetItem, 
@@ -170,15 +171,55 @@ class SORDialog(QDialog):
             self.list_widget.blockSignals(False)
             return
             
+        checked_files = self._load_sor_state()
+            
         for f in os.listdir(self.sor_folder):
             if f.lower().endswith('.db'):
                 item = QListWidgetItem(f)
                 item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-                item.setCheckState(Qt.CheckState.Unchecked)
+                if f in checked_files:
+                    item.setCheckState(Qt.CheckState.Checked)
+                else:
+                    item.setCheckState(Qt.CheckState.Unchecked)
                 self.list_widget.addItem(item)
         self.list_widget.blockSignals(False)
+        # Load the selected SORs if any were checked from state
+        if checked_files:
+            self._load_selected_sor()
+
+    def _save_sor_state(self):
+        """Saves current ticked items to a state file."""
+        state_dir = os.path.join(self.project_dir, "SOR States")
+        os.makedirs(state_dir, exist_ok=True)
+        state_file = os.path.join(state_dir, "sor_selection.json")
+        
+        checked_items = []
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            if item.checkState() == Qt.CheckState.Checked:
+                checked_items.append(item.text())
+        
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(checked_items, f)
+        except Exception:
+            pass
+
+    def _load_sor_state(self):
+        """Returns the list of previously ticked SOR filenames."""
+        state_file = os.path.join(self.project_dir, "SOR States", "sor_selection.json")
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        return data
+            except Exception:
+                pass
+        return []
 
     def _load_selected_sor(self):
+        self._save_sor_state()
         self.table_widget.setRowCount(0)
         
         checked_items = []

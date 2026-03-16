@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
 class GrossRateTool(QWidget):
@@ -21,7 +21,18 @@ class GrossRateTool(QWidget):
         self.show_gross_cb.toggled.connect(self.stateChanged.emit)
         
         layout.addWidget(self.show_gross_cb)
+        
+        self.price_sop_btn = QPushButton("Price with SOP")
+        self.price_sop_btn.clicked.connect(self._on_price_sop_clicked)
+        layout.addWidget(self.price_sop_btn)
+        
         layout.addStretch()
+
+    def _on_price_sop_clicked(self):
+        if self.price_sop_btn.text() == "Price with SOP":
+            self.price_sop_btn.setText("Revert Price")
+        else:
+            self.price_sop_btn.setText("Price with SOP")
 
     def get_state(self):
         return {"show_gross": self.show_gross_cb.isChecked()}
