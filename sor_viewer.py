@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QSplitter,
                              QListWidget, QTableWidget, QTableWidgetItem, 
                              QLabel, QMessageBox, QHeaderView, QListWidgetItem,
                              QLineEdit, QWidget, QCheckBox, QDockWidget, QScrollArea,
-                             QFrame)
+                             QFrame, QGroupBox)
 import pboq_constants as const
 
 class SORToolsPane(QWidget):
@@ -17,58 +17,64 @@ class SORToolsPane(QWidget):
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(5, 5, 5, 5)
         
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QScrollArea.Shape.NoFrame)
         
         container = QWidget()
-        container.setStyleSheet("font-size: 8pt;") # Smaller font for compact look
         c_layout = QVBoxLayout(container)
-        c_layout.setContentsMargins(5, 5, 5, 5)
-        c_layout.setSpacing(8)
+        c_layout.setContentsMargins(0, 0, 0, 0)
+        c_layout.setSpacing(5)
 
-        # 1. Search Box
-        search_group = QFrame()
-        search_group.setFrameShape(QFrame.Shape.StyledPanel)
-        s_layout = QVBoxLayout(search_group)
-        s_layout.setContentsMargins(5, 5, 5, 5)
-        s_layout.setSpacing(2)
-        s_layout.addWidget(QLabel("<b>Universal Search:</b>"))
-        self.owner.search_bar.setMaximumHeight(20)
-        s_layout.addWidget(self.owner.search_bar)
-        self.owner.similar_checkbox.setStyleSheet("margin-bottom: -4px;")
-        s_layout.addWidget(self.owner.similar_checkbox)
-        s_layout.addWidget(QLabel("<b>Keywords (csv):</b>"))
-        self.owner.keywords_input.setMaximumHeight(20)
-        s_layout.addWidget(self.owner.keywords_input)
-        c_layout.addWidget(search_group)
-
-        # 2. Stats
-        stats_group = QFrame()
-        stats_group.setFrameShape(QFrame.Shape.StyledPanel)
+        # 1. Stats
+        stats_group = QGroupBox("Price Statistics")
         st_layout = QVBoxLayout(stats_group)
-        st_layout.setContentsMargins(5, 5, 5, 5)
-        st_layout.setSpacing(2)
-        st_layout.addWidget(QLabel("<b>Price Statistics:</b>"))
+        st_layout.setContentsMargins(2, 2, 2, 2)
+        st_layout.setSpacing(1)
         st_layout.addWidget(self.owner.total_rates_label)
         st_layout.addWidget(self.owner.found_rates_label)
         st_layout.addWidget(self.owner.priced_rates_label)
         st_layout.addWidget(self.owner.outstanding_rates_label)
         c_layout.addWidget(stats_group)
 
-        # 3. SOR Files
-        list_group = QFrame()
-        list_group.setFrameShape(QFrame.Shape.StyledPanel)
+        # 2. SOR Files
+        list_group = QGroupBox("Available SORs")
         l_layout = QVBoxLayout(list_group)
-        l_layout.setContentsMargins(5, 5, 5, 5)
-        l_layout.setSpacing(2)
-        l_layout.addWidget(QLabel("<b>Available SORs:</b>"))
+        l_layout.setContentsMargins(2, 2, 2, 2)
+        l_layout.setSpacing(1)
         self.owner.list_widget.setMinimumHeight(150)
         l_layout.addWidget(self.owner.list_widget)
         c_layout.addWidget(list_group)
         
+        # Apply Balanced Compact Stylesheet
+        self.setStyleSheet("""
+            QGroupBox {
+                margin-top: 12px;
+                padding-top: 4px;
+                font-weight: 600;
+                font-size: 8pt;
+                border: 1px solid #ccc;
+                border-radius: 4px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                subcontrol-position: top left;
+                left: 10px;
+                padding: 0 2px;
+                top: 2px;
+            }
+            QLabel, QComboBox, QLineEdit, QPushButton, QCheckBox, QDoubleSpinBox, QListWidget {
+                font-size: 8pt;
+                margin: 0px;
+                padding: 1px;
+            }
+            QPushButton {
+                padding: 2px 5px;
+            }
+        """)
+
         c_layout.addStretch()
         scroll.setWidget(container)
         layout.addWidget(scroll)
@@ -87,18 +93,17 @@ class SORDialog(QDialog):
         self._init_ui()
         
     def _init_ui(self):
-        # Create all tools first
-        self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search all columns...")
-        self.search_bar.textChanged.connect(self._filter_table)
-        
+        # Top Bar for Keywords Search
+        top_bar = QHBoxLayout()
+        top_bar.addWidget(QLabel("Keywords :"))
         self.keywords_input = QLineEdit()
-        self.keywords_input.setPlaceholderText("e.g. wall, brick")
+        self.keywords_input.setPlaceholderText("Enter keywords (comma separated) to filter SOR...")
+        self.keywords_input.setMinimumWidth(300)
         self.keywords_input.textChanged.connect(self._filter_table)
-        
-        self.similar_checkbox = QCheckBox("Similar rates (OR logic)")
-        self.similar_checkbox.stateChanged.connect(self._filter_table)
-        
+        top_bar.addWidget(self.keywords_input)
+        top_bar.addStretch()
+
+        # Labels for stats (used in Tools Pane)
         label_style = "font-weight: bold; font-size: 9pt;"
         self.total_rates_label = QLabel("Total: 0")
         self.found_rates_label = QLabel("Found: 0")
@@ -141,6 +146,7 @@ class SORDialog(QDialog):
         # Layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(10, 5, 10, 10)
+        layout.addLayout(top_bar)
         layout.addWidget(self.table_widget)
 
         # Tools Pane in Dock
@@ -249,10 +255,7 @@ class SORDialog(QDialog):
         self._filter_table()
 
     def _filter_table(self, *args):
-        search_text = self.search_bar.text().lower()
         keywords_text = self.keywords_input.text().lower()
-        similar_checked = self.similar_checkbox.isChecked()
-        
         keywords = [k.strip() for k in keywords_text.split(',') if k.strip()]
 
         found_count = 0
@@ -268,24 +271,16 @@ class SORDialog(QDialog):
             
             full_row_text = " ".join(row_texts)
             
-            if search_text and search_text not in full_row_text:
-                row_visible = False
-                
-            if row_visible and keywords:
-                if similar_checked:
-                    # OR logic: at least one keyword must be present
-                    if not any(kw in full_row_text for kw in keywords):
-                        row_visible = False
-                else:
-                    # AND logic: all keywords must be present
-                    if not all(kw in full_row_text for kw in keywords):
-                        row_visible = False
+            if keywords:
+                # AND logic: all keywords must be present
+                if not all(kw in full_row_text for kw in keywords):
+                    row_visible = False
                         
             self.table_widget.setRowHidden(row, not row_visible)
             if row_visible:
                 found_count += 1
                 
-        if not search_text and not keywords:
+        if not keywords:
             self.found_rates_label.setText("Found Rates : 0")
         else:
             self.found_rates_label.setText(f"Found Rates : {found_count}")
@@ -602,13 +597,8 @@ class SORDialog(QDialog):
             
             full_row_text = " ".join(row_texts)
             
-            match = False
-            if similar_checked:
-                if any(kw in full_row_text for kw in keywords):
-                    match = True
-            else:
-                if all(kw in full_row_text for kw in keywords):
-                    match = True
+            if all(kw in full_row_text for kw in keywords):
+                match = True
                     
             if match:
                 # Update UI
