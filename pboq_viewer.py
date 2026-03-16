@@ -53,6 +53,8 @@ class PBOQDialog(QDialog):
         # 3. Tools Pane (Docked)
         self.tools_pane = PBOQToolsPane(self)
         self.price_pane = PBOQPricePane(self)
+        self.tools_pane.hide()
+        self.price_pane.hide()
         
         self.tools_dock = QDockWidget("PBOQ Tools", self.main_window)
         self.tools_dock.setWidget(self.tools_pane)
@@ -84,6 +86,8 @@ class PBOQDialog(QDialog):
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
+        top_bar.setSpacing(10)
+        top_bar.setContentsMargins(0, 5, 0, 5)
         
         # File selector
         self.pboq_file_selector = QComboBox()
