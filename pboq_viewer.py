@@ -675,8 +675,16 @@ class PBOQDialog(QDialog):
                         cur_sum = 0.0
                     else:
                         if item_amt and item_amt.text().strip():
-                            try: cur_sum += float(item_amt.text().replace(',', ''))
-                            except ValueError: pass
+                            # Skip summing cells that are already logic-marked (Collect/Populate/Summary)
+                            # to avoid double-counting or summing previously calculated results.
+                            bg_hex = item_amt.background().color().name().lower()
+                            is_logic = bg_hex == const.COLOR_COLLECT.name().lower() or \
+                                       bg_hex == const.COLOR_POPULATE.name().lower() or \
+                                       bg_hex == const.COLOR_SUMMARY.name().lower()
+                            
+                            if not is_logic:
+                                try: cur_sum += float(item_amt.text().replace(',', ''))
+                                except ValueError: pass
         
         if updates:
             self._persist_updates(m['bill_amount'], updates)
