@@ -51,6 +51,8 @@ class PBOQDialog(QDialog):
         
         # 3. Tools Pane (Docked)
         self.tools_pane = PBOQToolsPane(self)
+        self.price_pane = PBOQPricePane(self)
+        
         self.tools_dock = QDockWidget("PBOQ Tools", self.main_window)
         self.tools_dock.setWidget(self.tools_pane)
         self.tools_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
@@ -71,7 +73,11 @@ class PBOQDialog(QDialog):
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
         self.tools_pane.populateRequested.connect(self._run_populate_collection)
         self.tools_pane.summarizeRequested.connect(self._run_summary_logic)
-        self.tools_pane.stateChanged.connect(self._update_stats) # Update stats when mapping changes
+        self.tools_pane.stateChanged.connect(self._update_stats)
+        
+        # Connect Price Pane signals
+        self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
+        self.price_pane.stateChanged.connect(self._save_pboq_state)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -416,11 +422,6 @@ class PBOQDialog(QDialog):
     def _switch_tool_pane(self):
         """Switches between PBOQ Tools and Price Tools panes."""
         if self.tools_dock.widget() == self.tools_pane:
-            if not hasattr(self, 'price_pane'):
-                self.price_pane = PBOQPricePane(self)
-                self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
-                self.price_pane.stateChanged.connect(self._save_pboq_state)
-            
             self.tools_dock.setWidget(self.price_pane)
             self.tools_dock.setWindowTitle("Price Tools")
             self.tool_toggle_btn.setText("PBOQ Tools")
@@ -503,6 +504,9 @@ class PBOQDialog(QDialog):
             
             # Update columns identifying colors across sheets
             table.apply_column_colors(m, table.columnCount())
+        
+        # Ensure Gross Rate visibility is synced with current mapping
+        self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
         
         self._update_stats()
 

@@ -28,4 +28,6 @@ class GrossRateTool(QWidget):
 
     def set_state(self, state):
         if "show_gross" in state:
+            self.show_gross_cb.blockSignals(True)
             self.show_gross_cb.setChecked(state["show_gross"])
+            self.show_gross_cb.blockSignals(False)

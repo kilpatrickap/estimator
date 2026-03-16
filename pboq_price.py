@@ -96,12 +96,16 @@ class PBOQPricePane(QWidget):
         }
 
     def set_state(self, state):
-        if "price_type" in state:
-            idx = self.price_type_combo.findText(state["price_type"])
-            if idx >= 0:
-                self.price_type_combo.setCurrentIndex(idx)
-        
-        if "gross_tool" in state:
-            self.gross_rate_tool.set_state(state["gross_tool"])
-        
-        self._on_type_changed()
+        self.blockSignals(True)
+        try:
+            if "price_type" in state:
+                idx = self.price_type_combo.findText(state["price_type"])
+                if idx >= 0:
+                    self.price_type_combo.setCurrentIndex(idx)
+            
+            if "gross_tool" in state:
+                self.gross_rate_tool.set_state(state["gross_tool"])
+            
+            self._on_type_changed()
+        finally:
+            self.blockSignals(False)
