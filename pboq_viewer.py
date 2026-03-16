@@ -29,6 +29,7 @@ class PBOQDialog(QDialog):
         self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
         self.db_columns = []
         self.linking_source = None
+        self.is_updating_logic = False
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
@@ -79,6 +80,7 @@ class PBOQDialog(QDialog):
         self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
         self.price_pane.stateChanged.connect(self._save_pboq_state)
         self.price_pane.priceSOPRequested.connect(self._run_price_sop_logic)
+        self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_gross_logic)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -345,6 +347,15 @@ class PBOQDialog(QDialog):
         m = self.tools_pane.get_mappings()
         if display_col == m['bill_amount'] and not self.is_syncing_links:
             self._sync_live_links(updates)
+            
+        # Trigger Live Collection and Summary
+        if display_col == m['bill_amount'] and not self.is_updating_logic:
+            self.is_updating_logic = True
+            try:
+                self._run_collect_logic()
+                self._run_summary_logic()
+            finally:
+                self.is_updating_logic = False
 
     def _sync_live_links(self, updates):
         self.is_syncing_links = True
@@ -623,7 +634,11 @@ class PBOQDialog(QDialog):
         if m['desc'] < 0 or m['bill_amount'] < 0: return
         
         is_revert = self.tools_pane.collect_btn.text() == "Revert"
+        # If we are in "live" mode (triggered by update), don't run if the button is currently on 'Collect' OR 'Revert'?
+        # Actually, if we are live, we only want to update IF there is a keyword active.
         kw = self.tools_pane.collect_search_bar.text().lower().strip()
+        if not kw and not is_revert and self.is_updating_logic: 
+            return # Don't auto-collect if no keyword
         updates = []
         
         for i in range(self.tabs.count()):
@@ -1101,6 +1116,95 @@ class PBOQDialog(QDialog):
              QMessageBox.information(self, "Revert", "No SOP-priced items found to revert in the current view.")
 
         self._update_stats()
+
+    def _run_link_bill_to_gross_logic(self):
+        """Batch copies Gross Rates to Bill Rates and recalculates Bill Amounts."""
+        m = self.tools_pane.get_mappings()
+        if m['bill_rate'] < 0 or m['rate'] < 0:
+            QMessageBox.warning(self, "Mapping Error", "Please ensure 'Bill Rate' and 'Gross Rate' columns are mapped first.")
+            return
+
+        db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
+        link_updates = []
+        amt_updates = []
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            for r in range(table.rowCount()):
+                row_id_item = table.item(r, 0)
+                if not row_id_item: continue
+                row_id = row_id_item.data(Qt.ItemDataRole.UserRole)
+                
+                gross_item = table.item(r, m['rate'])
+                if not gross_item or not gross_item.text().strip(): continue
+                
+                val_str = gross_item.text().strip()
+                
+                # Update Bill Rate UI
+                bill_rate_item = table.item(r, m['bill_rate'])
+                if not bill_rate_item:
+                    bill_rate_item = QTableWidgetItem()
+                    table.setItem(r, m['bill_rate'], bill_rate_item)
+                
+                bill_rate_item.setText(val_str)
+                # Cyan shows it's linked
+                bill_rate_item.setBackground(const.COLOR_LINK_CYAN)
+                bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
+                bill_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                
+                link_updates.append((row_id, val_str))
+                
+                # Also update Bill Amount if Quantity exists
+                if m['qty'] >= 0 and m['bill_amount'] >= 0:
+                    qty_item = table.item(r, m['qty'])
+                    if qty_item and qty_item.text().strip():
+                        try:
+                            # Parse Qty and Rate (handle commas)
+                            q_val = float(qty_item.text().replace(',', ''))
+                            r_val = float(val_str.replace(',', ''))
+                            a_val = q_val * r_val
+                            a_str = "{:,.2f}".format(a_val)
+                            
+                            amt_item = table.item(r, m['bill_amount'])
+                            if not amt_item:
+                                amt_item = QTableWidgetItem()
+                                table.setItem(r, m['bill_amount'], amt_item)
+                            
+                            amt_item.setText(a_str)
+                            amt_item.setForeground(const.COLOR_GRAY_TEXT)
+                            amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            amt_updates.append((row_id, a_str))
+                        except ValueError: pass
+
+        if link_updates:
+            self._persist_updates(m['bill_rate'], link_updates)
+            
+            # Persist formatting (Cyan BG + Gray Text)
+            fmt_updates = []
+            for rid, _ in link_updates:
+                item0 = self.rowid_to_item0.get(rid)
+                if not item0: continue
+                g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                fmt_updates.append((g_idx, {'bg_color': const.COLOR_LINK_CYAN.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
+            self.logic.persist_batch_cell_formatting(db_path, m['bill_rate'], fmt_updates)
+            
+            if amt_updates:
+                self._persist_updates(m['bill_amount'], amt_updates)
+                # Persist gray color for amounts
+                fmt_amt_updates = []
+                for rid, _ in amt_updates:
+                    item0 = self.rowid_to_item0.get(rid)
+                    if not item0: continue
+                    g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                    fmt_amt_updates.append((g_idx, {'font_color': const.COLOR_GRAY_TEXT.name()}))
+                self.logic.persist_batch_cell_formatting(db_path, m['bill_amount'], fmt_amt_updates)
+
+            QMessageBox.information(self, "Linked", f"Successfully linked {len(link_updates)} Bill Rate cells to Gross Rates.\nBill Amounts have been updated where quantities were available.")
+            self._update_stats()
+        else:
+            QMessageBox.information(self, "No Links", "No items with Gross Rates were found to link in the current view.")
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed

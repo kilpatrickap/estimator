@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QPushButton
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
 class GrossRateTool(QWidget):
@@ -7,6 +7,7 @@ class GrossRateTool(QWidget):
     visibilityChanged = pyqtSignal(bool)
     stateChanged = pyqtSignal()
     priceSOPRequested = pyqtSignal(bool) # True for Price, False for Revert
+    linkBillRateRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -23,9 +24,17 @@ class GrossRateTool(QWidget):
         
         layout.addWidget(self.show_gross_cb)
         
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
         self.price_sop_btn = QPushButton("Price with SOP")
         self.price_sop_btn.clicked.connect(self._on_price_sop_clicked)
-        layout.addWidget(self.price_sop_btn)
+        btn_layout.addWidget(self.price_sop_btn)
+        
+        self.link_bill_rate_btn = QPushButton("Link to Bill Rate")
+        self.link_bill_rate_btn.clicked.connect(lambda: self.linkBillRateRequested.emit())
+        btn_layout.addWidget(self.link_bill_rate_btn)
+        
+        layout.addLayout(btn_layout)
         
         layout.addStretch()
 
