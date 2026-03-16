@@ -29,7 +29,6 @@ class PBOQDialog(QDialog):
         self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
         self.db_columns = []
         self.linking_source = None
-        self.pane_requested_visible = True # Track user preference for pane visibility
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
@@ -117,10 +116,8 @@ class PBOQDialog(QDialog):
                 self.pboq_file_selector.setCurrentIndex(index)
         
         # Apply pane visibility state
-        if 'pane_visible' in state:
-            self.pane_requested_visible = state['pane_visible']
             if hasattr(self, 'tools_dock') and self.tools_dock:
-                self.tools_dock.setVisible(self.pane_requested_visible)
+                self.tools_dock.show()
         
         if self.pboq_file_selector.count() > 0:
             self._load_pboq_db(self.pboq_file_selector.currentIndex())
@@ -409,11 +406,7 @@ class PBOQDialog(QDialog):
         try:
             if hasattr(self, 'tools_dock') and self.tools_dock:
                 if sub and sub.widget() is self: 
-                    # Only show if the user hasn't explicitly hidden it
-                    if self.pane_requested_visible:
-                        self.tools_dock.show()
-                    else:
-                        self.tools_dock.hide()
+                    self.tools_dock.show()
                 else: 
                     self.tools_dock.hide()
         except RuntimeError:
@@ -834,8 +827,7 @@ class PBOQDialog(QDialog):
         
         state = {
             'last_bill': self.pboq_file_selector.currentText(),
-            'pane_visible': self.pane_requested_visible,
-            'active_pane': 'price' if self.tools_dock.widget() != self.tools_pane else 'tools'
+            'active_pane': 'price' if hasattr(self, 'price_pane') and self.tools_dock.widget() == self.price_pane else 'tools'
         }
         
         with open(settings_file, 'w') as f:
