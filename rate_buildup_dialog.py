@@ -25,6 +25,7 @@ class RateBuildUpDialog(QDialog):
         super().__init__(parent)
         self.estimate = estimate_object
         self.main_window = main_window
+        self.db_path = db_path
         self.db_manager = DatabaseManager(db_path if db_path else "construction_rates.db")
         self.setWindowTitle(f"Edit Rate Build-up: {self.estimate.rate_code}")
         self.setMinimumSize(726, 533)
@@ -422,6 +423,10 @@ class RateBuildUpDialog(QDialog):
         if self.db_manager.save_estimate(self.estimate):
             self.is_dirty = False
             self.dataCommitted.emit()
+            
+            # Global Sync
+            self._trigger_global_sync()
+
             if show_message:
                 from PyQt6.QtWidgets import QMessageBox
                 QMessageBox.information(self, "Success", "Rate build-up updated successfully.")
@@ -451,6 +456,163 @@ class RateBuildUpDialog(QDialog):
                 event.ignore()
         else:
             super().closeEvent(event)
+
+    def _trigger_global_sync(self):
+        """Analyzes impact of the rate change across the whole project and asks user to sync."""
+        import os, sqlite3, json
+        
+        if not self.db_path or "Project Database" not in self.db_path:
+            return # Only sync for project-specific rates
+
+        project_dir = os.path.dirname(os.path.dirname(os.path.abspath(self.db_path)))
+        rate_code = self.estimate.rate_code
+        new_gross = self.estimate.calculate_totals()['grand_total']
+        
+        sor_dir = os.path.join(project_dir, "SOR")
+        pboq_dir = os.path.join(project_dir, "PBOQ")
+        
+        impact = {'sor': [], 'pboq': []} # List of (path, count)
+
+        # 1. Analyze SOR impact
+        if os.path.exists(sor_dir):
+            for f in os.listdir(sor_dir):
+                if f.lower().endswith('.db'):
+                    path = os.path.join(sor_dir, f)
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sor_items'")
+                        if cursor.fetchone():
+                            cursor.execute("PRAGMA table_info(sor_items)")
+                            cols = [i[1] for i in cursor.fetchall()]
+                            if "RateCode" in cols:
+                                cursor.execute("SELECT COUNT(*) FROM sor_items WHERE RateCode = ?", (rate_code,))
+                                count = cursor.fetchone()[0]
+                                if count > 0: impact['sor'].append((path, count))
+                        conn.close()
+                    except: pass
+
+        # 2. Analyze PBOQ impact
+        if os.path.exists(pboq_dir):
+            for f in os.listdir(pboq_dir):
+                if f.lower().endswith('.db'):
+                    path = os.path.join(pboq_dir, f)
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                        if cursor.fetchone():
+                            cursor.execute("PRAGMA table_info(pboq_items)")
+                            cols = [i[1] for i in cursor.fetchall()]
+                            if "RateCode" in cols:
+                                cursor.execute("SELECT COUNT(*) FROM pboq_items WHERE RateCode = ?", (rate_code,))
+                                count = cursor.fetchone()[0]
+                                if count > 0: impact['pboq'].append((path, count))
+                        conn.close()
+                    except: pass
+
+        if not impact['sor'] and not impact['pboq']:
+            return
+
+        # 3. Present to user
+        msg = f"<b>Rate Sync Notification</b><br><br>The rate <b>{rate_code}</b> has been updated.<br><br>"
+        if impact['sor']:
+            total_sor = sum(c for p, c in impact['sor'])
+            msg += f"• Found <b>{total_sor}</b> SOR item(s) in {len(impact['sor'])} file(s).<br>"
+        if impact['pboq']:
+            total_pboq = sum(c for p, c in impact['pboq'])
+            msg += f"• Found <b>{total_pboq}</b> PBOQ row(s) in {len(impact['pboq'])} file(s).<br>"
+        
+        msg += "<br>Would you like to synchronize all project files with this new rate?"
+        
+        reply = QMessageBox.question(self, "Global Project Sync", msg, 
+                                   QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, 
+                                   QMessageBox.StandardButton.Yes)
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            self._perform_global_sync(project_dir, rate_code, new_gross, impact)
+
+    def _perform_global_sync(self, project_dir, rate_code, new_gross, impact):
+        """Executes the actual database updates and UI refreshes."""
+        import sqlite3, json, os
+        new_gross_str = "{:,.2f}".format(new_gross)
+
+        # 1. Update SOR Files
+        for path, count in impact['sor']:
+            try:
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                cursor.execute("UPDATE sor_items SET GrossRate = ? WHERE RateCode = ?", (new_gross_str, rate_code))
+                conn.commit()
+                conn.close()
+            except: pass
+
+        # 2. Update PBOQ Files
+        states_dir = os.path.join(project_dir, "PBOQ States")
+        for path, count in impact['pboq']:
+            try:
+                fbname = os.path.basename(path)
+                state_file = os.path.join(states_dir, fbname + ".json")
+                
+                mappings = None
+                if os.path.exists(state_file):
+                    with open(state_file, 'r') as f:
+                        state = json.load(f)
+                        mappings = state.get('tool_pane', {}).get('mappings')
+
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                
+                # We always update the logic columns if they exist
+                cursor.execute('UPDATE pboq_items SET GrossRate = ? WHERE RateCode = ?', (new_gross_str, rate_code))
+                
+                # If we have mappings, we update the actual columns
+                if mappings:
+                    cursor.execute("PRAGMA table_info(pboq_items)")
+                    db_cols = ["Sheet"] + [info[1] for info in cursor.fetchall()]
+                    
+                    m_rate = mappings.get('bill_rate', -1)
+                    m_amt = mappings.get('bill_amount', -1)
+                    m_qty = mappings.get('qty', -1)
+                    
+                    if m_rate >= 0:
+                        col_name = db_cols[m_rate + 1]
+                        cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE RateCode = ?', (new_gross_str, rate_code))
+                    
+                    if m_amt >= 0 and m_qty >= 0:
+                        col_amt = db_cols[m_amt + 1]
+                        col_qty = db_cols[m_qty + 1]
+                        # Fetch and update amounts row by row
+                        cursor.execute(f'SELECT rowid, "{col_qty}" FROM pboq_items WHERE RateCode = ?', (rate_code,))
+                        qty_data = cursor.fetchall()
+                        for rowid, qty_str in qty_data:
+                            try:
+                                q_val = float(str(qty_str).replace(',', ''))
+                                a_val = q_val * new_gross
+                                a_str = "{:,.2f}".format(a_val)
+                                cursor.execute(f'UPDATE pboq_items SET "{col_amt}" = ? WHERE rowid = ?', (a_str, rowid))
+                            except: pass
+                
+                conn.commit()
+                conn.close()
+            except: pass
+
+        # 3. Refresh Viewers
+        if self.main_window:
+            for sub in self.main_window.mdi_area.subWindowList():
+                w = sub.widget()
+                w_class = getattr(w, '__class__', None).__name__
+                
+                if w_class == 'SORDialog':
+                    if hasattr(w, '_load_selected_sor'): w._load_selected_sor()
+                
+                if w_class == 'PBOQDialog':
+                    # Check if it's the right project
+                    if hasattr(w, 'project_dir') and os.path.abspath(w.project_dir) == os.path.abspath(project_dir):
+                        # Reload the current DB to show changes and refresh collections
+                        if hasattr(w, '_load_pboq_db'):
+                            idx = w.pboq_file_selector.currentIndex()
+                            w._load_pboq_db(idx)
 
     def refresh_view(self):
         self.is_loading = True
