@@ -472,44 +472,88 @@ class RateBuildUpDialog(QDialog):
         pboq_dir = os.path.join(project_dir, "Priced BOQs")
         
         impact = {'sor': [], 'pboq': []} # List of (path, count)
+        rate_code_clean = rate_code.strip().upper()
 
         # 1. Analyze SOR impact
         if os.path.exists(sor_dir):
             for f in os.listdir(sor_dir):
-                if f.lower().endswith('.db'):
-                    path = os.path.join(sor_dir, f)
-                    try:
-                        conn = sqlite3.connect(path)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sor_items'")
-                        if cursor.fetchone():
-                            cursor.execute("PRAGMA table_info(sor_items)")
-                            cols = [i[1] for i in cursor.fetchall()]
-                            if "RateCode" in cols:
-                                cursor.execute("SELECT COUNT(*) FROM sor_items WHERE RateCode = ?", (rate_code,))
-                                count = cursor.fetchone()[0]
-                                if count > 0: impact['sor'].append((path, count))
-                        conn.close()
-                    except: pass
+                if not f.lower().endswith('.db'): continue
+                path = os.path.join(sor_dir, f)
+                try:
+                    conn = sqlite3.connect(path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sor_items'")
+                    if cursor.fetchone():
+                        cursor.execute("PRAGMA table_info(sor_items)")
+                        cols = [i[1] for i in cursor.fetchall()]
+                        if "RateCode" in cols:
+                            # Use Trim/Upper for robust matching
+                            cursor.execute("SELECT COUNT(*) FROM sor_items WHERE TRIM(UPPER(RateCode)) = ?", (rate_code_clean,))
+                            count = cursor.fetchone()[0]
+                            if count > 0: impact['sor'].append((path, count))
+                    conn.close()
+                except: pass
 
         # 2. Analyze PBOQ impact
         if os.path.exists(pboq_dir):
             for f in os.listdir(pboq_dir):
-                if f.lower().endswith('.db'):
-                    path = os.path.join(pboq_dir, f)
-                    try:
-                        conn = sqlite3.connect(path)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-                        if cursor.fetchone():
-                            cursor.execute("PRAGMA table_info(pboq_items)")
-                            cols = [i[1] for i in cursor.fetchall()]
-                            if "RateCode" in cols:
-                                cursor.execute("SELECT COUNT(*) FROM pboq_items WHERE RateCode = ?", (rate_code,))
-                                count = cursor.fetchone()[0]
-                                if count > 0: impact['pboq'].append((path, count))
-                        conn.close()
-                    except: pass
+                if not f.lower().endswith('.db'): continue
+                path = os.path.join(pboq_dir, f)
+                try:
+                    # Discover Mapping for this file to search accurately
+                    mapping = None
+                    if self.main_window:
+                        for sub in self.main_window.mdi_area.subWindowList():
+                            w = sub.widget()
+                            if getattr(w, '__class__', None).__name__ == 'PBOQDialog':
+                                if hasattr(w, 'pboq_file_selector') and w.pboq_file_selector.currentData() == path:
+                                    mapping = w.tools_pane.get_mappings()
+                                    break
+                    if not mapping:
+                        state_file = os.path.join(project_dir, "PBOQ States", f + ".json")
+                        if os.path.exists(state_file):
+                            try:
+                                with open(state_file, 'r') as sf:
+                                    st_json = json.load(sf)
+                                    mapping = st_json.get('mappings')
+                            except: pass
+
+                    conn = sqlite3.connect(path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                    if cursor.fetchone():
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        db_cols = [info[1] for info in cursor.fetchall()]
+                        
+                        found_count = 0
+                        # 1. Try Mapping Search
+                        if mapping and mapping.get('rate_code', -1) >= 0:
+                            db_idx = mapping['rate_code'] + 1
+                            if db_idx < len(db_cols):
+                                try:
+                                    cursor.execute(f'SELECT COUNT(*) FROM pboq_items WHERE TRIM(UPPER("{db_cols[db_idx]}")) = ?', (rate_code_clean,))
+                                    found_count = cursor.fetchone()[0]
+                                except: pass
+                        
+                        # 2. Try Logical 'RateCode' Column Search
+                        if found_count == 0 and "RateCode" in db_cols:
+                            try:
+                                cursor.execute('SELECT COUNT(*) FROM pboq_items WHERE TRIM(UPPER(RateCode)) = ?', (rate_code_clean,))
+                                found_count = cursor.fetchone()[0]
+                            except: pass
+                        
+                        # 3. Brute Force Search all columns as final fallback
+                        if found_count == 0:
+                            try:
+                                conditions = " OR ".join([f'TRIM(UPPER("{c}")) = ?' for c in db_cols])
+                                cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE {conditions}", [rate_code_clean] * len(db_cols))
+                                found_count = cursor.fetchone()[0]
+                            except: pass
+                        
+                        if found_count > 0:
+                            impact['pboq'].append((path, found_count))
+                    conn.close()
+                except: pass
 
         if not impact['sor'] and not impact['pboq']:
             return
@@ -536,13 +580,14 @@ class RateBuildUpDialog(QDialog):
         """Executes the actual database updates and UI refreshes."""
         import sqlite3, json, os
         new_gross_str = "{:,.2f}".format(new_gross)
+        rate_code_clean = rate_code.strip().upper()
 
         # 1. Update SOR Files
         for path, count in impact['sor']:
             try:
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
-                cursor.execute("UPDATE sor_items SET GrossRate = ? WHERE RateCode = ?", (new_gross_str, rate_code))
+                cursor.execute("UPDATE sor_items SET GrossRate = ? WHERE TRIM(UPPER(RateCode)) = ?", (new_gross_str, rate_code_clean))
                 conn.commit()
                 conn.close()
             except: pass
@@ -568,62 +613,100 @@ class RateBuildUpDialog(QDialog):
                         try:
                             with open(st_file, 'r') as f:
                                 st_json = json.load(f)
-                                mappings = st_json.get('tool_pane', {}).get('mappings')
+                                mappings = st_json.get('mappings')
                         except: pass
                 
-                # Fallback to standard defaults
-                if not mappings: mappings = {'qty': 2, 'bill_rate': 4, 'bill_amount': 5, 'rate_code': 7}
+                # Fallback to standard app defaults if no mapping is found anywhere
+                if not mappings:
+                    # Standard software defaults based on typical PBOQ structure:
+                    # Col 0:Ref, 1:Desc, 2:Qty, 3:Unit, 4:Bill Rate, 5:Bill Amount, 6:Gross Rate, 7:Rate Code
+                    mappings = {
+                        'ref': 0,
+                        'desc': 1,
+                        'qty': 2,
+                        'unit': 3,
+                        'bill_rate': 4,
+                        'bill_amount': 5,
+                        'rate': 6,
+                        'rate_code': 7
+                    }
 
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
                 
-                # Fetch DB column info
+                # Fetch database columns to identify physical names (Column 0, Column 1, etc.)
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_col_info = cursor.fetchall()
                 db_cols = [info[1] for info in db_col_info]
                 
-                # Identify where the Rate Code is physically stored in this DB
+                # Find physical column for Rate Code search
                 code_db_col = None
-                if mappings and mappings.get('rate_code', -1) >= 0:
-                    idx = mappings['rate_code']
-                    # Display idx 0 corresponds to Col0, which is index 1 in DB (index 0 is Sheet)
-                    db_idx = idx + 1
+                if mappings.get('rate_code', -1) >= 0:
+                    db_idx = mappings['rate_code'] + 1
                     if db_idx < len(db_cols):
                         code_db_col = db_cols[db_idx]
                 
-                # Fallback to logical 'RateCode' column if no mapping or code not found in mapping
                 if not code_db_col and "RateCode" in db_cols:
                     code_db_col = "RateCode"
                 
-                if code_db_col:
-                    # Update visible columns if mapped
-                    if mappings:
-                        m_rate = mappings.get('bill_rate', -1)
-                        m_amt = mappings.get('bill_amount', -1)
-                        m_qty = mappings.get('qty', -1)
-                        
-                        if m_rate >= 0:
-                            db_idx_rate = m_rate + 1
-                            if db_idx_rate < len(db_cols):
-                                cursor.execute(f'UPDATE pboq_items SET "{db_cols[db_idx_rate]}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
-                        
-                        if m_amt >= 0 and m_qty >= 0:
-                            db_idx_amt, db_idx_qty = m_amt + 1, m_qty + 1
-                            if db_idx_amt < len(db_cols) and db_idx_qty < len(db_cols):
-                                a_col = db_cols[db_idx_amt]
-                                q_col = db_cols[db_idx_qty]
-                                cursor.execute(f'SELECT rowid, "{q_col}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
-                                for rid, q_str_val in cursor.fetchall():
-                                    try:
-                                        if q_str_val is None or str(q_str_val).strip() == "": continue
-                                        qv = float(str(q_str_val).replace(',', ''))
-                                        av = qv * new_gross
-                                        cursor.execute(f'UPDATE pboq_items SET "{a_col}" = ? WHERE rowid = ?', ("{:,.2f}".format(av), rid))
-                                    except: pass
+                if db_cols:
+                    # Identify mappings for specific roles
+                    m_rate = mappings.get('bill_rate', -1)
+                    m_gross = mappings.get('rate', -1)
+                    m_code = mappings.get('rate_code', -1)
+                    m_amt = mappings.get('bill_amount', -1)
+                    m_qty = mappings.get('qty', -1)
 
-                    # Always update logical helper column too
+                    # Robust WHERE clause construction
+                    search_col = code_db_col if code_db_col else "RateCode"
+                    where_frag = f'TRIM(UPPER("{search_col}")) = ?'
+                    
+                    # Verify if specific column works; otherwise fallback to brute force
+                    cursor.execute(f'SELECT COUNT(*) FROM pboq_items WHERE {where_frag}', (rate_code_clean,))
+                    if cursor.fetchone()[0] == 0:
+                        where_frag = " OR ".join([f'TRIM(UPPER("{c}")) = ?' for c in db_cols])
+                        q_params = [rate_code_clean] * len(db_cols)
+                    else:
+                        q_params = [rate_code_clean]
+
+                    # 1. Update all mapped rate-related columns in a single pass if possible
+                    update_fields = []
+                    upd_params = []
+                    
+                    # Physical mapped columns
+                    for m_idx, val in [(m_rate, new_gross_str), (m_gross, new_gross_str), (m_code, rate_code)]:
+                        if m_idx >= 0:
+                            db_idx = m_idx + 1
+                            if db_idx < len(db_cols):
+                                update_fields.append(f'"{db_cols[db_idx]}" = ?')
+                                upd_params.append(val)
+                    
+                    # Always update logical helper columns too
                     if "GrossRate" in db_cols:
-                        cursor.execute(f'UPDATE pboq_items SET GrossRate = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
+                        update_fields.append("GrossRate = ?")
+                        upd_params.append(new_gross_str)
+                    if "RateCode" in db_cols:
+                        update_fields.append("RateCode = ?")
+                        upd_params.append(rate_code)
+
+                    if update_fields:
+                        cursor.execute(f'UPDATE pboq_items SET {", ".join(update_fields)} WHERE {where_frag}', upd_params + q_params)
+
+                    # 2. Row-by-row recalculation of Bill Amount
+                    if m_amt >= 0 and m_qty >= 0:
+                        db_idx_amt, db_idx_qty = m_amt + 1, m_qty + 1
+                        if db_idx_amt < len(db_cols) and db_idx_qty < len(db_cols):
+                            a_col = db_cols[db_idx_amt]
+                            q_col = db_cols[db_idx_qty]
+                            cursor.execute(f'SELECT rowid, "{q_col}" FROM pboq_items WHERE {where_frag}', q_params)
+                            rows_to_recalc = cursor.fetchall()
+                            for rid, q_str in rows_to_recalc:
+                                try:
+                                    if q_str is None or str(q_str).strip() == "": continue
+                                    qv = float(str(q_str).replace(',', ''))
+                                    av = qv * new_gross
+                                    cursor.execute(f'UPDATE pboq_items SET "{a_col}" = ? WHERE rowid = ?', ("{:,.2f}".format(av), rid))
+                                except: pass
                 
                 conn.commit()
                 conn.close()
