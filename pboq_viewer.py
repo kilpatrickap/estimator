@@ -187,7 +187,6 @@ class PBOQDialog(QDialog):
                 table.setRowCount(len(sheet_entries))
                 table.setColumnCount(num_display_cols)
                 table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
-                table.cellClicked.connect(self._handle_table_cell_click)
                 
                 for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
@@ -291,10 +290,12 @@ class PBOQDialog(QDialog):
 
 
     def _persist_updates(self, display_col, updates):
+        if display_col < 0: return
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
         # Trigger Live Collection update
+        m = self.tools_pane.get_mappings()
         if display_col == m['bill_amount'] and not self.is_updating_logic:
             self.is_updating_logic = True
             try:
@@ -830,6 +831,9 @@ class PBOQDialog(QDialog):
             try:
                 conn = sqlite3.connect(pboq_db_path)
                 cursor = conn.cursor()
+                if mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
+                    conn.close()
+                    return
                 gross_col_name = self.db_columns[mapping['gross_rate'] + 1]
                 code_col_name = self.db_columns[mapping['rate_code'] + 1]
                 

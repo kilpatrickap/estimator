@@ -228,90 +228,117 @@ class DatabaseManager:
                 session.close()
 
     def save_estimate(self, estimate_obj):
-        totals = estimate_obj.calculate_totals()
-        
-        with self.Session() as session:
-            try:
-                if estimate_obj.id:
-                    db_est = session.query(DBEstimate).get(estimate_obj.id)
-                    db_est.project_name = estimate_obj.project_name
-                    db_est.client_name = estimate_obj.client_name
-                    db_est.overhead_percent = estimate_obj.overhead_percent
-                    db_est.profit_margin_percent = estimate_obj.profit_margin_percent
-                    db_est.currency = estimate_obj.currency
-                    db_est.date_created = estimate_obj.date
-                    db_est.grand_total = totals['grand_total']
-                    db_est.net_total = totals['subtotal']
-                    db_est.rate_code = estimate_obj.rate_code
-                    db_est.unit = estimate_obj.unit
-                    db_est.notes = estimate_obj.notes
-                    db_est.adjustment_factor = estimate_obj.adjustment_factor
-                    db_est.category = getattr(estimate_obj, 'category', "")
-                    db_est.rate_type = getattr(estimate_obj, 'rate_type', "Simple")
-                    
-                    # Delete old tasks
-                    for task in db_est.tasks:
-                        session.delete(task)
-                    for rate in db_est.exchange_rates:
-                        session.delete(rate)
-                    for sub in db_est.sub_rates:
-                        session.delete(sub)
-                else:
-                    db_est = DBEstimate(
-                        project_name=estimate_obj.project_name, client_name=estimate_obj.client_name,
-                        overhead_percent=estimate_obj.overhead_percent, profit_margin_percent=estimate_obj.profit_margin_percent,
-                        currency=estimate_obj.currency, date_created=estimate_obj.date,
-                        grand_total=totals['grand_total'], net_total=totals['subtotal'],
-                        rate_code=estimate_obj.rate_code, unit=estimate_obj.unit, notes=estimate_obj.notes,
-                        adjustment_factor=estimate_obj.adjustment_factor, 
-                        category=getattr(estimate_obj, 'category', ""), rate_type=getattr(estimate_obj, 'rate_type', "Simple")
-                    )
-                    session.add(db_est)
-                    session.flush() # get ID
-                    estimate_obj.id = db_est.id
+        if estimate_obj is None:
+            print("Database Error: Attempted to save a None estimate.")
+            return False
+            
+        try:
+            totals = estimate_obj.calculate_totals()
+            
+            with self.Session() as session:
+                try:
+                    # 1. Prepare/Update Main Estimate Entry
+                    if estimate_obj.id:
+                        db_est = session.get(DBEstimate, estimate_obj.id)
+                        if db_est:
+                            db_est.project_name = estimate_obj.project_name
+                            db_est.client_name = estimate_obj.client_name
+                            db_est.overhead_percent = estimate_obj.overhead_percent
+                            db_est.profit_margin_percent = estimate_obj.profit_margin_percent
+                            db_est.currency = estimate_obj.currency
+                            db_est.date_created = estimate_obj.date
+                            db_est.grand_total = totals['grand_total']
+                            db_est.net_total = totals['subtotal']
+                            db_est.rate_code = estimate_obj.rate_code
+                            db_est.unit = estimate_obj.unit
+                            db_est.notes = estimate_obj.notes
+                            db_est.adjustment_factor = estimate_obj.adjustment_factor
+                            db_est.category = getattr(estimate_obj, 'category', "")
+                            db_est.rate_type = getattr(estimate_obj, 'rate_type', "Simple")
+                            
+                            # Clean old relationships
+                            for task in db_est.tasks: session.delete(task)
+                            for rate in db_est.exchange_rates: session.delete(rate)
+                            for sub in db_est.sub_rates: session.delete(sub)
+                        else:
+                            # Re-create if ID not found (e.g. database swap)
+                            db_est = DBEstimate(
+                                project_name=estimate_obj.project_name, client_name=estimate_obj.client_name,
+                                overhead_percent=estimate_obj.overhead_percent, profit_margin_percent=estimate_obj.profit_margin_percent,
+                                currency=estimate_obj.currency, date_created=estimate_obj.date,
+                                grand_total=totals['grand_total'], net_total=totals['subtotal'],
+                                rate_code=estimate_obj.rate_code, unit=estimate_obj.unit, notes=estimate_obj.notes,
+                                adjustment_factor=estimate_obj.adjustment_factor, 
+                                category=getattr(estimate_obj, 'category', ""), rate_type=getattr(estimate_obj, 'rate_type', "Simple")
+                            )
+                            session.add(db_est)
+                            session.flush()
+                            estimate_obj.id = db_est.id
+                    else:
+                        db_est = DBEstimate(
+                            project_name=estimate_obj.project_name, client_name=estimate_obj.client_name,
+                            overhead_percent=estimate_obj.overhead_percent, profit_margin_percent=estimate_obj.profit_margin_percent,
+                            currency=estimate_obj.currency, date_created=estimate_obj.date,
+                            grand_total=totals['grand_total'], net_total=totals['subtotal'],
+                            rate_code=estimate_obj.rate_code, unit=estimate_obj.unit, notes=estimate_obj.notes,
+                            adjustment_factor=estimate_obj.adjustment_factor, 
+                            category=getattr(estimate_obj, 'category', ""), rate_type=getattr(estimate_obj, 'rate_type', "Simple")
+                        )
+                        session.add(db_est)
+                        session.flush()
+                        estimate_obj.id = db_est.id
 
-                # Save tasks
-                for task_obj in estimate_obj.tasks:
-                    db_task = DBTask(estimate_id=db_est.id, description=task_obj.description, quantity=getattr(task_obj, 'quantity', 1.0), unit=getattr(task_obj, 'unit', ''), formula=getattr(task_obj, 'formula', ''))
-                    session.add(db_task)
-                    session.flush()
-                    
-                    for item in task_obj.materials:
-                        mat_id = self.get_item_id_by_name('materials', item['name'], session)
-                        session.add(DBEstimateMaterial(task_id=db_task.id, material_id=mat_id, quantity=item['qty'], formula=item.get('formula'), name=item['name'], unit=item['unit'], price=item['unit_cost'], currency=item.get('currency')))
-                    for item in task_obj.labor:
-                        lab_id = self.get_item_id_by_name('labor', item['trade'], session)
-                        session.add(DBEstimateLabor(task_id=db_task.id, labor_id=lab_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['trade'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
-                    for item in task_obj.equipment:
-                        eq_id = self.get_item_id_by_name('equipment', item['name'], session)
-                        session.add(DBEstimateEquipment(task_id=db_task.id, equipment_id=eq_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['name'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
-                    for item in task_obj.plant:
-                        pl_id = self.get_item_id_by_name('plant', item['name'], session)
-                        session.add(DBEstimatePlant(task_id=db_task.id, plant_id=pl_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['name'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
-                    for item in task_obj.indirect_costs:
-                        ind_id = self.get_item_id_by_name('indirect_costs', item['description'], session)
-                        session.add(DBEstimateIndirectCost(task_id=db_task.id, indirect_id=ind_id, amount=item['amount'], formula=item.get('formula'), description=item['description'], unit=item.get('unit'), currency=item.get('currency')))
+                    # 2. Save tasks and nested resources
+                    for task_obj in estimate_obj.tasks:
+                        db_task = DBTask(estimate_id=db_est.id, description=task_obj.description, 
+                                        quantity=getattr(task_obj, 'quantity', 1.0) or 1.0, 
+                                        unit=getattr(task_obj, 'unit', '') or '', 
+                                        formula=getattr(task_obj, 'formula', '') or '')
+                        session.add(db_task)
+                        session.flush()
+                        
+                        for item in task_obj.materials:
+                            mat_id = self.get_item_id_by_name('materials', item['name'], session)
+                            session.add(DBEstimateMaterial(task_id=db_task.id, material_id=mat_id, quantity=item['qty'], formula=item.get('formula'), name=item['name'], unit=item['unit'], price=item['unit_cost'], currency=item.get('currency')))
+                        for item in task_obj.labor:
+                            lab_id = self.get_item_id_by_name('labor', item['trade'], session)
+                            session.add(DBEstimateLabor(task_id=db_task.id, labor_id=lab_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['trade'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
+                        for item in task_obj.equipment:
+                            eq_id = self.get_item_id_by_name('equipment', item['name'], session)
+                            session.add(DBEstimateEquipment(task_id=db_task.id, equipment_id=eq_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['name'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
+                        for item in task_obj.plant:
+                            pl_id = self.get_item_id_by_name('plant', item['name'], session)
+                            session.add(DBEstimatePlant(task_id=db_task.id, plant_id=pl_id, hours=item['hours'], formula=item.get('formula'), name_trade=item['name'], unit=item.get('unit'), rate=item['rate'], currency=item.get('currency')))
+                        for item in task_obj.indirect_costs:
+                            ind_id = self.get_item_id_by_name('indirect_costs', item['description'], session)
+                            session.add(DBEstimateIndirectCost(task_id=db_task.id, indirect_id=ind_id, amount=item['amount'], formula=item.get('formula'), description=item['description'], unit=item.get('unit'), currency=item.get('currency')))
 
-                # Save exchange rates
-                for curr, data in estimate_obj.exchange_rates.items():
-                    op = data.get('operator', '*')
-                    session.add(DBEstimateExchangeRate(estimate_id=db_est.id, currency=curr, rate=data['rate'], date=data['date'], operator=op))
+                    # 3. Save exchange rates
+                    for curr, data in estimate_obj.exchange_rates.items():
+                        session.add(DBEstimateExchangeRate(estimate_id=db_est.id, currency=curr, rate=data['rate'], date=data['date'], operator=data.get('operator', '*')))
 
-                # Save sub-rates
-                for sub_rate in estimate_obj.sub_rates:
-                    if sub_rate.id:
-                        qty = getattr(sub_rate, 'quantity', 1.0)
-                        formula = getattr(sub_rate, 'formula', None)
-                        c_unit = getattr(sub_rate, 'converted_unit', None)
-                        l_path = getattr(sub_rate, 'library_path', None)
-                        session.add(DBEstimateSubRate(estimate_id=db_est.id, sub_rate_id=sub_rate.id, quantity=qty, formula=formula, converted_unit=c_unit, library_path=l_path))
+                    # 4. Save sub-rates
+                    for sub_rate in estimate_obj.sub_rates:
+                        if sub_rate.id:
+                            session.add(DBEstimateSubRate(estimate_id=db_est.id, sub_rate_id=sub_rate.id, 
+                                                        quantity=getattr(sub_rate, 'quantity', 1.0), 
+                                                        formula=getattr(sub_rate, 'formula', None), 
+                                                        converted_unit=getattr(sub_rate, 'converted_unit', None), 
+                                                        library_path=getattr(sub_rate, 'library_path', None)))
 
-                session.commit()
-                return True
-            except Exception as e:
-                session.rollback()
-                print(f"Database error (ORM): {e}")
-                return False
+                    session.commit()
+                    return True
+                except Exception as e:
+                    session.rollback()
+                    import traceback
+                    traceback.print_exc()
+                    print(f"Database error (ORM Internal): {e}")
+                    return False
+        except Exception as outer_e:
+            import traceback
+            traceback.print_exc()
+            print(f"Database error (Outer): {outer_e}")
+            return False
 
     def get_saved_estimates_summary(self):
         with self.Session() as session:
