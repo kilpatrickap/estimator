@@ -563,35 +563,49 @@ class RateBuildUpDialog(QDialog):
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
                 
-                # We always update the logic columns if they exist
-                cursor.execute('UPDATE pboq_items SET GrossRate = ? WHERE RateCode = ?', (new_gross_str, rate_code))
+                # Fetch DB column info
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                db_col_info = cursor.fetchall()
+                db_cols = ["Sheet"] + [info[1] for info in db_col_info]
+                db_actual_cols = [info[1] for info in db_col_info]
                 
-                # If we have mappings, we update the actual columns
-                if mappings:
-                    cursor.execute("PRAGMA table_info(pboq_items)")
-                    db_cols = ["Sheet"] + [info[1] for info in cursor.fetchall()]
+                # Identify where the Rate Code is physically stored in this DB
+                code_db_col = None
+                if mappings and mappings.get('rate_code', -1) >= 0:
+                    idx = mappings['rate_code']
+                    code_db_col = db_cols[idx + 1]
+                elif "RateCode" in db_actual_cols:
+                    code_db_col = "RateCode"
+                
+                if code_db_col:
+                    # Update the logical GrossRate if it exists
+                    if "GrossRate" in db_actual_cols:
+                        cursor.execute(f'UPDATE pboq_items SET GrossRate = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
                     
-                    m_rate = mappings.get('bill_rate', -1)
-                    m_amt = mappings.get('bill_amount', -1)
-                    m_qty = mappings.get('qty', -1)
-                    
-                    if m_rate >= 0:
-                        col_name = db_cols[m_rate + 1]
-                        cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE RateCode = ?', (new_gross_str, rate_code))
-                    
-                    if m_amt >= 0 and m_qty >= 0:
-                        col_amt = db_cols[m_amt + 1]
-                        col_qty = db_cols[m_qty + 1]
-                        # Fetch and update amounts row by row
-                        cursor.execute(f'SELECT rowid, "{col_qty}" FROM pboq_items WHERE RateCode = ?', (rate_code,))
-                        qty_data = cursor.fetchall()
-                        for rowid, qty_str in qty_data:
-                            try:
-                                q_val = float(str(qty_str).replace(',', ''))
-                                a_val = q_val * new_gross
-                                a_str = "{:,.2f}".format(a_val)
-                                cursor.execute(f'UPDATE pboq_items SET "{col_amt}" = ? WHERE rowid = ?', (a_str, rowid))
-                            except: pass
+                    # Update visible columns if mapped
+                    if mappings:
+                        m_rate = mappings.get('bill_rate', -1)
+                        m_amt = mappings.get('bill_amount', -1)
+                        m_qty = mappings.get('qty', -1)
+                        
+                        if m_rate >= 0:
+                            rate_col_name = db_cols[m_rate + 1]
+                            cursor.execute(f'UPDATE pboq_items SET "{rate_col_name}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
+                        
+                        if m_amt >= 0 and m_qty >= 0:
+                            amt_col_name = db_cols[m_amt + 1]
+                            qty_col_name = db_cols[m_qty + 1]
+                            
+                            # Get rows to update amounts
+                            cursor.execute(f'SELECT rowid, "{qty_col_name}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
+                            rows_to_recalc = cursor.fetchall()
+                            for rid, qty_str in rows_to_recalc:
+                                try:
+                                    q_val = float(str(qty_str).replace(',', ''))
+                                    a_val = q_val * new_gross
+                                    a_str = "{:,.2f}".format(a_val)
+                                    cursor.execute(f'UPDATE pboq_items SET "{amt_col_name}" = ? WHERE rowid = ?', (a_str, rid))
+                                except: pass
                 
                 conn.commit()
                 conn.close()
