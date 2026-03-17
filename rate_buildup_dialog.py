@@ -469,7 +469,7 @@ class RateBuildUpDialog(QDialog):
         new_gross = self.estimate.calculate_totals()['grand_total']
         
         sor_dir = os.path.join(project_dir, "SOR")
-        pboq_dir = os.path.join(project_dir, "PBOQ")
+        pboq_dir = os.path.join(project_dir, "Priced BOQs")
         
         impact = {'sor': [], 'pboq': []} # List of (path, count)
 
@@ -556,9 +556,11 @@ class RateBuildUpDialog(QDialog):
                 
                 mappings = None
                 if os.path.exists(state_file):
-                    with open(state_file, 'r') as f:
-                        state = json.load(f)
-                        mappings = state.get('tool_pane', {}).get('mappings')
+                    try:
+                        with open(state_file, 'r') as f:
+                            state = json.load(f)
+                            mappings = state.get('tool_pane', {}).get('mappings')
+                    except: pass
 
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
@@ -566,22 +568,22 @@ class RateBuildUpDialog(QDialog):
                 # Fetch DB column info
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_col_info = cursor.fetchall()
-                db_cols = ["Sheet"] + [info[1] for info in db_col_info]
-                db_actual_cols = [info[1] for info in db_col_info]
+                db_cols = [info[1] for info in db_col_info]
                 
                 # Identify where the Rate Code is physically stored in this DB
                 code_db_col = None
                 if mappings and mappings.get('rate_code', -1) >= 0:
                     idx = mappings['rate_code']
-                    code_db_col = db_cols[idx + 1]
-                elif "RateCode" in db_actual_cols:
+                    # Display idx 0 corresponds to Col0, which is index 1 in DB (index 0 is Sheet)
+                    db_idx = idx + 1
+                    if db_idx < len(db_cols):
+                        code_db_col = db_cols[db_idx]
+                
+                # Fallback to logical 'RateCode' column if no mapping or code not found in mapping
+                if not code_db_col and "RateCode" in db_cols:
                     code_db_col = "RateCode"
                 
                 if code_db_col:
-                    # Update the logical GrossRate if it exists
-                    if "GrossRate" in db_actual_cols:
-                        cursor.execute(f'UPDATE pboq_items SET GrossRate = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
-                    
                     # Update visible columns if mapped
                     if mappings:
                         m_rate = mappings.get('bill_rate', -1)
@@ -589,27 +591,40 @@ class RateBuildUpDialog(QDialog):
                         m_qty = mappings.get('qty', -1)
                         
                         if m_rate >= 0:
-                            rate_col_name = db_cols[m_rate + 1]
-                            cursor.execute(f'UPDATE pboq_items SET "{rate_col_name}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
+                            db_idx_rate = m_rate + 1
+                            if db_idx_rate < len(db_cols):
+                                rate_col_name = db_cols[db_idx_rate]
+                                cursor.execute(f'UPDATE pboq_items SET "{rate_col_name}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
                         
                         if m_amt >= 0 and m_qty >= 0:
-                            amt_col_name = db_cols[m_amt + 1]
-                            qty_col_name = db_cols[m_qty + 1]
-                            
-                            # Get rows to update amounts
-                            cursor.execute(f'SELECT rowid, "{qty_col_name}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
-                            rows_to_recalc = cursor.fetchall()
-                            for rid, qty_str in rows_to_recalc:
-                                try:
-                                    q_val = float(str(qty_str).replace(',', ''))
-                                    a_val = q_val * new_gross
-                                    a_str = "{:,.2f}".format(a_val)
-                                    cursor.execute(f'UPDATE pboq_items SET "{amt_col_name}" = ? WHERE rowid = ?', (a_str, rid))
-                                except: pass
+                            db_idx_amt = m_amt + 1
+                            db_idx_qty = m_qty + 1
+                            if db_idx_amt < len(db_cols) and db_idx_qty < len(db_cols):
+                                amt_col_name = db_cols[db_idx_amt]
+                                qty_col_name = db_cols[db_idx_qty]
+                                
+                                # Get rows to update amounts
+                                cursor.execute(f'SELECT rowid, "{qty_col_name}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
+                                rows_to_recalc = cursor.fetchall()
+                                for rid, qty_str in rows_to_recalc:
+                                    try:
+                                        # Handle None and formatting
+                                        if qty_str is None: continue
+                                        q_val = float(str(qty_str).replace(',', ''))
+                                        a_val = q_val * new_gross
+                                        a_str = "{:,.2f}".format(a_val)
+                                        cursor.execute(f'UPDATE pboq_items SET "{amt_col_name}" = ? WHERE rowid = ?', (a_str, rid))
+                                    except (ValueError, TypeError): pass
+
+                    # Always update logical helper column too
+                    if "GrossRate" in db_cols:
+                        cursor.execute(f'UPDATE pboq_items SET GrossRate = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
                 
                 conn.commit()
                 conn.close()
-            except: pass
+            except Exception as e:
+                print(f"Error syncing PBOQ {path}: {e}")
+                pass
 
         # 3. Refresh Viewers
         if self.main_window:
