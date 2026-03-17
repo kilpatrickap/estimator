@@ -276,21 +276,36 @@ class PBOQDialog(QDialog):
 
     def _handle_context_menu(self, table, pos, row, col, rowid):
         m = self.tools_pane.get_mappings()
-        if col != m['bill_amount']: return
         
-        menu = QMenu(self)
-        clear_act = menu.addAction("Clear")
+        if col == m['bill_amount']:
+            menu = QMenu(self)
+            clear_act = menu.addAction("Clear")
+            
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            if not action: return
+            
+            if action == clear_act:
+                item = table.item(row, col)
+                if item:
+                    item.setText("")
+                    self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
+                    self._persist_updates(m['bill_amount'], [(rowid, "")])
+                    self._update_stats()
         
-        action = menu.exec(table.viewport().mapToGlobal(pos))
-        if not action: return
-        
-        if action == clear_act:
+        elif col == m['rate_code']:
             item = table.item(row, col)
-            if item:
-                item.setText("")
-                self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
-                self._persist_updates(m['bill_amount'], [(rowid, "")])
-                self._update_stats()
+            if not item or not item.text().strip(): return
+            
+            rate_code = item.text().strip()
+            menu = QMenu(self)
+            goto_act = menu.addAction("Go To")
+            
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            if not action: return
+            
+            if action == goto_act:
+                if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
+                    self.main_window.show_rate_in_database(rate_code)
 
 
 

@@ -452,7 +452,7 @@ class RateManagerDialog(QDialog):
         # Get the highlight color from settings
         from database import DatabaseManager as _DB
         _settings_db = _DB()
-        highlight_color = _settings_db.get_setting("color_highlights") or "#fff9c4"
+        highlight_color = _settings_db.get_setting("color_highlights") or "#ffffd9"
         from PyQt6.QtGui import QColor as _QC
         bg = _QC(highlight_color)
         
