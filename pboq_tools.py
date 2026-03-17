@@ -273,7 +273,8 @@ class PBOQToolsPane(QWidget):
             'collect_desc': self.collect_desc_cb.isChecked(),
             'collect_amount': self.collect_amount_cb.isChecked(),
             'wrap_text': self.wrap_text_btn.isChecked(),
-            'frozen': self.freeze_btn.isChecked()
+            'frozen': self.freeze_btn.isChecked(),
+            'collect_revert': self.collect_btn.text() == "Revert"
         }
 
     def set_tools_state(self, state):
@@ -295,6 +296,10 @@ class PBOQToolsPane(QWidget):
             if 'frozen' in state:
                 self.freeze_btn.setChecked(state['frozen'])
                 self._toggle_freeze(state['frozen'])
+            if state.get('collect_revert'):
+                self.collect_btn.setText("Revert")
+            else:
+                self.collect_btn.setText("Collect")
         finally:
             self.blockSignals(False)
         
