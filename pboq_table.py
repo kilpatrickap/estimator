@@ -15,7 +15,8 @@ class PBOQTable(QTableWidget):
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
         self.setWordWrap(False)
-        self.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | QTableWidget.EditTrigger.EditKeyPressed)
+        self.itemChanged.connect(self._handle_item_changed)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.customContextMenuRequested.connect(self._show_context_menu)
         
@@ -23,6 +24,17 @@ class PBOQTable(QTableWidget):
         self.verticalHeader().setMinimumSectionSize(24)
         self.verticalHeader().setDefaultSectionSize(24)
         self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
+
+    def _handle_item_changed(self, item):
+        # Prevent signal emission during initial data loading
+        if not hasattr(self, '_is_loading') or not self._is_loading:
+            row = item.row()
+            col = item.column()
+            # Get the rowid from the first column's UserRole data
+            rowid_item = self.item(row, 0)
+            if rowid_item:
+                rowid = rowid_item.data(Qt.ItemDataRole.UserRole)
+                self.cellUpdated.emit(rowid, col, item.text())
 
     def _show_context_menu(self, pos):
         """Shows a context menu for the Bill Amount column."""
