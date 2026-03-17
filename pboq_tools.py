@@ -13,8 +13,7 @@ class PBOQToolsPane(QWidget):
     extendRequested = pyqtSignal()
     clearBillRequested = pyqtSignal()
     collectRequested = pyqtSignal()
-    populateRequested = pyqtSignal()
-    summarizeRequested = pyqtSignal()
+    collectRequested = pyqtSignal()
     columnHeadersRequested = pyqtSignal()
     wrapTextToggled = pyqtSignal(bool)
 
@@ -149,45 +148,9 @@ class PBOQToolsPane(QWidget):
         self.collect_btn = QPushButton("Collect")
         self.collect_btn.clicked.connect(self.collectRequested)
         collect_layout.addWidget(self.collect_btn)
-        
-        collect_layout.addWidget(QLabel("Collection Target (Case Sensitive) :"))
-        self.collection_target_bar = QLineEdit()
-        self.collection_target_bar.setPlaceholderText("e.g. COLLECTION")
-        self.collection_target_bar.textChanged.connect(self.stateChanged)
-        collect_layout.addWidget(self.collection_target_bar)
-        
-        self.populate_btn = QPushButton("Populate")
-        self.populate_btn.clicked.connect(self.populateRequested)
-        collect_layout.addWidget(self.populate_btn)
         container_layout.addWidget(collect_group)
 
-        # 5. Summary
-        summary_group = QGroupBox("Summary")
-        summary_layout = QVBoxLayout(summary_group)
-        summary_layout.setSpacing(1)
-        summary_layout.setContentsMargins(2, 2, 2, 2)
-        
-        summary_layout.addWidget(QLabel("Summarize (Case Sensitive):"))
-        
-        s_check_row = QHBoxLayout()
-        self.summary_desc_cb = QCheckBox("Description")
-        self.summary_amount_cb = QCheckBox("Bill Amount")
-        self.summary_desc_cb.setChecked(True)
-        self.summary_desc_cb.toggled.connect(self.stateChanged)
-        self.summary_amount_cb.toggled.connect(self.stateChanged)
-        s_check_row.addWidget(self.summary_desc_cb)
-        s_check_row.addWidget(self.summary_amount_cb)
-        summary_layout.addLayout(s_check_row)
-        
-        self.summary_target_bar = QLineEdit()
-        self.summary_target_bar.setPlaceholderText("CARRIED TO SUMMARY")
-        self.summary_target_bar.textChanged.connect(self.stateChanged)
-        summary_layout.addWidget(self.summary_target_bar)
-        
-        self.summarize_btn = QPushButton("Summarize")
-        self.summarize_btn.clicked.connect(self.summarizeRequested)
-        summary_layout.addWidget(self.summarize_btn)
-        container_layout.addWidget(summary_group)
+
         
         # 6. Freeze Tools
         self.freeze_btn = QPushButton("Freeze Tools")
@@ -309,10 +272,6 @@ class PBOQToolsPane(QWidget):
             'collect_kw': self.collect_search_bar.text(),
             'collect_desc': self.collect_desc_cb.isChecked(),
             'collect_amount': self.collect_amount_cb.isChecked(),
-            'collect_target': self.collection_target_bar.text(),
-            'summary_desc': self.summary_desc_cb.isChecked(),
-            'summary_amount': self.summary_amount_cb.isChecked(),
-            'summary_target': self.summary_target_bar.text(),
             'wrap_text': self.wrap_text_btn.isChecked(),
             'frozen': self.freeze_btn.isChecked()
         }
@@ -332,10 +291,6 @@ class PBOQToolsPane(QWidget):
             if 'collect_kw' in state: self.collect_search_bar.setText(state['collect_kw'])
             if 'collect_desc' in state: self.collect_desc_cb.setChecked(state['collect_desc'])
             if 'collect_amount' in state: self.collect_amount_cb.setChecked(state['collect_amount'])
-            if 'collect_target' in state: self.collection_target_bar.setText(state['collect_target'])
-            if 'summary_desc' in state: self.summary_desc_cb.setChecked(state['summary_desc'])
-            if 'summary_amount' in state: self.summary_amount_cb.setChecked(state['summary_amount'])
-            if 'summary_target' in state: self.summary_target_bar.setText(state['summary_target'])
             if 'wrap_text' in state: self.wrap_text_btn.setChecked(state['wrap_text'])
             if 'frozen' in state:
                 self.freeze_btn.setChecked(state['frozen'])
@@ -364,9 +319,7 @@ class PBOQToolsPane(QWidget):
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
             self.dummy_rate_spin, self.extend_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
-            self.collect_btn, self.collection_target_bar, self.populate_btn,
-            self.summary_desc_cb, self.summary_amount_cb, self.summary_target_bar,
-            self.summarize_btn
+            self.collect_btn
         ]
         
         for w in widgets_to_toggle:

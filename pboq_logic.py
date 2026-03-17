@@ -43,15 +43,6 @@ class PBOQLogic:
             )
         """)
         
-        # Ensure Links table exists
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS pboq_links (
-                source_rowid INTEGER,
-                dest_rowid INTEGER,
-                UNIQUE(source_rowid, dest_rowid)
-            )
-        """)
-        
         conn.commit()
         return True, db_columns
 
@@ -64,16 +55,7 @@ class PBOQLogic:
             formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
         return formatting_data
 
-    @staticmethod
-    def load_links(conn):
-        active_links = {}
-        cursor = conn.cursor()
-        cursor.execute("SELECT source_rowid, dest_rowid FROM pboq_links")
-        for src, dst in cursor.fetchall():
-            if src not in active_links:
-                active_links[src] = []
-            active_links[src].append(dst)
-        return active_links
+
 
     @staticmethod
     def persist_batch_updates(file_path, db_cols, col_idx_in_display, updates):
@@ -159,27 +141,4 @@ class PBOQLogic:
         except Exception:
             pass
 
-    @staticmethod
-    def save_link(file_path, source_rowid, dest_rowid):
-        if not file_path or not os.path.exists(file_path): return
-        try:
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
-            cursor.execute("INSERT OR REPLACE INTO pboq_links (source_rowid, dest_rowid) VALUES (?, ?)", 
-                         (source_rowid, dest_rowid))
-            conn.commit()
-            conn.close()
-        except sqlite3.Error as e:
-            print(f"Error saving link: {e}")
 
-    @staticmethod
-    def remove_link(file_path, dest_rowid):
-        if not file_path or not os.path.exists(file_path): return
-        try:
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
-            cursor.execute("DELETE FROM pboq_links WHERE dest_rowid = ?", (dest_rowid,))
-            conn.commit()
-            conn.close()
-        except sqlite3.Error as e:
-            print(f"Error removing link: {e}")

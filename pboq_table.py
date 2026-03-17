@@ -7,8 +7,6 @@ class PBOQTable(QTableWidget):
     """Custom table widget for PBOQ viewing with context menus and specialized logic."""
     
     # Signals for communication with the main dialog
-    linkRequested = pyqtSignal(int)      # dest_rowid
-    clearRequested = pyqtSignal(int)     # dest_rowid
     cellUpdated = pyqtSignal(int, int, str) # rowid, col_idx, new_value
     
     def __init__(self, parent=None):

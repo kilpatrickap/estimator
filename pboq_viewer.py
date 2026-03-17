@@ -24,11 +24,8 @@ class PBOQDialog(QDialog):
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         
         self.logic = PBOQLogic()
-        self.active_links = {}     # source_rowid -> list of dest_rowids
-        self.is_syncing_links = False
         self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
         self.db_columns = []
-        self.linking_source = None
         self.is_updating_logic = False
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
@@ -74,8 +71,6 @@ class PBOQDialog(QDialog):
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
-        self.tools_pane.populateRequested.connect(self._run_populate_collection)
-        self.tools_pane.summarizeRequested.connect(self._run_summary_logic)
         self.tools_pane.stateChanged.connect(self._update_stats)
         
         # Connect Price Pane signals
@@ -163,8 +158,6 @@ class PBOQDialog(QDialog):
         num_display_cols = min(8, len(display_col_names))
         
         formatting_data = self.logic.load_formatting(conn)
-        self.active_links = self.logic.load_links(conn)
-        
         cursor = conn.cursor()
         quoted_cols = [f'"{c}"' for c in self.db_columns]
         cursor.execute(f"SELECT rowid, {', '.join(quoted_cols)} FROM pboq_items")
@@ -281,7 +274,6 @@ class PBOQDialog(QDialog):
         
         menu = QMenu(self)
         clear_act = menu.addAction("Clear")
-        link_act = menu.addAction("Link to Collection")
         
         action = menu.exec(table.viewport().mapToGlobal(pos))
         if not action: return
@@ -293,96 +285,24 @@ class PBOQDialog(QDialog):
                 self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
                 self._persist_updates(m['bill_amount'], [(rowid, "")])
                 self._update_stats()
-        elif action == link_act:
-            self._start_link_mode(table, row, col, rowid)
 
-    def _start_link_mode(self, table, row, col, rowid):
-        item = table.item(row, col)
-        if not item or not item.text().strip(): return
-        
-        self._clear_link_mode()
-        self.linking_source = {
-            'table': table, 'row': row, 'col': col, 'rowid': rowid,
-            'val': item.text(), 'item': item, 'orig_bg': item.background()
-        }
-        item.setBackground(const.COLOR_LINK_CYAN)
 
-    def _handle_table_cell_click(self, row, col):
-        if not self.linking_source: return
-        table = self.sender()
-        m = self.tools_pane.get_mappings()
-        
-        if col == m['bill_amount'] and (table != self.linking_source['table'] or row != self.linking_source['row']):
-            dest_rowid = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-            source_rowid = self.linking_source['rowid']
-            val = self.linking_source['val']
 
-            # Update DB
-            self.logic.remove_link(self.pboq_file_selector.currentData(), dest_rowid)
-            self.logic.save_link(self.pboq_file_selector.currentData(), source_rowid, dest_rowid)
-            
-            # Update cache
-            if source_rowid not in self.active_links: self.active_links[source_rowid] = []
-            if dest_rowid not in self.active_links[source_rowid]: self.active_links[source_rowid].append(dest_rowid)
 
-            # Update UI
-            item = table.item(row, col)
-            if not item:
-                item = QTableWidgetItem()
-                table.setItem(row, col, item)
-            item.setText(val)
-            item.setBackground(const.COLOR_POPULATE)
-            item.setForeground(const.COLOR_GRAY_TEXT)
-            
-            self._persist_updates(m['bill_amount'], [(dest_rowid, val)])
-            self._update_stats()
-            self._clear_link_mode()
-
-    def _clear_link_mode(self):
-        if self.linking_source:
-            self.linking_source['item'].setBackground(self.linking_source['orig_bg'])
-            self.linking_source = None
 
     def _persist_updates(self, display_col, updates):
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
-        # Trigger Live Sync if it's the Bill Amount
-        m = self.tools_pane.get_mappings()
-        if display_col == m['bill_amount'] and not self.is_syncing_links:
-            self._sync_live_links(updates)
-            
-        # Trigger Live Collection, Populate, and Summary
+        # Trigger Live Collection update
         if display_col == m['bill_amount'] and not self.is_updating_logic:
             self.is_updating_logic = True
             try:
                 self._run_collect_logic()
-                self._run_populate_collection()
-                self._run_summary_logic()
             finally:
                 self.is_updating_logic = False
 
-    def _sync_live_links(self, updates):
-        self.is_syncing_links = True
-        m = self.tools_pane.get_mappings()
-        cascading = []
-        for src_id, val in updates:
-            if src_id in self.active_links:
-                for dst_id in self.active_links[src_id]:
-                    item0 = self.rowid_to_item0.get(dst_id)
-                    if item0:
-                        table = item0.tableWidget()
-                        row = table.row(item0)
-                        item = table.item(row, m['bill_amount'])
-                        if not item:
-                            item = QTableWidgetItem()
-                            table.setItem(row, m['bill_amount'], item)
-                        item.setText(str(val))
-                        item.setBackground(const.COLOR_POPULATE)
-                        cascading.append((dst_id, val))
-        if cascading:
-            self._persist_updates(m['bill_amount'], cascading)
-        self.is_syncing_links = False
+
 
     def _update_stats(self):
         m = self.tools_pane.get_mappings()
@@ -682,9 +602,7 @@ class PBOQDialog(QDialog):
                             # Skip summing cells that are already logic-marked (Collect/Populate/Summary)
                             # to avoid double-counting or summing previously calculated results.
                             bg_hex = item_amt.background().color().name().lower()
-                            is_logic = bg_hex == const.COLOR_COLLECT.name().lower() or \
-                                       bg_hex == const.COLOR_POPULATE.name().lower() or \
-                                       bg_hex == const.COLOR_SUMMARY.name().lower()
+                            is_logic = bg_hex == const.COLOR_COLLECT.name().lower()
                             
                             if not is_logic:
                                 try: cur_sum += float(item_amt.text().replace(',', ''))
@@ -704,139 +622,7 @@ class PBOQDialog(QDialog):
             
             self.tools_pane.collect_btn.setText("Collect" if is_revert else "Revert")
 
-    def _run_populate_collection(self):
-        m = self.tools_pane.get_mappings()
-        tgt = self.tools_pane.collection_target_bar.text().strip()
-        is_revert = self.tools_pane.populate_btn.text() == "Un-Populate"
-        if not tgt and not is_revert: return
-        
-        updates = []
-        for i in range(self.tabs.count()):
-            t = self.tabs.widget(i)
-            bucket = []
-            if not is_revert:
-                for r in range(t.rowCount()):
-                    item = t.item(r, m['bill_amount'])
-                    if item and item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                        rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                        bucket.append((rowid, item.text()))
-            
-            found = False
-            b_idx = 0
-            for r in range(t.rowCount()):
-                id_item = t.item(r, 0)
-                rowid = id_item.data(Qt.ItemDataRole.UserRole)
-                desc_text = t.item(r, m['desc']).text() if t.item(r, m['desc']) else ""
-                
-                if not found:
-                    if tgt in desc_text: found = True
-                    continue
-                
-                # Once found, we still skip any row that contains the target marker text
-                if tgt in desc_text:
-                    continue
-                
-                has_qty = t.item(r, m['qty']) and t.item(r, m['qty']).text().strip()
-                amt_item = t.item(r, m['bill_amount'])
-                
-                if is_revert:
-                    if desc_text.strip() and not has_qty and amt_item and amt_item.background().color().name().lower() == const.COLOR_POPULATE.name().lower():
-                        amt_item.setText("")
-                        # Restore default column color instead of white/null
-                        def_color = t.get_column_default_color(m['bill_amount'])
-                        amt_item.setBackground(def_color if def_color else QBrush())
-                        amt_item.setForeground(Qt.GlobalColor.black)
-                        updates.append((rowid, ""))
-                        self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
-                else:
-                    if desc_text.strip() and not has_qty:
-                        if b_idx < len(bucket):
-                            if not amt_item or not amt_item.text().strip():
-                                src_id, val = bucket[b_idx]
-                                if not amt_item:
-                                    amt_item = QTableWidgetItem()
-                                    t.setItem(r, m['bill_amount'], amt_item)
-                                amt_item.setText(val)
-                                amt_item.setBackground(const.COLOR_POPULATE)
-                                amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                                updates.append((rowid, val))
-                                self.logic.save_link(self.pboq_file_selector.currentData(), src_id, rowid)
-                            
-                            # Always move to next bucket item if we found a potential slot, 
-                            # whether we filled it now or it was already filled.
-                            b_idx += 1
-                        else: 
-                            break
-        
-        if updates:
-            self._persist_updates(m['bill_amount'], updates)
-            if is_revert:
-                for rid, _ in updates:
-                    g_idx = self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1)
-                    if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
-            else:
-                fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), 
-                               {'bg_color': const.COLOR_POPULATE.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}) 
-                              for rid, _ in updates]
-                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
-            
-            self.tools_pane.populate_btn.setText("Populate" if is_revert else "Un-Populate")
 
-    def _run_summary_logic(self):
-        m = self.tools_pane.get_mappings()
-        tgt = self.tools_pane.summary_target_bar.text().lower().strip()
-        if not tgt: return
-        
-        for i in range(self.tabs.count()):
-            t = self.tabs.widget(i)
-            
-            # Check if any collection exists on this sheet
-            collected_found = False
-            for r in range(t.rowCount()):
-                item = t.item(r, m['bill_amount'])
-                if item and item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                    collected_found = True
-                    break
-            
-            total_val = 0.0
-            for r in range(t.rowCount()):
-                item = t.item(r, m['bill_amount'])
-                if not item: continue
-                
-                if collected_found:
-                    # Sum only collected cells
-                    if item.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                        try: total_val += float(item.text().replace(',', ''))
-                        except ValueError: pass
-                else:
-                    # Fallback: Sum all numeric items, excluding existing summaries and the target row itself
-                    row_desc = t.item(r, m['desc']).text().lower() if t.item(r, m['desc']) else ""
-                    if tgt not in row_desc and item.background().color().name().lower() != const.COLOR_SUMMARY.name().lower():
-                        try: total_val += float(item.text().replace(',', ''))
-                        except ValueError: pass
-            
-            updates = []
-            f_sum = "{:,.2f}".format(total_val)
-            for r in range(t.rowCount()):
-                desc = t.item(r, m['desc']).text().lower() if t.item(r, m['desc']) else ""
-                if tgt in desc:
-                    item = t.item(r, m['bill_amount'])
-                    if not item:
-                        item = QTableWidgetItem()
-                        t.setItem(r, m['bill_amount'], item)
-                    item.setText(f_sum)
-                    item.setBackground(const.COLOR_SUMMARY)
-                    item.setForeground(const.COLOR_GRAY_TEXT)
-                    rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                    updates.append((rowid, f_sum))
-            
-            if updates: 
-                self._persist_updates(m['bill_amount'], updates)
-                # Persist summary formatting
-                fmt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), 
-                               {'bg_color': const.COLOR_SUMMARY.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}) 
-                              for rid, _ in updates]
-                self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
 
     def _clear_gross_and_code(self):
         m = self.tools_pane.get_mappings()
