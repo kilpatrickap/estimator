@@ -551,16 +551,28 @@ class RateBuildUpDialog(QDialog):
         states_dir = os.path.join(project_dir, "PBOQ States")
         for path, count in impact['pboq']:
             try:
-                fbname = os.path.basename(path)
-                state_file = os.path.join(states_dir, fbname + ".json")
-                
+                # 1. Identify Mappings (Priority: Open Viewer > Saved State > Defaults)
                 mappings = None
-                if os.path.exists(state_file):
-                    try:
-                        with open(state_file, 'r') as f:
-                            state = json.load(f)
-                            mappings = state.get('tool_pane', {}).get('mappings')
-                    except: pass
+                if self.main_window:
+                    for sub in self.main_window.mdi_area.subWindowList():
+                        w = sub.widget()
+                        if getattr(w, '__class__', None).__name__ == 'PBOQDialog':
+                            if hasattr(w, 'pboq_file_selector') and w.pboq_file_selector.currentData() == path:
+                                if hasattr(w, 'tools_pane'):
+                                    mappings = w.tools_pane.get_mappings()
+                                    break
+                
+                if not mappings:
+                    st_file = os.path.join(states_dir, os.path.basename(path) + ".json")
+                    if os.path.exists(st_file):
+                        try:
+                            with open(st_file, 'r') as f:
+                                st_json = json.load(f)
+                                mappings = st_json.get('tool_pane', {}).get('mappings')
+                        except: pass
+                
+                # Fallback to standard defaults
+                if not mappings: mappings = {'qty': 2, 'bill_rate': 4, 'bill_amount': 5, 'rate_code': 7}
 
                 conn = sqlite3.connect(path)
                 cursor = conn.cursor()
@@ -593,28 +605,21 @@ class RateBuildUpDialog(QDialog):
                         if m_rate >= 0:
                             db_idx_rate = m_rate + 1
                             if db_idx_rate < len(db_cols):
-                                rate_col_name = db_cols[db_idx_rate]
-                                cursor.execute(f'UPDATE pboq_items SET "{rate_col_name}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
+                                cursor.execute(f'UPDATE pboq_items SET "{db_cols[db_idx_rate]}" = ? WHERE "{code_db_col}" = ?', (new_gross_str, rate_code))
                         
                         if m_amt >= 0 and m_qty >= 0:
-                            db_idx_amt = m_amt + 1
-                            db_idx_qty = m_qty + 1
+                            db_idx_amt, db_idx_qty = m_amt + 1, m_qty + 1
                             if db_idx_amt < len(db_cols) and db_idx_qty < len(db_cols):
-                                amt_col_name = db_cols[db_idx_amt]
-                                qty_col_name = db_cols[db_idx_qty]
-                                
-                                # Get rows to update amounts
-                                cursor.execute(f'SELECT rowid, "{qty_col_name}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
-                                rows_to_recalc = cursor.fetchall()
-                                for rid, qty_str in rows_to_recalc:
+                                a_col = db_cols[db_idx_amt]
+                                q_col = db_cols[db_idx_qty]
+                                cursor.execute(f'SELECT rowid, "{q_col}" FROM pboq_items WHERE "{code_db_col}" = ?', (rate_code,))
+                                for rid, q_str_val in cursor.fetchall():
                                     try:
-                                        # Handle None and formatting
-                                        if qty_str is None: continue
-                                        q_val = float(str(qty_str).replace(',', ''))
-                                        a_val = q_val * new_gross
-                                        a_str = "{:,.2f}".format(a_val)
-                                        cursor.execute(f'UPDATE pboq_items SET "{amt_col_name}" = ? WHERE rowid = ?', (a_str, rid))
-                                    except (ValueError, TypeError): pass
+                                        if q_str_val is None or str(q_str_val).strip() == "": continue
+                                        qv = float(str(q_str_val).replace(',', ''))
+                                        av = qv * new_gross
+                                        cursor.execute(f'UPDATE pboq_items SET "{a_col}" = ? WHERE rowid = ?', ("{:,.2f}".format(av), rid))
+                                    except: pass
 
                     # Always update logical helper column too
                     if "GrossRate" in db_cols:
