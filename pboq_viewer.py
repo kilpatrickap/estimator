@@ -71,7 +71,6 @@ class PBOQDialog(QDialog):
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
-        self.tools_pane.stateChanged.connect(self._run_collect_logic)
         self.tools_pane.stateChanged.connect(self._update_stats)
         
         # Connect Price Pane signals
@@ -302,14 +301,15 @@ class PBOQDialog(QDialog):
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
-        # Trigger Live Collection update
+        # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
+        # AND we are not already in a logic update.
         m = self.tools_pane.get_mappings()
         if display_col == m['bill_amount'] and not self.is_updating_logic:
-            self.is_updating_logic = True
-            try:
-                self._run_collect_logic()
-            finally:
-                self.is_updating_logic = False
+            if self.tools_pane.collect_btn.text() == "Revert":
+                self._run_collect_logic(force_collect=True)
+        
+        # Stats update is fast enough to keep live
+        self._update_stats()
 
 
 
@@ -563,16 +563,16 @@ class PBOQDialog(QDialog):
                     updates.append((rowid, ""))
         if updates: self._persist_updates(m['bill_rate'], updates)
 
-    def _run_collect_logic(self):
+    def _run_collect_logic(self, force_collect=False):
         m = self.tools_pane.get_mappings()
         if m['desc'] < 0 or m['bill_amount'] < 0: return
         
         # Start logical update session
         self.is_updating_logic = True
         try:
-            # We are "reverting" only if the button says Revert AND the keyword is empty
+            # We are "reverting" strictly if the button says Revert AND we aren't forcing a collect update
+            is_revert_action = self.tools_pane.collect_btn.text() == "Revert" and not force_collect
             kw = self.tools_pane.collect_search_bar.text().lower().strip()
-            is_revert_action = self.tools_pane.collect_btn.text() == "Revert" and not kw
             
             # Options from UI
             search_desc = self.tools_pane.collect_desc_cb.isChecked()
@@ -591,20 +591,21 @@ class PBOQDialog(QDialog):
                     rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
                     g_idx = item_amt.data(Qt.ItemDataRole.UserRole + 1) if item_amt else None
                     
-                    # If we are performing a new collection, we MUST first clear any existing collection
-                    # to ensure we don't have overlapping highlights from different keywords.
-                    if item_amt and item_amt.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                        # Only clear it if we are either reverting OR if it doesn't match the NEW keyword
-                        # Actually, safest is to clear all orange and re-apply.
-                        item_amt.setText("")
-                        def_color = t.get_column_default_color(m['bill_amount'])
-                        item_amt.setBackground(def_color if def_color else QBrush())
-                        item_amt.setForeground(Qt.GlobalColor.black)
-                        updates.append((rowid, ""))
-                        if g_idx is not None: 
-                            self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
-
-                    if not is_revert_action and kw:
+                    if is_revert_action:
+                        # Clear only collected items
+                        if item_amt and item_amt.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
+                            item_amt.setText("")
+                            def_color = t.get_column_default_color(m['bill_amount'])
+                            item_amt.setBackground(def_color if def_color else QBrush())
+                            item_amt.setForeground(Qt.GlobalColor.black)
+                            updates.append((rowid, ""))
+                            if g_idx is not None: 
+                                self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
+                    else:
+                        if not kw: 
+                            # If no keyword and not reverting, we can't search
+                            continue
+                        
                         # Check for matches based on user selection
                         match = False
                         if search_desc and item_desc and kw in item_desc.text().lower():
@@ -637,11 +638,10 @@ class PBOQDialog(QDialog):
             
             if updates:
                 self._persist_updates(m['bill_amount'], updates)
-                # Apply new formatting if it's not a revert
-                if not is_revert_action and kw:
+                if not is_revert_action:
                     fmt_updates = []
                     for rid, val in updates:
-                        if val == "": continue # Skip the ones we cleared
+                        if val == "": continue 
                         item0 = self.rowid_to_item0.get(rid)
                         if item0:
                             g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
@@ -651,11 +651,11 @@ class PBOQDialog(QDialog):
                     if fmt_updates:
                         self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
                 
-            # Update button text
-            if kw:
-                self.tools_pane.collect_btn.setText("Revert")
-            else:
+            # Update button text manually based on action just taken
+            if is_revert_action:
                 self.tools_pane.collect_btn.setText("Collect")
+            elif kw:
+                self.tools_pane.collect_btn.setText("Revert")
             
             self._save_pboq_state()
         finally:
@@ -714,6 +714,10 @@ class PBOQDialog(QDialog):
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
                 # Apply word wrap state after loading
                 self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
+                
+                # If sticky mode was active, refresh it
+                if self.tools_pane.collect_btn.text() == "Revert":
+                    self._run_collect_logic(force_collect=True)
 
     def _save_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
