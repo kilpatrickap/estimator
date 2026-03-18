@@ -27,6 +27,7 @@ class PBOQDialog(QDialog):
         self.rowid_to_item0 = {}   # rowid -> QTableWidgetItem (the one in column 0)
         self.db_columns = []
         self.is_updating_logic = False
+        self.clipboard_data = None  # Store copied rate data for Plug pricing
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
@@ -290,11 +291,16 @@ class PBOQDialog(QDialog):
                 item = table.item(row, col)
                 if item:
                     item.setText("")
-                    self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
-                    self._persist_updates(m['bill_amount'], [(rowid, "")])
+                    if col == m['bill_amount']:
+                        self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
+                    self._persist_updates(col, [(rowid, "")])
                     self._update_stats()
         
-        elif col in [m['rate_code'], m.get('plug_code', -1)]:
+        elif col == m.get('plug_rate', -1):
+            self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=True)
+            
+        elif col == m.get('rate_code', -1):
+            # Existing SOR (Gross) Go To behavior
             item = table.item(row, col)
             if not item or not item.text().strip(): return
             
@@ -309,6 +315,186 @@ class PBOQDialog(QDialog):
                 if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                     self.main_window.show_rate_in_database(rate_code)
 
+    def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True):
+        """Standardized rate context menu based on the SOR Table design."""
+        m = self.tools_pane.get_mappings()
+        rate_role = 'plug_rate' if is_plug else 'rate'
+        code_role = 'plug_code' if is_plug else 'rate_code'
+        
+        rate_col = m.get(rate_role, -1)
+        code_col = m.get(code_role, -1)
+        
+        item_rate = table.item(row, rate_col) if rate_col >= 0 else None
+        item_code = table.item(row, code_col) if code_col >= 0 else None
+        
+        rate_code = item_code.text().strip() if item_code else ""
+        
+        menu = QMenu(self)
+        
+        # 1. Build/Edit Rate
+        action_text = "Edit Rate" if rate_code else "Build Rate"
+        build_act = menu.addAction(action_text)
+        
+        # 2. Clear Rate
+        clear_act = menu.addAction("Clear Rate")
+        
+        menu.addSeparator()
+        
+        # 3. Copy Rate
+        copy_act = menu.addAction("Copy Rate")
+        
+        # 4. Paste Rate
+        paste_act = menu.addAction("Paste Rate")
+        if not self.clipboard_data:
+            paste_act.setEnabled(False)
+            
+        menu.addSeparator()
+        
+        # 5. Go-To Rate
+        goto_act = menu.addAction("Go-To Rate")
+        if not rate_code:
+            goto_act.setEnabled(False)
+            
+        action = menu.exec(table.viewport().mapToGlobal(pos))
+        if not action: return
+        
+        if action == build_act:
+            self._build_rate(table, row, rowid, is_plug)
+        elif action == clear_act:
+            self._clear_rate_at_row(table, row, rowid, is_plug)
+        elif action == copy_act:
+            self._copy_rate_info(table, row, is_plug)
+        elif action == paste_act:
+            self._paste_rate_info(table, row, rowid, is_plug)
+        elif action == goto_act:
+            if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
+                self.main_window.show_rate_in_database(rate_code)
+
+    def _copy_rate_info(self, table, row, is_plug):
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('plug_rate' if is_plug else 'rate', -1)
+        code_col = m.get('plug_code' if is_plug else 'rate_code', -1)
+        unit_col = m.get('unit', -1)
+        
+        if rate_col < 0 or code_col < 0: return
+        
+        self.clipboard_data = {
+            'rate': table.item(row, rate_col).text() if table.item(row, rate_col) else "",
+            'code': table.item(row, code_col).text() if table.item(row, code_col) else "",
+            'unit': table.item(row, unit_col).text() if unit_col >= 0 and table.item(row, unit_col) else ""
+        }
+        if self.main_window:
+            self.main_window.statusBar().showMessage(f"Rate {self.clipboard_data['code']} copied.", 2000)
+
+    def _paste_rate_info(self, table, row, rowid, is_plug):
+        if not self.clipboard_data: return
+        m = self.tools_pane.get_mappings()
+        unit_col = m.get('unit', -1)
+        target_unit = table.item(row, unit_col).text().strip() if unit_col >= 0 and table.item(row, unit_col) else ""
+        
+        if self.clipboard_data['unit'].strip().lower() != target_unit.lower():
+            QMessageBox.warning(self, "Unit Mismatch", 
+                              f"Cannot paste. Units do not match!\nSource: {self.clipboard_data['unit']} vs Target: {target_unit}")
+            return
+            
+        rate_role = 'plug_rate' if is_plug else 'rate'
+        code_role = 'plug_code' if is_plug else 'rate_code'
+        
+        rate_col = m.get(rate_role, -1)
+        code_col = m.get(code_role, -1)
+        
+        if rate_col >= 0:
+            it = table.item(row, rate_col)
+            if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
+            it.setText(self.clipboard_data['rate'])
+            self._persist_updates(rate_col, [(rowid, self.clipboard_data['rate'])])
+            
+        if code_col >= 0:
+            it = table.item(row, code_col)
+            if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
+            it.setText(self.clipboard_data['code'])
+            self._persist_updates(code_col, [(rowid, self.clipboard_data['code'])])
+        
+        self._update_stats()
+
+    def _clear_rate_at_row(self, table, row, rowid, is_plug):
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('plug_rate' if is_plug else 'rate', -1)
+        code_col = m.get('plug_code' if is_plug else 'rate_code', -1)
+        
+        for c in [rate_col, code_col]:
+            if c >= 0:
+                item = table.item(row, c)
+                if item:
+                    item.setText("")
+                    self._persist_updates(c, [(rowid, "")])
+        self._update_stats()
+
+    def _build_rate(self, table, row, rowid, is_plug):
+        m = self.tools_pane.get_mappings()
+        desc_col = m.get('desc', -1)
+        unit_col = m.get('unit', -1)
+        code_col = m.get('plug_code' if is_plug else 'rate_code', -1)
+        rate_col = m.get('plug_rate' if is_plug else 'rate', -1)
+        
+        desc = table.item(row, desc_col).text().strip() if desc_col >= 0 and table.item(row, desc_col) else "New Rate"
+        unit = table.item(row, unit_col).text().strip() if unit_col >= 0 and table.item(row, unit_col) else "m"
+        rate_code = table.item(row, code_col).text().strip() if code_col >= 0 and table.item(row, code_col) else ""
+        
+        from models import Estimate
+        from rate_buildup_dialog import RateBuildUpDialog
+        from database import DatabaseManager
+        
+        project_db_dir = os.path.join(self.project_dir, "Project Database")
+        db_path = None
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.endswith('.db'):
+                    db_path = os.path.join(project_db_dir, f)
+                    break
+        
+        if not db_path:
+            QMessageBox.warning(self, "No Database", "No Project Database found to build rate into.")
+            return
+
+        db = DatabaseManager(db_path)
+        
+        if rate_code:
+            from orm_models import DBEstimate
+            est_id = None
+            with db.Session() as session:
+                db_est = session.query(DBEstimate).filter(DBEstimate.rate_code == rate_code).first()
+                if db_est: est_id = db_est.id
+            if est_id:
+                estimate_obj = db.load_estimate_details(est_id)
+                if estimate_obj and self.main_window:
+                    self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
+                return
+
+        cat = "Miscellaneous"
+        new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
+        new_est.category = cat
+        new_est.rate_code = db.generate_next_rate_code(cat)
+        
+        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
+        if dialog.exec():
+            totals = dialog.estimate.calculate_totals()
+            gross_rate = f"{totals.get('grand_total', 0.0):,.2f}"
+            new_code = str(dialog.estimate.rate_code)
+            
+            if rate_col >= 0:
+                it = table.item(row, rate_col)
+                if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
+                it.setText(gross_rate)
+                self._persist_updates(rate_col, [(rowid, gross_rate)])
+            
+            if code_col >= 0:
+                it = table.item(row, code_col)
+                if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
+                it.setText(new_code)
+                self._persist_updates(code_col, [(rowid, new_code)])
+                
+            self._update_stats()
 
 
 
