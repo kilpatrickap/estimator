@@ -49,6 +49,8 @@ class PBOQToolsPane(QWidget):
         self.cb_bill_amount = QComboBox()
         self.cb_rate = QComboBox()
         self.cb_rate_code = QComboBox()
+        self.cb_plug_rate = QComboBox()
+        self.cb_plug_code = QComboBox()
         
         col_layout.addRow("Ref/Item:", self.cb_ref)
         col_layout.addRow("Description:", self.cb_desc)
@@ -58,10 +60,13 @@ class PBOQToolsPane(QWidget):
         col_layout.addRow("Bill Amount:", self.cb_bill_amount)
         col_layout.addRow("Gross Rate:", self.cb_rate)
         col_layout.addRow("Rate Code:", self.cb_rate_code)
+        col_layout.addRow("Plug Rate:", self.cb_plug_rate)
+        col_layout.addRow("Plug Code:", self.cb_plug_code)
         
         # Connect signals
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
-                   self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]:
+                   self.cb_bill_rate, self.cb_bill_amount, 
+                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
             cb.currentIndexChanged.connect(self.columnHeadersRequested)
             cb.currentIndexChanged.connect(self.update_extend_labels)
@@ -196,7 +201,8 @@ class PBOQToolsPane(QWidget):
     def populate_column_combos(self, num_columns):
         explicit_columns = [f"Column {i}" for i in range(num_columns)]
         combos = [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
-                  self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code]
+                  self.cb_bill_rate, self.cb_bill_amount, 
+                  self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code]
         
         for cb in combos:
             cb.blockSignals(True)
@@ -209,6 +215,8 @@ class PBOQToolsPane(QWidget):
         if num_columns > 5: self.cb_bill_amount.setCurrentIndex(6) # Column 5
         if num_columns > 6: self.cb_rate.setCurrentIndex(7)        # Column 6
         if num_columns > 7: self.cb_rate_code.setCurrentIndex(8)   # Column 7
+        if num_columns > 8: self.cb_plug_rate.setCurrentIndex(9)   # Column 8
+        if num_columns > 9: self.cb_plug_code.setCurrentIndex(10)  # Column 9
         
         for cb in combos:
             cb.blockSignals(False)
@@ -222,7 +230,9 @@ class PBOQToolsPane(QWidget):
             'bill_rate': self.cb_bill_rate.currentIndex() - 1,
             'bill_amount': self.cb_bill_amount.currentIndex() - 1,
             'rate': self.cb_rate.currentIndex() - 1,
-            'rate_code': self.cb_rate_code.currentIndex() - 1
+            'rate_code': self.cb_rate_code.currentIndex() - 1,
+            'plug_rate': self.cb_plug_rate.currentIndex() - 1,
+            'plug_code': self.cb_plug_code.currentIndex() - 1
         }
     
     def set_mappings(self, data):
@@ -234,7 +244,9 @@ class PBOQToolsPane(QWidget):
             'bill_rate': self.cb_bill_rate,
             'bill_amount': self.cb_bill_amount,
             'rate': self.cb_rate,
-            'rate_code': self.cb_rate_code
+            'rate_code': self.cb_rate_code,
+            'plug_rate': self.cb_plug_rate,
+            'plug_code': self.cb_plug_code
         }
         for key, cb in mapping_keys.items():
             if key in data:
@@ -319,7 +331,8 @@ class PBOQToolsPane(QWidget):
         # We want to disable almost everything EXCEPT the freeze button itself
         widgets_to_toggle = [
             self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
-            self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
+            self.cb_bill_rate, self.cb_bill_amount, 
+            self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
             self.wrap_text_btn, self.clear_all_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
             self.dummy_rate_spin, self.extend_btn, self.clear_bill_btn,

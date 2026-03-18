@@ -33,6 +33,13 @@ class PBOQLogic:
             cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
             db_columns.append("RateCode")
         
+        if "PlugRate" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugRate TEXT")
+            db_columns.append("PlugRate")
+        if "PlugCode" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCode TEXT")
+            db_columns.append("PlugCode")
+        
         # Ensure Formatting table exists
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS pboq_formatting (

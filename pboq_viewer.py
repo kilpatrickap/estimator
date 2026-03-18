@@ -74,8 +74,9 @@ class PBOQDialog(QDialog):
         self.tools_pane.stateChanged.connect(self._update_stats)
         
         # Connect Price Pane signals
-        self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
+        self.price_pane.rateVisibilityChanged.connect(self._toggle_rate_visibility)
         self.price_pane.stateChanged.connect(self._save_pboq_state)
+        self.price_pane.stateChanged.connect(self._update_column_headers)
         self.price_pane.priceSORRequested.connect(self._run_price_sor_logic)
         self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_gross_logic)
 
@@ -155,7 +156,7 @@ class PBOQDialog(QDialog):
             
         self.db_columns = result
         display_col_names = self.db_columns[1:]
-        num_display_cols = min(8, len(display_col_names))
+        num_display_cols = len(display_col_names)
         
         formatting_data = self.logic.load_formatting(conn)
         cursor = conn.cursor()
@@ -292,7 +293,7 @@ class PBOQDialog(QDialog):
                     self._persist_updates(m['bill_amount'], [(rowid, "")])
                     self._update_stats()
         
-        elif col == m['rate_code']:
+        elif col in [m['rate_code'], m.get('plug_code', -1)]:
             item = table.item(row, col)
             if not item or not item.text().strip(): return
             
@@ -388,7 +389,7 @@ class PBOQDialog(QDialog):
             self.tool_toggle_btn.setText("PBOQ Tools")
             
             # Apply current state of the price pane
-            self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
+            self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
         else:
             self.tools_dock.setWidget(self.tools_pane)
             self.tools_dock.setWindowTitle("PBOQ Tools")
@@ -400,11 +401,19 @@ class PBOQDialog(QDialog):
         
         self._save_viewer_state()
 
-    def _toggle_gross_rate_visibility(self, visible):
-        """Hides or shows the Gross Rate and Rate Code columns in all tables."""
+    def _toggle_rate_visibility(self, visible):
+        """Hides or shows the relevant Rate and Code columns based on current Price Type."""
         m = self.tools_pane.get_mappings()
-        rate_col = m.get('rate', -1)
-        code_col = m.get('rate_code', -1)
+        price_type = self.price_pane.price_type_combo.currentText()
+        
+        if price_type == "Gross Rate":
+            rate_col = m.get('rate', -1)
+            code_col = m.get('rate_code', -1)
+        elif price_type == "Plug Rate":
+            rate_col = m.get('plug_rate', -1)
+            code_col = m.get('plug_code', -1)
+        else:
+            return
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -428,10 +437,20 @@ class PBOQDialog(QDialog):
 
     def _update_column_headers(self):
         m = self.tools_pane.get_mappings()
+        
+        # Dynamic headers for the Rate columns
+        rate_label = "Gross Rate"
+        code_label = "Rate Code"
+        if hasattr(self, 'price_pane'):
+            price_type = self.price_pane.price_type_combo.currentText()
+            if price_type == "Plug Rate":
+                rate_label = "Plug Rate"
+                code_label = "Plug Code"
+        
         friends = {
             'ref': "Ref/Item", 'desc': "Description", 'qty': "Quantity", 'unit': "Unit",
             'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
-            'rate': "Gross Rate", 'rate_code': "Rate Code"
+            'rate': rate_label, 'rate_code': code_label
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
@@ -466,8 +485,8 @@ class PBOQDialog(QDialog):
             # Update columns identifying colors across sheets
             table.apply_column_colors(m, table.columnCount())
         
-        # Ensure Gross Rate visibility is synced with current mapping
-        self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
+        # Ensure Rate visibility is synced with current mapping
+        self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
         
         self._update_stats()
 
@@ -724,7 +743,7 @@ class PBOQDialog(QDialog):
                 if 'price_tools' in state and hasattr(self, 'price_pane'):
                     self.price_pane.set_state(state['price_tools'])
                     # Apply initial visibility
-                    self._toggle_gross_rate_visibility(self.price_pane.gross_rate_tool.show_gross_cb.isChecked())
+                    self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
                 
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
                 # Apply word wrap state after loading
