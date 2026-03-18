@@ -39,6 +39,18 @@ class PBOQLogic:
         if "PlugCode" not in db_columns:
             cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCode TEXT")
             db_columns.append("PlugCode")
+        if "PlugFormula" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugFormula TEXT")
+            db_columns.append("PlugFormula")
+        if "PlugCategory" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCategory TEXT")
+            db_columns.append("PlugCategory")
+        if "PlugCurrency" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCurrency TEXT")
+            db_columns.append("PlugCurrency")
+        if "PlugExchangeRates" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugExchangeRates TEXT")
+            db_columns.append("PlugExchangeRates")
         
         # Ensure Formatting table exists
         cursor.execute("""

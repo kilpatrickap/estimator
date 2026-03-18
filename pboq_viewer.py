@@ -13,6 +13,8 @@ from pboq_logic import PBOQLogic
 from pboq_table import PBOQTable
 from pboq_tools import PBOQToolsPane
 from pboq_price import PBOQPricePane
+from edit_item_dialog import EditItemDialog
+from pboq_plug_builder import PlugRateBuilderDialog
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Modularized and Maintainable."""
@@ -440,7 +442,75 @@ class PBOQDialog(QDialog):
         desc = table.item(row, desc_col).text().strip() if desc_col >= 0 and table.item(row, desc_col) else "New Rate"
         unit = table.item(row, unit_col).text().strip() if unit_col >= 0 and table.item(row, unit_col) else "m"
         rate_code = table.item(row, code_col).text().strip() if code_col >= 0 and table.item(row, code_col) else ""
+        file_path = self.pboq_file_selector.currentData()
         
+        if is_plug:
+            # Handle specialized Plug Rate Builder window
+            # Fetch existing data from DB
+            formula_val = ""
+            category_val = ""
+            currency_val = ""
+            ex_rates_json = "{}"
+            
+            try:
+                conn = sqlite3.connect(file_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT PlugFormula, PlugCategory, PlugCurrency, PlugExchangeRates FROM pboq_items WHERE rowid = ?", (rowid,))
+                res = cursor.fetchone()
+                if res:
+                    formula_val = res[0] or ""
+                    category_val = res[1] or ""
+                    currency_val = res[2] or ""
+                    ex_rates_json = res[3] or "{}"
+                conn.close()
+            except: pass
+            
+            ex_rates = {}
+            try: ex_rates = json.loads(ex_rates_json)
+            except: pass
+            
+            item_data = {
+                'name': desc,
+                'rate': 0.0,
+                'formula': formula_val,
+                'category': category_val,
+                'currency': currency_val,
+                'exchange_rates': ex_rates
+            }
+            
+            # Open specialized Plug Rate Builder Dialog
+            dialog = PlugRateBuilderDialog(item_data, self.project_dir, parent=self)
+            if dialog.exec():
+                new_rate_val = item_data.get('rate', 0.0)
+                new_rate_str = f"{new_rate_val:,.2f}"
+                new_formula = item_data.get('formula') or ""
+                new_cat = item_data.get('category') or ""
+                new_curr = item_data.get('currency') or ""
+                new_ex_rates = json.dumps(item_data.get('exchange_rates', {}))
+                
+                # Update UI
+                if rate_col >= 0:
+                    it = table.item(row, rate_col)
+                    if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
+                    it.setText(new_rate_str)
+                
+                # Update Database
+                try:
+                    conn = sqlite3.connect(file_path)
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        UPDATE pboq_items 
+                        SET PlugRate = ?, PlugFormula = ?, PlugCategory = ?, PlugCurrency = ?, PlugExchangeRates = ?
+                        WHERE rowid = ?
+                    """, (new_rate_str, new_formula, new_cat, new_curr, new_ex_rates, rowid))
+                    conn.commit()
+                    conn.close()
+                except: pass
+                
+                self._update_stats()
+            return
+
+        # Full Build-Up Logic (Gross Rate)
         from models import Estimate
         from rate_buildup_dialog import RateBuildUpDialog
         from database import DatabaseManager
