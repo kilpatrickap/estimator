@@ -411,22 +411,27 @@ class PBOQDialog(QDialog):
         m = self.tools_pane.get_mappings()
         price_type = self.price_pane.price_type_combo.currentText()
         
-        if price_type == "Gross Rate":
-            rate_col = m.get('rate', -1)
-            code_col = m.get('rate_code', -1)
-        elif price_type == "Plug Rate":
-            rate_col = m.get('plug_rate', -1)
-            code_col = m.get('plug_code', -1)
-        else:
-            return
+        # Identify active vs inactive pricing roles
+        if price_type == "Plug Rate":
+            active_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1)]
+        else: # Gross Rate or others
+            active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
+            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
             if isinstance(table, PBOQTable):
-                if rate_col >= 0:
-                    table.setColumnHidden(rate_col, not visible)
-                if code_col >= 0:
-                    table.setColumnHidden(code_col, not visible)
+                # 1. Handle Active Columns (Toggle based on checkbox)
+                for col in active_cols:
+                    if col >= 0:
+                        table.setColumnHidden(col, not visible)
+                
+                # 2. Handle Inactive Columns (Always Hide in this mode)
+                for col in inactive_cols:
+                    # Only hide if it's not sharing a physical column with an active role
+                    if col >= 0 and col not in active_cols:
+                        table.setColumnHidden(col, True)
 
 
     def _toggle_wrap_text(self, enabled):
