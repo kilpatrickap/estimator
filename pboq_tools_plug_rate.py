@@ -21,7 +21,7 @@ class PlugRateTool(QWidget):
         self.show_plug_cb.toggled.connect(self.visibilityChanged.emit)
         self.show_plug_cb.toggled.connect(self.stateChanged.emit)
         
-        self.clear_btn = QPushButton("Clear Plug & Code")
+        self.clear_btn = QPushButton("Clear Plug Rate and Code")
         self.clear_btn.clicked.connect(self.clearPlugRequested.emit)
         
         layout.addWidget(self.show_plug_cb)
