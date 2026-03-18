@@ -59,7 +59,7 @@ class PlugRateBuilderDialog(QDialog):
         # --- Row 0: Plug Rate Code Display ---
         code_top_row = QHBoxLayout()
         self.code_label = QLabel("Code: PR-MISC1A")
-        self.code_label.setStyleSheet("font-weight: bold; color: #d32f2f; background-color: #ffebee; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.code_label.setStyleSheet("font-weight: bold; color: #7b1fa2; background-color: #f3e5f5; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
         code_top_row.addWidget(self.code_label)
         code_top_row.addStretch()
         layout.addLayout(code_top_row)
