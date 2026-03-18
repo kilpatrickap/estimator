@@ -471,6 +471,7 @@ class PBOQDialog(QDialog):
             
             item_data = {
                 'name': desc,
+                'unit': unit,
                 'rate': 0.0,
                 'formula': formula_val,
                 'category': category_val,
@@ -479,11 +480,12 @@ class PBOQDialog(QDialog):
             }
             
             # Open specialized Plug Rate Builder Dialog
-            dialog = PlugRateBuilderDialog(item_data, self.project_dir, parent=self)
+            dialog = PlugRateBuilderDialog(item_data, self.project_dir, file_path, parent=self)
             if dialog.exec():
                 new_rate_val = item_data.get('rate', 0.0)
                 new_rate_str = f"{new_rate_val:,.2f}"
                 new_formula = item_data.get('formula') or ""
+                new_code = item_data.get('code') or ""
                 new_cat = item_data.get('category') or ""
                 new_curr = item_data.get('currency') or ""
                 new_ex_rates = json.dumps(item_data.get('exchange_rates', {}))
@@ -494,15 +496,20 @@ class PBOQDialog(QDialog):
                     if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
                     it.setText(new_rate_str)
                 
+                if code_col >= 0:
+                    it = table.item(row, code_col)
+                    if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
+                    it.setText(new_code)
+                
                 # Update Database
                 try:
                     conn = sqlite3.connect(file_path)
                     cursor = conn.cursor()
                     cursor.execute("""
                         UPDATE pboq_items 
-                        SET PlugRate = ?, PlugFormula = ?, PlugCategory = ?, PlugCurrency = ?, PlugExchangeRates = ?
+                        SET PlugRate = ?, PlugFormula = ?, PlugCode = ?, PlugCategory = ?, PlugCurrency = ?, PlugExchangeRates = ?
                         WHERE rowid = ?
-                    """, (new_rate_str, new_formula, new_cat, new_curr, new_ex_rates, rowid))
+                    """, (new_rate_str, new_formula, new_code, new_cat, new_curr, new_ex_rates, rowid))
                     conn.commit()
                     conn.close()
                 except: pass
