@@ -46,15 +46,16 @@ class PBOQTable(QTableWidget):
             self.main_dialog._handle_context_menu(self, pos, row, col, rowid)
 
     def get_column_default_color(self, col_idx):
-        if col_idx < 4: return const.COL_COLOR_BLUE
-        if col_idx < 6: return const.COL_COLOR_YELLOW
-        if col_idx < 8: return const.COL_COLOR_RED
-        return None
+        if col_idx < 4: return const.COL_COLOR_BLUE # Ref, Desc, Qty, Unit
+        if col_idx < 6: return const.COL_COLOR_YELLOW # Bill Rate/Amt
+        if col_idx < 8: return const.COL_COLOR_RED # Gross Rate/Code
+        return const.COL_COLOR_PURPLE # Plug Rate/Code and others
 
     def get_role_color(self, role):
         if role in ['ref', 'desc', 'qty', 'unit']: return const.COL_COLOR_BLUE
         if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
         if role in ['rate', 'rate_code']: return const.COL_COLOR_RED
+        if role in ['plug_rate', 'plug_code']: return const.COL_COLOR_PURPLE
         return None
 
     def apply_column_colors(self, mappings, num_display_cols):
@@ -77,7 +78,8 @@ class PBOQTable(QTableWidget):
                         # If it's one of the other PASTEL colors, we CAN overwrite it (in case mapping changed)
                         is_pastel = existing_bg.name().lower() in [const.COL_COLOR_BLUE.name().lower(), 
                                                                     const.COL_COLOR_YELLOW.name().lower(), 
-                                                                    const.COL_COLOR_RED.name().lower()]
+                                                                    const.COL_COLOR_RED.name().lower(),
+                                                                    const.COL_COLOR_PURPLE.name().lower()]
                         if not is_pastel: continue # Keep feature colors
                         
                     item.setBackground(color)

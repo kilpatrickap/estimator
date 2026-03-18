@@ -6,6 +6,7 @@ class PlugRateTool(QWidget):
     
     visibilityChanged = pyqtSignal(bool)
     stateChanged = pyqtSignal()
+    clearPlugRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -14,13 +15,17 @@ class PlugRateTool(QWidget):
     def _init_ui(self):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(5)
         
         self.show_plug_cb = QCheckBox("Show Plug Rate and Plug Code")
         self.show_plug_cb.toggled.connect(self.visibilityChanged.emit)
         self.show_plug_cb.toggled.connect(self.stateChanged.emit)
         
+        self.clear_btn = QPushButton("Clear Plug & Code")
+        self.clear_btn.clicked.connect(self.clearPlugRequested.emit)
+        
         layout.addWidget(self.show_plug_cb)
+        layout.addWidget(self.clear_btn)
         layout.addStretch()
 
     def get_state(self):

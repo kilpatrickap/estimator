@@ -79,6 +79,7 @@ class PBOQDialog(QDialog):
         self.price_pane.stateChanged.connect(self._update_column_headers)
         self.price_pane.priceSORRequested.connect(self._run_price_sor_logic)
         self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_gross_logic)
+        self.price_pane.clearPlugRequested.connect(self._clear_plug_and_code)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -460,6 +461,14 @@ class PBOQDialog(QDialog):
                 role = map_inv.get(i)
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
+                
+                # Automatically hide blank/extra columns beyond the standard 8
+                # but only if they aren't mapped to anything.
+                if i >= 8:
+                    table.setColumnHidden(i, role is None)
+                else:
+                    # Ensure standard columns (0-7) are visible so user can map them
+                    table.setColumnHidden(i, False)
             
             table.setHorizontalHeaderLabels(headers)
             
@@ -680,7 +689,7 @@ class PBOQDialog(QDialog):
                     
                     if fmt_updates:
                         self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
-                
+            
             # Update button text manually based on action just taken
             if is_revert_action:
                 self.tools_pane.collect_btn.setText("Collect")
@@ -691,26 +700,49 @@ class PBOQDialog(QDialog):
         finally:
             self.is_updating_logic = False
 
-
-
     def _clear_gross_and_code(self):
         m = self.tools_pane.get_mappings()
-        reply = QMessageBox.question(self, "Clear All?", "Clear ALL Gross Rates and Codes?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
-        if reply == QMessageBox.StandardButton.No: return
-        
+        rate_col = m['rate']
+        code_col = m['rate_code']
+        self._clear_columns([rate_col, code_col], "Gross Rate & Code")
+
+    def _clear_plug_and_code(self):
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('plug_rate', -1)
+        code_col = m.get('plug_code', -1)
+        self._clear_columns([rate_col, code_col], "Plug Rate & Code")
+
+    def _clear_columns(self, col_indices, label):
+        """Generic helper to clear one or more columns across all sheets."""
+        if all(c < 0 for c in col_indices):
+            QMessageBox.warning(self, "Clear", f"Please map the {label} columns first.")
+            return
+
+        confirm = QMessageBox.question(self, "Clear", f"Are you sure you want to clear {label} content in ALL sheets?",
+                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if confirm != QMessageBox.StandardButton.Yes: return
+
         for i in range(self.tabs.count()):
             t = self.tabs.widget(i)
-            r_updates, c_updates = [], []
+            if not isinstance(t, PBOQTable): continue
+            
+            updates_by_col = {c: [] for c in col_indices if c >= 0}
+            
             for r in range(t.rowCount()):
                 rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                if m['rate'] >= 0:
-                    item = t.item(r, m['rate'])
-                    if item: item.setText(""); r_updates.append((rowid, ""))
-                if m['rate_code'] >= 0:
-                    item = t.item(r, m['rate_code'])
-                    if item: item.setText(""); c_updates.append((rowid, ""))
-            if r_updates: self._persist_updates(m['rate'], r_updates)
-            if c_updates: self._persist_updates(m['rate_code'], c_updates)
+                for c in col_indices:
+                    if c >= 0:
+                        item = t.item(r, c)
+                        if item:
+                            item.setText("")
+                            updates_by_col[c].append((rowid, ""))
+            
+            for c, updates in updates_by_col.items():
+                if updates:
+                    self._persist_updates(c, updates)
+        
+        QMessageBox.information(self, "Clear", f"{label} cleared successfully.")
+        self._update_stats()
 
     # --- State Management ---
     def _save_pboq_state(self):
