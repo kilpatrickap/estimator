@@ -6,7 +6,7 @@ class GrossRateTool(QWidget):
     
     visibilityChanged = pyqtSignal(bool)
     stateChanged = pyqtSignal()
-    priceSOPRequested = pyqtSignal(bool) # True for Price, False for Revert
+    priceSORRequested = pyqtSignal(bool) # True for Price, False for Revert
     linkBillRateRequested = pyqtSignal()
 
     def __init__(self, parent=None):
@@ -26,9 +26,9 @@ class GrossRateTool(QWidget):
         
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
-        self.price_sop_btn = QPushButton("Price with SOP")
-        self.price_sop_btn.clicked.connect(self._on_price_sop_clicked)
-        btn_layout.addWidget(self.price_sop_btn)
+        self.price_sor_btn = QPushButton("Price with SOR")
+        self.price_sor_btn.clicked.connect(self._on_price_sor_clicked)
+        btn_layout.addWidget(self.price_sor_btn)
         
         self.link_bill_rate_btn = QPushButton("Link to Bill Rate")
         self.link_bill_rate_btn.clicked.connect(lambda: self.linkBillRateRequested.emit())
@@ -38,13 +38,13 @@ class GrossRateTool(QWidget):
         
         layout.addStretch()
 
-    def _on_price_sop_clicked(self):
-        if self.price_sop_btn.text() == "Price with SOP":
-            self.price_sop_btn.setText("Revert Price")
-            self.priceSOPRequested.emit(True)
+    def _on_price_sor_clicked(self):
+        if self.price_sor_btn.text() == "Price with SOR":
+            self.price_sor_btn.setText("Revert Price")
+            self.priceSORRequested.emit(True)
         else:
-            self.price_sop_btn.setText("Price with SOP")
-            self.priceSOPRequested.emit(False)
+            self.price_sor_btn.setText("Price with SOR")
+            self.priceSORRequested.emit(False)
 
     def get_state(self):
         return {"show_gross": self.show_gross_cb.isChecked()}

@@ -76,7 +76,7 @@ class PBOQDialog(QDialog):
         # Connect Price Pane signals
         self.price_pane.grossRateVisibilityChanged.connect(self._toggle_gross_rate_visibility)
         self.price_pane.stateChanged.connect(self._save_pboq_state)
-        self.price_pane.priceSOPRequested.connect(self._run_price_sop_logic)
+        self.price_pane.priceSORRequested.connect(self._run_price_sor_logic)
         self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_gross_logic)
 
     def _setup_top_bar(self):
@@ -756,10 +756,10 @@ class PBOQDialog(QDialog):
                 return {'last_bill': state_data}
         return {}
 
-    def _run_price_sop_logic(self, apply_price):
+    def _run_price_sor_logic(self, apply_price):
         """Performs multi-column strict matching against SOR database to price PBOQ items."""
         if not apply_price:
-            self._revert_sop_pricing()
+            self._revert_sor_pricing()
             return
 
         # 1. Identify SOR file
@@ -775,9 +775,9 @@ class PBOQDialog(QDialog):
         if not os.path.exists(sor_path):
             QMessageBox.warning(self, "SOR Not Found", f"Could not find matching SOR file for Bill: {sor_filename}")
             # Reset button state
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(True)
-            self.price_pane.gross_rate_tool.price_sop_btn.setText("Price with SOP")
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(True)
+            self.price_pane.gross_rate_tool.price_sor_btn.setText("Price with SOR")
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(False)
             return
 
         # 2. Helper functions for robust matching
@@ -798,9 +798,9 @@ class PBOQDialog(QDialog):
         mapping = self.tools_pane.get_mapping()
         if mapping['desc'] < 0 or mapping['qty'] < 0 or mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
             QMessageBox.warning(self, "Mapping Error", "Please ensure Description, Quantity, Gross Rate, and Rate Code columns are mapped in the Tools Pane first.")
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(True)
-            self.price_pane.gross_rate_tool.price_sop_btn.setText("Price with SOP")
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(True)
+            self.price_pane.gross_rate_tool.price_sor_btn.setText("Price with SOR")
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(False)
             return
 
         # 4. Load SOR data into a lookup map
@@ -872,7 +872,7 @@ class PBOQDialog(QDialog):
                     gross_item.setText(str(gross) if gross else "")
                     code_item.setText(str(code) if code else "")
                     
-                    # Mark as SOP priced
+                    # Mark as SOR priced
                     gross_item.setData(Qt.ItemDataRole.UserRole + 10, True)
                     code_item.setData(Qt.ItemDataRole.UserRole + 10, True)
                     
@@ -907,14 +907,14 @@ class PBOQDialog(QDialog):
         else:
             QMessageBox.information(self, "No Matches", "No matching items were found in the SOR for the current PBOQ view using strict validation.\n\nTips:\n- Ensure the 'Sheet' names in SOR match the PBOQ tab names.\n- Ensure Quantity values are identical (including decimal precision).")
             # Reset button state
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(True)
-            self.price_pane.gross_rate_tool.price_sop_btn.setText("Price with SOP")
-            self.price_pane.gross_rate_tool.price_sop_btn.blockSignals(False)
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(True)
+            self.price_pane.gross_rate_tool.price_sor_btn.setText("Price with SOR")
+            self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(False)
 
         self._update_stats()
 
-    def _revert_sop_pricing(self):
-        """Reverts Gross Rate and Rate Code to their original state before SOP pricing."""
+    def _revert_sor_pricing(self):
+        """Reverts Gross Rate and Rate Code to their original state before SOR pricing."""
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         mapping = self.tools_pane.get_mapping()
         
@@ -948,7 +948,7 @@ class PBOQDialog(QDialog):
                     gross_item.setText(new_gross)
                     code_item.setText(new_code)
                     
-                    # Clear SOP flags
+                    # Clear SOR flags
                     gross_item.setData(Qt.ItemDataRole.UserRole + 10, None)
                     code_item.setData(Qt.ItemDataRole.UserRole + 10, None)
                     
@@ -977,7 +977,7 @@ class PBOQDialog(QDialog):
             except Exception as e:
                 QMessageBox.critical(self, "DB Revert Error", f"UI was reverted but database update failed:\n{e}")
         else:
-             QMessageBox.information(self, "Revert", "No SOP-priced items found to revert in the current view.")
+             QMessageBox.information(self, "Revert", "No SOR-priced items found to revert in the current view.")
 
         self._update_stats()
 

@@ -7,7 +7,7 @@ class PBOQPricePane(QWidget):
     
     stateChanged = pyqtSignal()
     grossRateVisibilityChanged = pyqtSignal(bool)
-    priceSOPRequested = pyqtSignal(bool)
+    priceSORRequested = pyqtSignal(bool)
     linkBillRateRequested = pyqtSignal()
     
     def __init__(self, parent=None):
@@ -52,7 +52,7 @@ class PBOQPricePane(QWidget):
         self.gross_rate_tool = GrossRateTool()
         self.gross_rate_tool.visibilityChanged.connect(self.grossRateVisibilityChanged.emit)
         self.gross_rate_tool.stateChanged.connect(self.stateChanged.emit)
-        self.gross_rate_tool.priceSOPRequested.connect(self.priceSOPRequested.emit)
+        self.gross_rate_tool.priceSORRequested.connect(self.priceSORRequested.emit)
         self.gross_rate_tool.linkBillRateRequested.connect(self.linkBillRateRequested.emit)
         self.stack_layout.addWidget(self.gross_rate_tool)
         
