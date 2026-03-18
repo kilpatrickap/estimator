@@ -445,26 +445,36 @@ class PBOQDialog(QDialog):
         file_path = self.pboq_file_selector.currentData()
         
         if is_plug:
-            # Handle specialized Plug Rate Builder window
             # Fetch existing data from DB
             formula_val = ""
             category_val = ""
             currency_val = ""
+            plug_code_val = ""
+            plug_rate_val = 0.0
             ex_rates_json = "{}"
             
             try:
                 conn = sqlite3.connect(file_path)
                 cursor = conn.cursor()
-                cursor.execute("SELECT PlugFormula, PlugCategory, PlugCurrency, PlugExchangeRates FROM pboq_items WHERE rowid = ?", (rowid,))
+                cursor.execute("SELECT PlugFormula, PlugCategory, PlugCurrency, PlugExchangeRates, PlugCode, PlugRate FROM pboq_items WHERE rowid = ?", (rowid,))
                 res = cursor.fetchone()
                 if res:
                     formula_val = res[0] or ""
                     category_val = res[1] or ""
                     currency_val = res[2] or ""
                     ex_rates_json = res[3] or "{}"
+                    plug_code_val = res[4] or ""
+                    try: plug_rate_val = float(str(res[5]).replace(',', '')) if res[5] else 0.0
+                    except: plug_rate_val = 0.0
                 conn.close()
             except: pass
             
+            if plug_rate_val == 0.0 and rate_col >= 0:
+                try: 
+                    txt = table.item(row, rate_col).text().replace(',', '')
+                    plug_rate_val = float(txt) if txt else 0.0
+                except: pass
+
             ex_rates = {}
             try: ex_rates = json.loads(ex_rates_json)
             except: pass
@@ -472,10 +482,11 @@ class PBOQDialog(QDialog):
             item_data = {
                 'name': desc,
                 'unit': unit,
-                'rate': 0.0,
+                'rate': plug_rate_val,
                 'formula': formula_val,
                 'category': category_val,
                 'currency': currency_val,
+                'code': plug_code_val,
                 'exchange_rates': ex_rates
             }
             
@@ -490,18 +501,20 @@ class PBOQDialog(QDialog):
                 new_curr = item_data.get('currency') or ""
                 new_ex_rates = json.dumps(item_data.get('exchange_rates', {}))
                 
-                # Update UI
+                # Update UI and Physical Persistence
                 if rate_col >= 0:
                     it = table.item(row, rate_col)
                     if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
                     it.setText(new_rate_str)
+                    self._persist_updates(rate_col, [(rowid, new_rate_str)])
                 
                 if code_col >= 0:
                     it = table.item(row, code_col)
                     if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
                     it.setText(new_code)
+                    self._persist_updates(code_col, [(rowid, new_code)])
                 
-                # Update Database
+                # Update Logical Database Columns (Formula, Category, etc.)
                 try:
                     conn = sqlite3.connect(file_path)
                     cursor = conn.cursor()

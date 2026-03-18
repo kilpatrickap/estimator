@@ -367,6 +367,8 @@ class DatabaseManager:
             loaded.adjustment_factor = db_est.adjustment_factor if db_est.adjustment_factor is not None else 1.0
             loaded.category = db_est.category or ""
             loaded.rate_type = db_est.rate_type or "Simple"
+            loaded.grand_total = db_est.grand_total if db_est.grand_total is not None else 0.0
+            loaded.net_total = db_est.net_total if db_est.net_total is not None else 0.0
 
             for db_task in db_est.tasks:
                 task_obj = Task(db_task.description, quantity=getattr(db_task, 'quantity', 1.0) or 1.0, unit=getattr(db_task, 'unit', '') or '', formula=getattr(db_task, 'formula', '') or '')

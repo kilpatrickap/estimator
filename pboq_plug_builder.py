@@ -36,7 +36,20 @@ class PlugRateBuilderDialog(QDialog):
         self.setMinimumWidth(550)
         self.setMinimumHeight(350) 
         
+        self.is_loading = True
         self._init_ui()
+        
+        # Override with existing code if available
+        if self.item_data.get('code'):
+            self.current_plug_code = self.item_data['code']
+            self.code_label.setText(f"Code: {self.current_plug_code}")
+        else:
+            # Generate one if none exists
+            self.is_loading = False
+            self._on_category_changed(self.cat_combo.currentText())
+            self.is_loading = True
+
+        self.is_loading = False
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -159,24 +172,36 @@ class PlugRateBuilderDialog(QDialog):
         split_layout.addLayout(output_container, 1)
         layout.addLayout(split_layout)
         
+        # Footer / Help (Compact)
+        footer_layout = QHBoxLayout()
         help_text = "Enter value or formula starting with '='. " \
                     "Use \"quotes\" for comments; semicolon ';' for notes."
         help_label = QLabel(help_text)
         help_label.setStyleSheet("color: #888; font-style: italic; font-size: 9px;")
-        layout.addWidget(help_label)
-
+        footer_layout.addWidget(help_label)
+        
+        # Buttons
+        from PyQt6.QtWidgets import QDialogButtonBox
+        self.button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel)
+        self.button_box.accepted.connect(self.on_save_clicked)
+        self.button_box.rejected.connect(self.reject)
+        footer_layout.addWidget(self.button_box)
+        
+        layout.addLayout(footer_layout)
+        
         # Init Data
-        self._on_category_changed(self.cat_combo.currentText())
-
         if self.item_data.get('formula'):
             self.qty_input.setPlainText(self.item_data['formula'])
-        else:
-            self.qty_input.setPlainText(str(self.item_data.get('rate') or ""))
+        elif self.item_data.get('rate'):
+            # Convert rate to string for simple entry
+            self.qty_input.setPlainText(str(self.item_data['rate']))
             
         self.update_display()
 
     def _on_category_changed(self, category):
         """Regenerates the Plug Rate Code when category selection changes."""
+        if getattr(self, 'is_loading', False):
+            return
         prefix = self.prefixes.get(category, "MISC")
         plug_prefix = f"PR-{prefix}"
         
@@ -263,7 +288,7 @@ class PlugRateBuilderDialog(QDialog):
             return float(eval(cleaned_term, {"__builtins__": None}, {}))
         except: return None
 
-    def save(self):
+    def on_save_clicked(self):
         input_text = self.qty_input.toPlainText().strip()
         try:
             lines = input_text.split('\n')
@@ -278,7 +303,7 @@ class PlugRateBuilderDialog(QDialog):
 
             self.item_data['rate'] = total
             self.item_data['formula'] = input_text if has_formula else None
-            self.item_data['code'] = self.current_plug_code # NEW CODE!
+            self.item_data['code'] = self.current_plug_code 
             self.item_data['category'] = self.cat_combo.currentText()
             self.item_data['currency'] = self.curr_combo.currentText()
             
@@ -286,7 +311,3 @@ class PlugRateBuilderDialog(QDialog):
             self.dataCommitted.emit()
         except Exception as e:
             QMessageBox.warning(self, "Error", f"Invalid Input: {e}")
-
-    def closeEvent(self, event):
-        self.save()
-        super().closeEvent(event)

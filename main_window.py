@@ -411,20 +411,14 @@ class MainWindow(QMainWindow):
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if isinstance(widget, RateBuildUpDialog) and widget.estimate.id == estimate_obj.id:
-                sub.showNormal()
-                sub.show()
-                sub.widget().show()
-                sub.raise_()
-                self.mdi_area.setActiveSubWindow(sub)
-                return
+                sub.showNormal(); sub.show(); sub.raise_(); self.mdi_area.setActiveSubWindow(sub); return
 
         def refresh_manager():
             for s in self.mdi_area.subWindowList():
-                if getattr(s.widget(), '__class__', None).__name__ == 'RateManagerDialog':
-                    if hasattr(s.widget(), 'load_rates'):
-                        s.widget().load_rates()
-                    if hasattr(s.widget(), 'load_project_rates'):
-                        s.widget().load_project_rates()
+                w = s.widget()
+                if type(w).__name__ == 'RateManagerDialog':
+                    if hasattr(w, 'load_rates'): w.load_rates()
+                    if hasattr(w, 'load_project_rates'): w.load_project_rates()
 
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self, db_path=db_path)
         sub = self.mdi_area.addSubWindow(buildup_win)
