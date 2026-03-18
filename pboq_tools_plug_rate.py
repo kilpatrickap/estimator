@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
 class PlugRateTool(QWidget):
