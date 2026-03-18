@@ -346,10 +346,14 @@ class PBOQDialog(QDialog):
                 qty_item = t.item(r, m['qty'])
                 if qty_item and qty_item.text().strip():
                     total += 1
-                    # Check if priced - using Gross Rate column
-                    if m['rate'] >= 0:
-                        gross_rate_item = t.item(r, m['rate'])
-                        if gross_rate_item and gross_rate_item.text().strip():
+                    # Determine which rate column to check for "priced" count
+                    rate_col = m['rate']
+                    if hasattr(self, 'price_pane') and self.price_pane.price_type_combo.currentText() == "Plug Rate":
+                        rate_col = m.get('plug_rate', -1)
+                        
+                    if rate_col >= 0:
+                        rate_item = t.item(r, rate_col)
+                        if rate_item and rate_item.text().strip():
                             priced += 1
         
         outstanding = total - priced
@@ -438,19 +442,11 @@ class PBOQDialog(QDialog):
     def _update_column_headers(self):
         m = self.tools_pane.get_mappings()
         
-        # Dynamic headers for the Rate columns
-        rate_label = "Gross Rate"
-        code_label = "Rate Code"
-        if hasattr(self, 'price_pane'):
-            price_type = self.price_pane.price_type_combo.currentText()
-            if price_type == "Plug Rate":
-                rate_label = "Plug Rate"
-                code_label = "Plug Code"
-        
         friends = {
             'ref': "Ref/Item", 'desc': "Description", 'qty': "Quantity", 'unit': "Unit",
             'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
-            'rate': rate_label, 'rate_code': code_label
+            'rate': "Gross Rate", 'rate_code': "Rate Code",
+            'plug_rate': "Plug Rate", 'plug_code': "Plug Code"
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
