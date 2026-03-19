@@ -1718,7 +1718,7 @@ class PBOQDialog(QDialog):
         else:
             markup_db_col = "SubbeeMarkup"
 
-        dialog = PackageSummaryDialog(self.project_dir, file_path, pkg_db_col, markup_db_col, self)
+        dialog = PackageSummaryDialog(self.pboq_folder, file_path, pkg_db_col, markup_db_col, self)
         # Use _load_pboq_db to refresh everything after changes
         dialog.dataChanged.connect(lambda: self._load_pboq_db(self.pboq_file_selector.currentIndex()))
         dialog.exec()

@@ -1,4 +1,5 @@
 import sqlite3
+import os
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPushButton, QHBoxLayout, QMessageBox, QHeaderView)
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -109,8 +110,9 @@ class PackageSummaryDialog(QDialog):
             if self.project_dir and os.path.isdir(self.project_dir):
                 other_pboqs = []
                 try:
+                    norm_current = os.path.normpath(os.path.abspath(self.db_path))
                     other_pboqs = [os.path.join(self.project_dir, f) for f in os.listdir(self.project_dir) 
-                                  if f.endswith(('.pboq', '.db')) and os.path.abspath(os.path.join(self.project_dir, f)) != os.path.abspath(self.db_path)]
+                                  if f.endswith(('.pboq', '.db')) and os.path.normpath(os.path.abspath(os.path.join(self.project_dir, f))) != norm_current]
                 except:
                     pass
                 
@@ -125,21 +127,25 @@ class PackageSummaryDialog(QDialog):
                             other_conn.close()
                             continue
                             
-                        # 2. Identify potential Package & Markup columns in this file
+                        # Identify potential Package & Markup columns in this file
                         other_curs.execute("PRAGMA table_info(pboq_items)")
                         other_cols = [c[1] for c in other_curs.fetchall()]
                         
-                        target_pkg_col = "SubbeePackage" if "SubbeePackage" in other_cols else (self.pkg_col if self.pkg_col in other_cols else None)
-                        target_markup_col = "SubbeeMarkup" if "SubbeeMarkup" in other_cols else (self.markup_col if self.markup_col in other_cols else None)
+                        target_pkg_cols = [c for c in ["SubbeePackage", self.pkg_col] if c in other_cols]
+                        target_markup_cols = [c for c in ["SubbeeMarkup", self.markup_col] if c in other_cols]
                         
-                        if target_pkg_col and target_markup_col:
+                        if target_pkg_cols and target_markup_cols:
                             for i in range(self.table.rowCount()):
-                                pkg = self.table.item(i, 0).text()
+                                pkg = self.table.item(i, 0).text().strip()
                                 raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
                                 try:
                                     markup_val = float(raw_m)
-                                    other_curs.execute(f'UPDATE pboq_items SET "{target_markup_col}" = ? WHERE "{target_pkg_col}" = ?', 
-                                                     (str(markup_val), pkg))
+                                    # Update ALL matching column pairs in the other file
+                                    # Using COLLATE NOCASE for case-insensitive package matching
+                                    for t_p in target_pkg_cols:
+                                        for t_m in target_markup_cols:
+                                           other_curs.execute(f'UPDATE pboq_items SET "{t_m}" = ? WHERE "{t_p}" = ? COLLATE NOCASE', 
+                                                            (str(markup_val), pkg))
                                 except: continue
                                 
                             other_conn.commit()
