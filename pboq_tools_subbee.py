@@ -52,18 +52,17 @@ class SubcontractorTool(QWidget):
         assign_layout.addWidget(self.assign_package_btn)
         btn_layout.addLayout(assign_layout)
 
-        # Package Management Row
-        manage_layout = QHBoxLayout()
-        self.manage_packages_btn = QPushButton("Package")
-        self.manage_packages_btn.setFixedWidth(80)
+        # Action Row (Packages & Adjudicator)
+        actions_row = QHBoxLayout()
+        self.manage_packages_btn = QPushButton("Packages")
         self.manage_packages_btn.clicked.connect(self.managePackagesRequested.emit)
-        manage_layout.addWidget(self.manage_packages_btn)
-        manage_layout.addStretch()
-        btn_layout.addLayout(manage_layout)
         
-        self.adjudicator_btn = QPushButton("Open Package Adjudicator...")
+        self.adjudicator_btn = QPushButton("Adjudicator")
         self.adjudicator_btn.clicked.connect(self.openAdjudicatorRequested.emit)
-        btn_layout.addWidget(self.adjudicator_btn)
+        
+        actions_row.addWidget(self.manage_packages_btn)
+        actions_row.addWidget(self.adjudicator_btn)
+        btn_layout.addLayout(actions_row)
 
         action_layout = QHBoxLayout()
         self.clear_btn = QPushButton("Clear")
