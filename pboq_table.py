@@ -26,10 +26,10 @@ class PBOQTable(QTableWidget):
 
     def _show_context_menu(self, pos):
         """Shows a context menu for the Bill Amount column."""
-        # This will need to know which column is "Bill Amount"
-        # We can store that or let the parent handle it via signals
-        # For now, let's keep it simple and just emit a signal with the clicked cell info
-        item = self.itemAt(pos)
+        # itemAt requires coordinates relative to the viewport.
+        # pos here is relative to the QTableWidget itself (which includes headers).
+        viewport_pos = self.viewport().mapFromParent(pos)
+        item = self.itemAt(viewport_pos)
         if not item: return
         
         row = item.row()

@@ -329,24 +329,13 @@ class PBOQDialog(QDialog):
                     self._persist_updates(col, [(rowid, "")])
                     self._update_stats()
         
-        elif col == m.get('plug_rate', -1):
+        elif col in [m.get('rate', -1), m.get('rate_code', -1)]:
+            # Standardified Gross Rate / SOR context menu
+            self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False)
+            
+        elif col in [m.get('plug_rate', -1), m.get('plug_code', -1)]:
+            # Standardified Plug Rate context menu
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=True)
-            
-        elif col == m.get('rate_code', -1):
-            # Existing SOR (Gross) Go To behavior
-            item = table.item(row, col)
-            if not item or not item.text().strip(): return
-            
-            rate_code = item.text().strip()
-            menu = QMenu(self)
-            goto_act = menu.addAction("Go To")
-            
-            action = menu.exec(table.viewport().mapToGlobal(pos))
-            if not action: return
-            
-            if action == goto_act:
-                if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
-                    self.main_window.show_rate_in_database(rate_code)
 
     def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True):
         """Standardized rate context menu based on the SOR Table design."""
@@ -1176,8 +1165,8 @@ class PBOQDialog(QDialog):
                 return str(q).strip().lower()
 
         # 3. Get Mappings
-        mapping = self.tools_pane.get_mapping()
-        if mapping['desc'] < 0 or mapping['qty'] < 0 or mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
+        mapping = self.tools_pane.get_mappings()
+        if mapping['desc'] < 0 or mapping['qty'] < 0 or mapping['rate'] < 0 or mapping['rate_code'] < 0:
             QMessageBox.warning(self, "Mapping Error", "Please ensure Description, Quantity, Gross Rate, and Rate Code columns are mapped in the Tools Pane first.")
             self.price_pane.gross_rate_tool.price_sor_btn.blockSignals(True)
             self.price_pane.gross_rate_tool.price_sor_btn.setText("Price with SOR")
@@ -1242,7 +1231,7 @@ class PBOQDialog(QDialog):
                 
                 if key in sor_lookup:
                     gross, code = sor_lookup[key]
-                    gross_item = table.item(r, mapping['gross_rate'])
+                    gross_item = table.item(r, mapping['rate'])
                     code_item = table.item(r, mapping['rate_code'])
                     
                     # Store original values for revert if not already stored
@@ -1269,10 +1258,10 @@ class PBOQDialog(QDialog):
             try:
                 conn = sqlite3.connect(pboq_db_path)
                 cursor = conn.cursor()
-                if mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
+                if mapping['rate'] < 0 or mapping['rate_code'] < 0:
                     conn.close()
                     return
-                gross_col_name = self.db_columns[mapping['gross_rate'] + 1]
+                gross_col_name = self.db_columns[mapping['rate'] + 1]
                 code_col_name = self.db_columns[mapping['rate_code'] + 1]
                 
                 for row_id, gross, code in price_updates:
@@ -1297,9 +1286,9 @@ class PBOQDialog(QDialog):
     def _revert_sor_pricing(self):
         """Reverts Gross Rate and Rate Code to their original state before SOR pricing."""
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
-        mapping = self.tools_pane.get_mapping()
+        mapping = self.tools_pane.get_mappings()
         
-        if mapping['gross_rate'] < 0 or mapping['rate_code'] < 0:
+        if mapping['rate'] < 0 or mapping['rate_code'] < 0:
             QMessageBox.warning(self, "Mapping Error", "Gross Rate or Rate Code columns are not mapped. Cannot revert correctly.")
             return
 
@@ -1311,7 +1300,7 @@ class PBOQDialog(QDialog):
             if not isinstance(table, PBOQTable): continue
             
             for r in range(table.rowCount()):
-                gross_item = table.item(r, mapping['gross_rate'])
+                gross_item = table.item(r, mapping['rate'])
                 if gross_item and gross_item.data(Qt.ItemDataRole.UserRole + 10):
                     row_id_item = table.item(r, 0)
                     if not row_id_item: continue
