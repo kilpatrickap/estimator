@@ -1326,6 +1326,11 @@ class PBOQDialog(QDialog):
             QMessageBox.warning(self, "Mapping Error", f"Please ensure 'Bill Rate' and '{source_label}' columns are mapped first.")
             return
 
+        # Determine source color for visual consistency (same color as source columns)
+        # We can fetch this from PBOQTable defaults
+        dummy_table = PBOQTable()
+        source_color = dummy_table.get_role_color(source_col_key) or const.COLOR_LINK_CYAN
+
         db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         link_updates = []
         amt_updates = []
@@ -1351,8 +1356,8 @@ class PBOQDialog(QDialog):
                     table.setItem(r, m['bill_rate'], bill_rate_item)
                 
                 bill_rate_item.setText(val_str)
-                # Cyan shows it's linked
-                bill_rate_item.setBackground(const.COLOR_LINK_CYAN)
+                # Apply source color for visual consistency
+                bill_rate_item.setBackground(source_color)
                 bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
                 bill_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
@@ -1383,13 +1388,13 @@ class PBOQDialog(QDialog):
         if link_updates:
             self._persist_updates(m['bill_rate'], link_updates)
             
-            # Persist formatting (Cyan BG + Gray Text)
+            # Persist formatting (Source Color BG + Gray Text)
             fmt_updates = []
             for rid, _ in link_updates:
                 item0 = self.rowid_to_item0.get(rid)
                 if not item0: continue
                 g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
-                fmt_updates.append((g_idx, {'bg_color': const.COLOR_LINK_CYAN.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
+                fmt_updates.append((g_idx, {'bg_color': source_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
             self.logic.persist_batch_cell_formatting(db_path, m['bill_rate'], fmt_updates)
             
             if amt_updates:
