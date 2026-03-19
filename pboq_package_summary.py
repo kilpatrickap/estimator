@@ -3,6 +3,8 @@ import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
                              QPushButton, QHBoxLayout, QMessageBox, QHeaderView)
 from PyQt6.QtCore import Qt, pyqtSignal
+from pboq_logic import PBOQLogic
+
 
 class PackageSummaryDialog(QDialog):
     dataChanged = pyqtSignal()
@@ -168,21 +170,35 @@ class PackageSummaryDialog(QDialog):
 
     def _sync_to_all_pboqs(self):
         """Applies current table markups to every PBOQ database in the project's Priced BOQs folder."""
-        pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
-        if not os.path.exists(pboq_folder):
-             QMessageBox.warning(self, "Sync Error", f"Priced BOQs folder not found at:\n{pboq_folder}")
-             return
+        # Robust folder detection: handle cases where project_dir points to subfolders
+        pboq_folder = ""
+        current = self.project_dir
+        for _ in range(4): # Check up to 4 levels up
+            candidate = os.path.join(current, "Priced BOQs")
+            if os.path.exists(candidate):
+                pboq_folder = candidate
+                break
+            parent = os.path.dirname(current)
+            if parent == current: break # reached root
+            current = parent
+            
+        if not pboq_folder:
+            QMessageBox.warning(self, "Sync Error", f"Could not find 'Priced BOQs' folder starting from:\n{self.project_dir}")
+            return
         
         # Gather markups from table
         markups = {}
         for i in range(self.table.rowCount()):
-            pkg = self.table.item(i, 0).text()
+            pkg = self.table.item(i, 0).text().strip()
+            if not pkg: continue
             raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
             try:
                 markups[pkg] = float(raw_m)
             except: pass
+
         
         if not markups: return
+
         
         db_files = [f for f in os.listdir(pboq_folder) if f.lower().endswith('.db')]
         updated_count = 0
@@ -191,15 +207,14 @@ class PackageSummaryDialog(QDialog):
         state_dir = os.path.join(self.project_dir, "PBOQ States")
         
         # Step 4: Apply updates based on Standardized Schema (Col 10 = Pkg, Col 13 = Markup)
-        from pboq_logic import PBOQLogic
+        total_rows_updated = 0
         
         for db_name in db_files:
             target_path = os.path.join(pboq_folder, db_name)
             try:
                 conn = sqlite3.connect(target_path)
                 
-                # IMPORTANT: Ensure this file has the standard columns 10 and 13
-                # before we try to use them.
+                # IMPORTANT: Resolve schema to handle varying column counts/orders
                 success, db_cols = PBOQLogic.ensure_schema(conn)
                 if not success:
                     conn.close()
@@ -207,26 +222,42 @@ class PackageSummaryDialog(QDialog):
                 
                 cursor = conn.cursor()
                 
-                # Standardized Columns (indices)
-                pkg_col = "Column 10"
-                markup_col = "Column 13"
+                # Target the column currently mapped to UI index 13 (Markup)
+                # and fallback to 'Column 13' if for some reason schema is small.
+                target_markup_col = db_cols[14] if len(db_cols) > 14 else "Column 13"
                 
+                rows_in_file = 0
                 for pkg, markup in markups.items():
-                    # Update both the logical named column and the physical standardized column
-                    # This ensures the data is visible regardless of which access method is used.
-                    cursor.execute(f"""
-                        UPDATE pboq_items 
-                        SET \"{markup_col}\" = ?, SubbeeMarkup = ?
-                        WHERE UPPER(TRIM(\"{pkg_col}\")) = UPPER(TRIM(?))
-                           OR UPPER(TRIM(SubbeePackage)) = UPPER(TRIM(?))
-                    """, (str(markup), str(markup), pkg, pkg))
+                    # Search across ALL physical columns and logical SubbeePackage
+                    # Using LIKE with wildcards and COLLATE NOCASE for maximum robustness
+                    cols_to_search = [f'"{c}"' for c in db_cols if c != 'Sheet']
+                    where_clause = " OR ".join([f"{c} LIKE ? COLLATE NOCASE" for c in cols_to_search])
+                    
+                    # Update both the mapped physical column and the named logical column
+                    sql = f'UPDATE pboq_items SET "{target_markup_col}" = ?, SubbeeMarkup = ? WHERE {where_clause}'
+                    params = [str(markup), str(markup)] + [pkg] * len(cols_to_search)
+                    
+                    cursor.execute(sql, tuple(params))
+                    rows_in_file += cursor.rowcount
                     
                 conn.commit()
                 conn.close()
-                updated_count += 1
+                if rows_in_file > 0:
+                    updated_count += 1
+                    total_rows_updated += rows_in_file
             except Exception as e:
                 print(f"Failed to sync {db_name}: {e}")
                 
         self._sync_to_sor() # Also update Master SOR
-        QMessageBox.information(self, "Project Sync Complete", f"Successfully updated markups in {updated_count} PBOQ file(s).\n\nLayouts are now standardized (Col 10: Packaging, Col 13: Markup).")
         self.dataChanged.emit() # Refresh current view too
+        
+        # Ensure UI repaints before we show the blocking popup
+        from PyQt6.QtWidgets import QApplication
+        QApplication.processEvents()
+        
+        msg = (f"Successfully synced markups in {updated_count} PBOQ file(s).\n"
+               f"Total rows updated: {total_rows_updated}\n\n"
+               f"Layouts are standardized based on the target file schema.")
+        QMessageBox.information(self, "Project Sync Complete", msg)
+
+
