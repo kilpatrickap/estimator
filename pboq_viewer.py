@@ -42,6 +42,12 @@ class PBOQDialog(QDialog):
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(10, 5, 10, 10)
         
+        # 0. Initialize Panes first (Top Bar needs them for signal connections)
+        self.tools_pane = PBOQToolsPane(self)
+        self.price_pane = PBOQPricePane(self)
+        self.tools_pane.hide()
+        self.price_pane.hide()
+
         # 1. Top Bar
         self._setup_top_bar()
         
@@ -52,11 +58,6 @@ class PBOQDialog(QDialog):
         self.main_layout.addWidget(self.tabs)
         
         # 3. Tools Pane (Docked)
-        self.tools_pane = PBOQToolsPane(self)
-        self.price_pane = PBOQPricePane(self)
-        self.tools_pane.hide()
-        self.price_pane.hide()
-        
         self.tools_dock = QDockWidget("PBOQ Tools", self.main_window)
         self.tools_dock.setWidget(self.tools_pane)
         self.tools_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
