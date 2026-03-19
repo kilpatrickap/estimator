@@ -25,7 +25,7 @@ class PlugRateTool(QWidget):
         btn_layout = QHBoxLayout()
         btn_layout.setSpacing(10)
 
-        self.clear_btn = QPushButton("Clear Plug Rate and Code")
+        self.clear_btn = QPushButton("Clear")
         self.clear_btn.clicked.connect(self.clearPlugRequested.emit)
         btn_layout.addWidget(self.clear_btn)
 

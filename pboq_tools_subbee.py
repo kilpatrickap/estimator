@@ -26,23 +26,14 @@ class SubcontractorTool(QWidget):
         self.show_sub_cb.toggled.connect(self.visibilityChanged.emit)
         self.show_sub_cb.toggled.connect(self.stateChanged.emit)
         
-        markup_layout = QHBoxLayout()
-        markup_label = QLabel("Global Markup (%):")
-        self.markup_spin = QDoubleSpinBox()
-        self.markup_spin.setRange(0.00, 1000.00)
-        self.markup_spin.setValue(10.00)  # Default 10%
-        self.markup_spin.setSuffix(" %")
-        self.markup_spin.valueChanged.connect(self.stateChanged.emit)
+        self.show_cb = self.show_sub_cb # Keep for old references? No, let's just clean up.
         
-        markup_layout.addWidget(markup_label)
-        markup_layout.addWidget(self.markup_spin)
-        markup_layout.addStretch()
-
         btn_layout = QVBoxLayout()
         btn_layout.setSpacing(5)
         
         # Package Assignment
         assign_layout = QHBoxLayout()
+        assign_layout.setSpacing(10)
         self.package_input = QLineEdit()
         self.package_input.setPlaceholderText("Work Package Name")
         self.assign_package_btn = QPushButton("Assign to Selected")
@@ -76,14 +67,12 @@ class SubcontractorTool(QWidget):
         btn_layout.addLayout(action_layout)
 
         layout.addWidget(self.show_sub_cb)
-        layout.addLayout(markup_layout)
         layout.addLayout(btn_layout)
         layout.addStretch()
 
     def get_state(self):
         return {
-            "show_sub": self.show_sub_cb.isChecked(),
-            "markup": self.markup_spin.value()
+            "show_sub": self.show_sub_cb.isChecked()
         }
 
     def set_state(self, state):
@@ -91,7 +80,3 @@ class SubcontractorTool(QWidget):
             self.show_sub_cb.blockSignals(True)
             self.show_sub_cb.setChecked(state["show_sub"])
             self.show_sub_cb.blockSignals(False)
-        if "markup" in state:
-            self.markup_spin.blockSignals(True)
-            self.markup_spin.setValue(state["markup"])
-            self.markup_spin.blockSignals(False)

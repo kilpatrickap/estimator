@@ -1376,8 +1376,6 @@ class PBOQDialog(QDialog):
         elif price_type == "Subcontractor Rate":
             source_col_key = 'sub_rate'
             source_label = "Subcontractor Rate"
-            markup_pct = self.price_pane.sub_tool.markup_spin.value()
-            sub_markup_col = m.get('sub_markup', -1) # Wait, is sub_markup mapped?
         else:
             source_col_key = 'rate' # Default to Gross Rate
             source_label = "Gross Rate"
@@ -1449,8 +1447,8 @@ class PBOQDialog(QDialog):
                             
                             # Apply markup if subcontractor
                             if price_type == "Subcontractor Rate":
-                                # Priority: 1. DB-stored markup (from Packages window), 2. Global Spinner fallback
-                                effective_markup = db_markup_map.get(row_id, markup_pct)
+                                # Use DB-stored markup (from Packages window), default to 0.0
+                                effective_markup = db_markup_map.get(row_id, 0.0)
                                 
                                 if effective_markup != 0:
                                     r_val = r_val * (1 + (effective_markup / 100.0))
@@ -1720,7 +1718,7 @@ class PBOQDialog(QDialog):
         else:
             markup_db_col = "SubbeeMarkup"
 
-        dialog = PackageSummaryDialog(file_path, pkg_db_col, markup_db_col, self)
+        dialog = PackageSummaryDialog(self.project_dir, file_path, pkg_db_col, markup_db_col, self)
         # Use _load_pboq_db to refresh everything after changes
         dialog.dataChanged.connect(lambda: self._load_pboq_db(self.pboq_file_selector.currentIndex()))
         dialog.exec()
