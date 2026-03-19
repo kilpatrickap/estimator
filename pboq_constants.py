@@ -11,6 +11,7 @@ COL_COLOR_BLUE = QColor("#e3f2fd")
 COL_COLOR_YELLOW = QColor("#fff9c4")
 COL_COLOR_RED = QColor("#ffebee")
 COL_COLOR_PURPLE = QColor("#f3e5f5")
+COL_COLOR_GREEN = QColor("#e8f5e9")
 
 # Features
 COLOR_COLLECT = QColor("orange")

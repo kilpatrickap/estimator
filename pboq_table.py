@@ -48,13 +48,13 @@ class PBOQTable(QTableWidget):
     def get_column_default_color(self, col_idx):
         if col_idx < 4: return const.COL_COLOR_BLUE # Ref, Desc, Qty, Unit
         if col_idx < 6: return const.COL_COLOR_YELLOW # Bill Rate/Amt
-        if col_idx < 8: return const.COL_COLOR_RED # Gross Rate/Code
+        if col_idx < 8: return const.COL_COLOR_GREEN # Gross Rate/Code
         return const.COL_COLOR_PURPLE # Plug Rate/Code and others
 
     def get_role_color(self, role):
         if role in ['ref', 'desc', 'qty', 'unit']: return const.COL_COLOR_BLUE
         if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
-        if role in ['rate', 'rate_code']: return const.COL_COLOR_RED
+        if role in ['rate', 'rate_code']: return const.COL_COLOR_GREEN
         if role in ['plug_rate', 'plug_code']: return const.COL_COLOR_PURPLE
         return None
 
@@ -79,12 +79,13 @@ class PBOQTable(QTableWidget):
                         is_pastel = existing_bg.name().lower() in [const.COL_COLOR_BLUE.name().lower(), 
                                                                     const.COL_COLOR_YELLOW.name().lower(), 
                                                                     const.COL_COLOR_RED.name().lower(),
-                                                                    const.COL_COLOR_PURPLE.name().lower()]
+                                                                    const.COL_COLOR_PURPLE.name().lower(),
+                                                                    const.COL_COLOR_GREEN.name().lower()]
                         if not is_pastel: continue # Keep feature colors (Orange, Lime, etc.)
                         
-                        # Special Case: If this is the Bill Rate column and it's already Red or Purple, 
+                        # Special Case: If this is the Bill Rate column and it's already Green or Purple, 
                         # it means it's a linked rate. Preserve this color for visual consistency.
-                        if role == 'bill_rate' and existing_bg.name().lower() in [const.COL_COLOR_RED.name().lower(), 
+                        if role == 'bill_rate' and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
                                                                                const.COL_COLOR_PURPLE.name().lower()]:
                             continue
                         
