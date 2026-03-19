@@ -15,30 +15,14 @@ class PackageSummaryDialog(QDialog):
         self.project_dir = project_dir
         self.pkg_col = pkg_col
         self.markup_col = markup_col
-        self.sor_db = os.path.join(self.project_dir, "SOR", "Packages_SOR.db")
         self.setWindowTitle("Work Packages Management")
         self.setMinimumWidth(450)
         self.setMinimumHeight(400)
-        self._ensure_sor_db()
         self._init_ui()
         self._load_data()
 
-    def _ensure_sor_db(self):
-        os.makedirs(os.path.join(self.project_dir, "SOR"), exist_ok=True)
-        conn = sqlite3.connect(self.sor_db)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS packages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                PackageName TEXT UNIQUE,
-                Markup REAL,
-                Category TEXT,
-                Subcontractor TEXT,
-                LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        conn.commit()
-        conn.close()
+
+
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -133,8 +117,7 @@ class PackageSummaryDialog(QDialog):
             
             conn.commit()
             
-            # Sync to central SOR
-            self._sync_to_sor()
+
             
             self.dataChanged.emit()
         except sqlite3.Error as e:
@@ -142,31 +125,7 @@ class PackageSummaryDialog(QDialog):
         finally:
             conn.close()
 
-    def _sync_to_sor(self):
-        """Syncs all currently listed packages to the central Project SOR."""
-        try:
-            conn = sqlite3.connect(self.sor_db)
-            cursor = conn.cursor()
-            
-            for i in range(self.table.rowCount()):
-                pkg = self.table.item(i, 0).text()
-                raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
-                try:
-                    markup_val = float(raw_m)
-                except: markup_val = 0.0
-                
-                cursor.execute("""
-                    INSERT INTO packages (PackageName, Markup, LastUpdated)
-                    VALUES (?, ?, CURRENT_TIMESTAMP)
-                    ON CONFLICT(PackageName) DO UPDATE SET
-                        Markup = excluded.Markup,
-                        LastUpdated = excluded.LastUpdated
-                """, (pkg, markup_val))
-            
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            print(f"Error syncing to Packages SOR: {e}")
+
 
     def _sync_to_all_pboqs(self):
         """Applies current table markups to every PBOQ database in the project's Priced BOQs folder."""
@@ -248,8 +207,8 @@ class PackageSummaryDialog(QDialog):
             except Exception as e:
                 print(f"Failed to sync {db_name}: {e}")
                 
-        self._sync_to_sor() # Also update Master SOR
         self.dataChanged.emit() # Refresh current view too
+
         
         # Ensure UI repaints before we show the blocking popup
         from PyQt6.QtWidgets import QApplication
