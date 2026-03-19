@@ -56,6 +56,7 @@ class PBOQTable(QTableWidget):
         if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
         if role in ['rate', 'rate_code']: return const.COL_COLOR_GREEN
         if role in ['plug_rate', 'plug_code']: return const.COL_COLOR_PURPLE
+        if role in ['sub_package', 'sub_name', 'sub_rate']: return const.COL_COLOR_ORANGE
         return None
 
     def apply_column_colors(self, mappings, num_display_cols):
@@ -80,13 +81,15 @@ class PBOQTable(QTableWidget):
                                                                     const.COL_COLOR_YELLOW.name().lower(), 
                                                                     const.COL_COLOR_RED.name().lower(),
                                                                     const.COL_COLOR_PURPLE.name().lower(),
-                                                                    const.COL_COLOR_GREEN.name().lower()]
+                                                                    const.COL_COLOR_GREEN.name().lower(),
+                                                                    const.COL_COLOR_ORANGE.name().lower()]
                         if not is_pastel: continue # Keep feature colors (Orange, Lime, etc.)
                         
                         # Special Case: If this is the Bill Rate column and it's already Green or Purple, 
                         # it means it's a linked rate. Preserve this color for visual consistency.
                         if role == 'bill_rate' and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
-                                                                               const.COL_COLOR_PURPLE.name().lower()]:
+                                                                               const.COL_COLOR_PURPLE.name().lower(),
+                                                                               const.COL_COLOR_ORANGE.name().lower()]:
                             continue
                         
                     item.setBackground(color)
