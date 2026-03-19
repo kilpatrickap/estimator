@@ -25,46 +25,22 @@ class PBOQLogic:
         cursor.execute("PRAGMA table_info(pboq_items)")
         db_columns = [info[1] for info in cursor.fetchall()]
         
-        # Ensure GrossRate and RateCode columns exist
-        if "GrossRate" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN GrossRate TEXT")
-            db_columns.append("GrossRate")
-        if "RateCode" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN RateCode TEXT")
-            db_columns.append("RateCode")
+        # Ensure Standard Columns 0-13 exist for consistent mapping
+        for i in range(14):
+            col_name = f"Column {i}"
+            if col_name not in db_columns:
+                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
+                db_columns.append(col_name)
+
+        # Ensure Named logical columns exist for internal logic fallback
+        named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
+                      "PlugCategory", "PlugCurrency", "PlugExchangeRates",
+                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup"]
         
-        if "PlugRate" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugRate TEXT")
-            db_columns.append("PlugRate")
-        if "PlugCode" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCode TEXT")
-            db_columns.append("PlugCode")
-        if "PlugFormula" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugFormula TEXT")
-            db_columns.append("PlugFormula")
-        if "PlugCategory" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCategory TEXT")
-            db_columns.append("PlugCategory")
-        if "PlugCurrency" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugCurrency TEXT")
-            db_columns.append("PlugCurrency")
-        if "PlugExchangeRates" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugExchangeRates TEXT")
-            db_columns.append("PlugExchangeRates")
-            
-        # Ensure Subcontractor columns exist
-        if "SubbeePackage" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeePackage TEXT")
-            db_columns.append("SubbeePackage")
-        if "SubbeeName" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeName TEXT")
-            db_columns.append("SubbeeName")
-        if "SubbeeRate" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeRate TEXT")
-            db_columns.append("SubbeeRate")
-        if "SubbeeMarkup" not in db_columns:
-            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeMarkup TEXT")
-            db_columns.append("SubbeeMarkup")
+        for nc in named_cols:
+            if nc not in db_columns:
+                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN {nc} TEXT")
+                db_columns.append(nc)
         
         # Ensure Formatting table exists
         cursor.execute("""

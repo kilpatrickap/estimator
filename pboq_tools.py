@@ -60,16 +60,12 @@ class PBOQToolsPane(QWidget):
         col_layout.addRow("Description:", self.cb_desc)
         col_layout.addRow("Quantity:", self.cb_qty)
         col_layout.addRow("Unit:", self.cb_unit)
-        col_layout.addRow("Bill Rate:", self.cb_bill_rate)
-        col_layout.addRow("Bill Amount:", self.cb_bill_amount)
-        col_layout.addRow("Gross Rate:", self.cb_rate)
-        col_layout.addRow("Rate Code:", self.cb_rate_code)
-        col_layout.addRow("Plug Rate:", self.cb_plug_rate)
-        col_layout.addRow("Plug Code:", self.cb_plug_code)
-        col_layout.addRow("Subbee Package:", self.cb_sub_package)
-        col_layout.addRow("Subbee Name:", self.cb_sub_name)
-        col_layout.addRow("Subbee Rate:", self.cb_sub_rate)
-        col_layout.addRow("Subbee Markup:", self.cb_sub_markup)
+        
+        # Hide standard columns from user mapping
+        for cb in [self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
+                   self.cb_plug_rate, self.cb_plug_code, self.cb_sub_package, 
+                   self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup]:
+            cb.hide()
         
         # Connect signals
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
@@ -242,22 +238,26 @@ class PBOQToolsPane(QWidget):
             cb.blockSignals(False)
 
     def get_mappings(self):
-        return {
+        """Returns the current column mappings. Now enforces standardized indices (4-13) for Pricing/Subbee."""
+        m = {
             'ref': self.cb_ref.currentIndex() - 1,
             'desc': self.cb_desc.currentIndex() - 1,
             'qty': self.cb_qty.currentIndex() - 1,
             'unit': self.cb_unit.currentIndex() - 1,
-            'bill_rate': self.cb_bill_rate.currentIndex() - 1,
-            'bill_amount': self.cb_bill_amount.currentIndex() - 1,
-            'rate': self.cb_rate.currentIndex() - 1,
-            'rate_code': self.cb_rate_code.currentIndex() - 1,
-            'plug_rate': self.cb_plug_rate.currentIndex() - 1,
-            'plug_code': self.cb_plug_code.currentIndex() - 1,
-            'sub_package': self.cb_sub_package.currentIndex() - 1,
-            'sub_name': self.cb_sub_name.currentIndex() - 1,
-            'sub_rate': self.cb_sub_rate.currentIndex() - 1,
-            'sub_markup': self.cb_sub_markup.currentIndex() - 1
+            
+            # Standard Fixed Columns (from Column 4 onwards)
+            'bill_rate': 4,
+            'bill_amount': 5,
+            'rate': 6,
+            'rate_code': 7,
+            'plug_rate': 8,
+            'plug_code': 9,
+            'sub_package': 10,
+            'sub_name': 11,
+            'sub_rate': 12,
+            'sub_markup': 13
         }
+        return m
     
     def set_mappings(self, data):
         mapping_keys = {
