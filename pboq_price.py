@@ -62,6 +62,7 @@ class PBOQPricePane(QWidget):
         self.plug_rate_tool.visibilityChanged.connect(self.rateVisibilityChanged.emit)
         self.plug_rate_tool.stateChanged.connect(self.stateChanged.emit)
         self.plug_rate_tool.clearPlugRequested.connect(self.clearPlugRequested.emit)
+        self.plug_rate_tool.linkBillRateRequested.connect(self.linkBillRateRequested.emit)
         self.stack_layout.addWidget(self.plug_rate_tool)
         
         # Apply Balanced Compact Stylesheet

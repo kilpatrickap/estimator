@@ -81,7 +81,7 @@ class PBOQDialog(QDialog):
         self.price_pane.stateChanged.connect(self._save_pboq_state)
         self.price_pane.stateChanged.connect(self._update_column_headers)
         self.price_pane.priceSORRequested.connect(self._run_price_sor_logic)
-        self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_gross_logic)
+        self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_rate_logic)
         self.price_pane.clearPlugRequested.connect(self._clear_plug_and_code)
 
     def _setup_top_bar(self):
@@ -1309,11 +1309,21 @@ class PBOQDialog(QDialog):
 
         self._update_stats()
 
-    def _run_link_bill_to_gross_logic(self):
-        """Batch copies Gross Rates to Bill Rates and recalculates Bill Amounts."""
+    def _run_link_bill_to_rate_logic(self):
+        """Batch copies current Rate (Gross or Plug) to Bill Rates and recalculates Bill Amounts."""
         m = self.tools_pane.get_mappings()
-        if m['bill_rate'] < 0 or m['rate'] < 0:
-            QMessageBox.warning(self, "Mapping Error", "Please ensure 'Bill Rate' and 'Gross Rate' columns are mapped first.")
+        
+        # Determine source rate column based on current Price Type
+        price_type = self.price_pane.price_type_combo.currentText()
+        if price_type == "Plug Rate":
+            source_col_key = 'plug_rate'
+            source_label = "Plug Rate"
+        else:
+            source_col_key = 'rate' # Default to Gross Rate
+            source_label = "Gross Rate"
+
+        if m['bill_rate'] < 0 or m[source_col_key] < 0:
+            QMessageBox.warning(self, "Mapping Error", f"Please ensure 'Bill Rate' and '{source_label}' columns are mapped first.")
             return
 
         db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
@@ -1329,10 +1339,10 @@ class PBOQDialog(QDialog):
                 if not row_id_item: continue
                 row_id = row_id_item.data(Qt.ItemDataRole.UserRole)
                 
-                gross_item = table.item(r, m['rate'])
-                if not gross_item or not gross_item.text().strip(): continue
+                source_item = table.item(r, m[source_col_key])
+                if not source_item or not source_item.text().strip(): continue
                 
-                val_str = gross_item.text().strip()
+                val_str = source_item.text().strip()
                 
                 # Update Bill Rate UI
                 bill_rate_item = table.item(r, m['bill_rate'])
@@ -1393,10 +1403,10 @@ class PBOQDialog(QDialog):
                     fmt_amt_updates.append((g_idx, {'font_color': const.COLOR_GRAY_TEXT.name()}))
                 self.logic.persist_batch_cell_formatting(db_path, m['bill_amount'], fmt_amt_updates)
 
-            QMessageBox.information(self, "Linked", f"Successfully linked {len(link_updates)} Bill Rate cells to Gross Rates.\nBill Amounts have been updated where quantities were available.")
+            QMessageBox.information(self, "Linked", f"Successfully linked {len(link_updates)} Bill Rate cells to {source_label}s.\nBill Amounts have been updated where quantities were available.")
             self._update_stats()
         else:
-            QMessageBox.information(self, "No Links", "No items with Gross Rates were found to link in the current view.")
+            QMessageBox.information(self, "No Links", f"No items with {source_label}s were found to link in the current view.")
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed

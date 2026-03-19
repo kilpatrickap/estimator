@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QCheckBox, QPushButton
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton
 from PyQt6.QtCore import pyqtSignal
 
 class PlugRateTool(QWidget):
@@ -7,6 +7,7 @@ class PlugRateTool(QWidget):
     visibilityChanged = pyqtSignal(bool)
     stateChanged = pyqtSignal()
     clearPlugRequested = pyqtSignal()
+    linkBillRateRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -21,11 +22,19 @@ class PlugRateTool(QWidget):
         self.show_plug_cb.toggled.connect(self.visibilityChanged.emit)
         self.show_plug_cb.toggled.connect(self.stateChanged.emit)
         
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(10)
+
         self.clear_btn = QPushButton("Clear Plug Rate and Code")
         self.clear_btn.clicked.connect(self.clearPlugRequested.emit)
+        btn_layout.addWidget(self.clear_btn)
+
+        self.link_bill_rate_btn = QPushButton("Link to Bill Rate")
+        self.link_bill_rate_btn.clicked.connect(lambda: self.linkBillRateRequested.emit())
+        btn_layout.addWidget(self.link_bill_rate_btn)
         
         layout.addWidget(self.show_plug_cb)
-        layout.addWidget(self.clear_btn)
+        layout.addLayout(btn_layout)
         layout.addStretch()
 
     def get_state(self):
