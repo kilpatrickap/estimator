@@ -1,4 +1,5 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QDoubleSpinBox, QLabel
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, 
+                             QPushButton, QDoubleSpinBox, QLabel, QLineEdit)
 from PyQt6.QtCore import pyqtSignal
 
 class SubcontractorTool(QWidget):
@@ -9,6 +10,7 @@ class SubcontractorTool(QWidget):
     openAdjudicatorRequested = pyqtSignal()
     linkBillRateRequested = pyqtSignal()
     clearSubcontractorRequested = pyqtSignal()
+    assignPackageRequested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -37,6 +39,17 @@ class SubcontractorTool(QWidget):
 
         btn_layout = QVBoxLayout()
         btn_layout.setSpacing(5)
+        
+        # Package Assignment
+        assign_layout = QHBoxLayout()
+        self.package_input = QLineEdit()
+        self.package_input.setPlaceholderText("Work Package Name")
+        self.assign_package_btn = QPushButton("Assign to Selected")
+        self.assign_package_btn.clicked.connect(lambda: self.assignPackageRequested.emit(self.package_input.text().strip()))
+        
+        assign_layout.addWidget(self.package_input)
+        assign_layout.addWidget(self.assign_package_btn)
+        btn_layout.addLayout(assign_layout)
         
         self.adjudicator_btn = QPushButton("Open Package Adjudicator...")
         self.adjudicator_btn.clicked.connect(self.openAdjudicatorRequested.emit)

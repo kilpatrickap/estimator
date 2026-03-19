@@ -88,6 +88,7 @@ class PBOQDialog(QDialog):
         self.price_pane.clearPlugRequested.connect(self._clear_plug_and_code)
         self.price_pane.openAdjudicatorRequested.connect(self._open_package_adjudicator)
         self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
+        self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -1491,6 +1492,89 @@ class PBOQDialog(QDialog):
                 pass
 
     # --- Subcontractor Adjudicator Handlers ---
+    def _assign_package_to_selected(self, package_name):
+        if not package_name:
+            QMessageBox.warning(self, "Invalid Input", "Please enter a valid package name.")
+            return
+            
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        desc_col = m.get('desc', -1)
+        qty_col = m.get('qty', -1)
+        unit_col = m.get('unit', -1)
+        
+        if pkg_col < 0:
+            QMessageBox.warning(self, "Mapping Error", "Please map the 'Subbee Package' column in the tools pane first.")
+            return
+
+        # Check for other required mappings
+        if desc_col < 0 or qty_col < 0 or unit_col < 0:
+             QMessageBox.warning(self, "Mapping Error", "Description, Quantity, and Unit columns must be mapped to assign packages.")
+             return
+
+        table = self.tabs.currentWidget()
+        if not isinstance(table, PBOQTable): return
+        
+        selected_indexes = table.selectedIndexes()
+        if not selected_indexes:
+            QMessageBox.warning(self, "No Selection", "Please highlight the rows in the table where you want to assign this package.")
+            return
+
+        # Get unique rows from selection
+        selected_rows = set(idx.row() for idx in selected_indexes)
+        updates = []
+        
+        for r in selected_rows:
+            # Validate presence of standard info
+            desc = table.item(r, desc_col).text().strip() if table.item(r, desc_col) else ""
+            qty = table.item(r, qty_col).text().strip() if table.item(r, qty_col) else ""
+            unit = table.item(r, unit_col).text().strip() if table.item(r, unit_col) else ""
+            
+            if not desc or not qty or not unit:
+                continue
+
+            row_id_item = table.item(r, 0)
+            if not row_id_item: continue
+            row_id = row_id_item.data(Qt.ItemDataRole.UserRole)
+            
+            pkg_item = table.item(r, pkg_col)
+            if not pkg_item:
+                pkg_item = QTableWidgetItem()
+                table.setItem(r, pkg_col, pkg_item)
+            
+            pkg_item.setText(package_name)
+            updates.append((row_id, package_name))
+            
+        if updates:
+            self._persist_updates(pkg_col, updates)
+            self._update_column_headers()
+            self._update_stats()
+
+    def _handle_context_menu(self, table, pos, row, col, rowid):
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        
+        if col == pkg_col and pkg_col >= 0:
+            menu = QMenu(self)
+            clear_action = menu.addAction("Clear Package Assignment")
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            
+            if action == clear_action:
+                selected_indexes = table.selectedIndexes()
+                selected_rows = set(idx.row() for idx in selected_indexes) if selected_indexes else [row]
+                
+                updates = []
+                for r in selected_rows:
+                    it = table.item(r, pkg_col)
+                    if it:
+                        it.setText("")
+                        rid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        updates.append((rid, ""))
+                        
+                if updates:
+                    self._persist_updates(pkg_col, updates)
+                    self._update_stats()
+
     def _open_package_adjudicator(self):
         file_path = self.pboq_file_selector.currentData()
         if not file_path: return
