@@ -11,6 +11,7 @@ class SubcontractorTool(QWidget):
     linkBillRateRequested = pyqtSignal()
     clearSubcontractorRequested = pyqtSignal()
     assignPackageRequested = pyqtSignal(str)
+    managePackagesRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -50,6 +51,15 @@ class SubcontractorTool(QWidget):
         assign_layout.addWidget(self.package_input)
         assign_layout.addWidget(self.assign_package_btn)
         btn_layout.addLayout(assign_layout)
+
+        # Package Management Row
+        manage_layout = QHBoxLayout()
+        self.manage_packages_btn = QPushButton("Package")
+        self.manage_packages_btn.setFixedWidth(80)
+        self.manage_packages_btn.clicked.connect(self.managePackagesRequested.emit)
+        manage_layout.addWidget(self.manage_packages_btn)
+        manage_layout.addStretch()
+        btn_layout.addLayout(manage_layout)
         
         self.adjudicator_btn = QPushButton("Open Package Adjudicator...")
         self.adjudicator_btn.clicked.connect(self.openAdjudicatorRequested.emit)

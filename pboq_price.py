@@ -15,6 +15,7 @@ class PBOQPricePane(QWidget):
     openAdjudicatorRequested = pyqtSignal()
     clearSubcontractorRequested = pyqtSignal()
     assignPackageRequested = pyqtSignal(str)
+    managePackagesRequested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -76,6 +77,7 @@ class PBOQPricePane(QWidget):
         self.sub_tool.openAdjudicatorRequested.connect(self.openAdjudicatorRequested.emit)
         self.sub_tool.clearSubcontractorRequested.connect(self.clearSubcontractorRequested.emit)
         self.sub_tool.assignPackageRequested.connect(self.assignPackageRequested.emit)
+        self.sub_tool.managePackagesRequested.connect(self.managePackagesRequested.emit)
         self.stack_layout.addWidget(self.sub_tool)
         
         # Apply Balanced Compact Stylesheet

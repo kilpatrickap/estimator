@@ -16,6 +16,7 @@ from pboq_price import PBOQPricePane
 from edit_item_dialog import EditItemDialog
 from pboq_plug_builder import PlugRateBuilderDialog
 from subcontractor_adjudicator import PackageAdjudicatorDialog
+from pboq_package_summary import PackageSummaryDialog
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Modularized and Maintainable."""
@@ -89,6 +90,7 @@ class PBOQDialog(QDialog):
         self.price_pane.openAdjudicatorRequested.connect(self._open_package_adjudicator)
         self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
         self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
+        self.price_pane.managePackagesRequested.connect(self._open_packages_summary)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -1364,6 +1366,7 @@ class PBOQDialog(QDialog):
             source_col_key = 'sub_rate'
             source_label = "Subcontractor Rate"
             markup_pct = self.price_pane.sub_tool.markup_spin.value()
+            sub_markup_col = m.get('sub_markup', -1) # Wait, is sub_markup mapped?
         else:
             source_col_key = 'rate' # Default to Gross Rate
             source_label = "Gross Rate"
@@ -1376,6 +1379,22 @@ class PBOQDialog(QDialog):
         # We can fetch this from PBOQTable defaults
         dummy_table = PBOQTable()
         source_color = dummy_table.get_role_color(source_col_key) or const.COLOR_LINK_CYAN
+
+        # Determine source markup for Subcontractor
+        db_markup_map = {}
+        if price_type == "Subcontractor Rate":
+             db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
+             try:
+                import sqlite3
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT rowid, SubbeeMarkup FROM pboq_items WHERE SubbeeMarkup IS NOT NULL AND SubbeeMarkup != ''")
+                for rid, m_str in cursor.fetchall():
+                    try:
+                        db_markup_map[rid] = float(m_str)
+                    except: pass
+                conn.close()
+             except: pass
 
         db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         link_updates = []
@@ -1418,8 +1437,12 @@ class PBOQDialog(QDialog):
                             r_val = float(val_str.replace(',', ''))
                             
                             # Apply markup if subcontractor
-                            if price_type == "Subcontractor Rate" and markup_pct > 0:
-                                r_val = r_val * (1 + (markup_pct / 100.0))
+                            if price_type == "Subcontractor Rate":
+                                # Priority: 1. DB-stored markup (from Packages window), 2. Global Spinner fallback
+                                effective_markup = db_markup_map.get(row_id, markup_pct)
+                                
+                                if effective_markup != 0:
+                                    r_val = r_val * (1 + (effective_markup / 100.0))
                                 
                                 # Update Bill Rate UI with marked up rate
                                 marked_up_str = "{:,.2f}".format(r_val)
@@ -1663,3 +1686,10 @@ class PBOQDialog(QDialog):
             self._update_column_headers()
             self._update_stats()
             QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.")
+
+    def _open_packages_summary(self):
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
+        dialog = PackageSummaryDialog(file_path, self)
+        dialog.dataChanged.connect(self._update_column_headers)
+        dialog.exec()
