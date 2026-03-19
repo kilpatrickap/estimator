@@ -104,7 +104,6 @@ class PackageSummaryDialog(QDialog):
             
             conn.commit()
             self.dataChanged.emit()
-            QMessageBox.information(self, "Saved", "Package markups updated successfully.")
             self.accept()
         except sqlite3.Error as e:
             QMessageBox.critical(self, "Save Error", f"Failed to save changes: {e}")
