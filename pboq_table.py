@@ -56,7 +56,7 @@ class PBOQTable(QTableWidget):
         if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
         if role in ['rate', 'rate_code']: return const.COL_COLOR_GREEN
         if role in ['plug_rate', 'plug_code']: return const.COL_COLOR_PURPLE
-        if role in ['sub_package', 'sub_name', 'sub_rate']: return const.COL_COLOR_ORANGE
+        if role in ['sub_package', 'sub_name', 'sub_rate', 'sub_markup']: return const.COL_COLOR_ORANGE
         return None
 
     def apply_column_colors(self, mappings, num_display_cols):

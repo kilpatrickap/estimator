@@ -6,9 +6,11 @@ from PyQt6.QtCore import Qt, pyqtSignal
 class PackageSummaryDialog(QDialog):
     dataChanged = pyqtSignal()
 
-    def __init__(self, db_path, parent=None):
+    def __init__(self, db_path, pkg_col, markup_col, parent=None):
         super().__init__(parent)
         self.db_path = db_path
+        self.pkg_col = pkg_col
+        self.markup_col = markup_col
         self.setWindowTitle("Work Packages Management")
         self.setMinimumWidth(450)
         self.setMinimumHeight(400)
@@ -35,19 +37,33 @@ class PackageSummaryDialog(QDialog):
         btn_layout.addStretch()
         btn_layout.addWidget(self.save_btn)
         layout.addLayout(btn_layout)
+        
+        self.table.itemChanged.connect(self._handle_item_changed)
+
+    def _handle_item_changed(self, item):
+        if item.column() == 1: # Markup column
+            self.table.blockSignals(True)
+            txt = item.text().replace(',', '').replace('%', '')
+            try:
+                f_val = float(txt) if txt else 0.0
+                item.setText("{:,.2f}%".format(f_val))
+            except:
+                pass # Keep what user typed if invalid
+            self.table.blockSignals(False)
 
     def _load_data(self):
+        self.table.blockSignals(True)
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
             # Group by package name and find the most common markup (or max)
             # This handles cases where items in a package might have drifted during manual edits
-            cursor.execute("""
-                SELECT SubbeePackage, MAX(SubbeeMarkup) 
+            cursor.execute(f"""
+                SELECT "{self.pkg_col}", MAX("{self.markup_col}") 
                 FROM pboq_items 
-                WHERE SubbeePackage IS NOT NULL AND SubbeePackage != ''
-                GROUP BY SubbeePackage
-                ORDER BY SubbeePackage
+                WHERE "{self.pkg_col}" IS NOT NULL AND "{self.pkg_col}" != ''
+                GROUP BY "{self.pkg_col}"
+                ORDER BY "{self.pkg_col}"
             """)
             rows = cursor.fetchall()
             self.table.setRowCount(len(rows))
@@ -62,13 +78,14 @@ class PackageSummaryDialog(QDialog):
                 except:
                     m_val = 10.0
                 
-                markup_item = QTableWidgetItem("{:,.2f}".format(m_val))
+                markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
                 markup_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(i, 1, markup_item)
         except sqlite3.Error as e:
             print(f"Error loading packages summary: {e}")
         finally:
             conn.close()
+            self.table.blockSignals(False)
 
     def _save_changes(self):
         conn = sqlite3.connect(self.db_path)
@@ -83,7 +100,7 @@ class PackageSummaryDialog(QDialog):
                     markup_val = 10.0 # fallback
                 
                 # Apply this markup to all items in this package
-                cursor.execute("UPDATE pboq_items SET SubbeeMarkup = ? WHERE SubbeePackage = ?", (str(markup_val), pkg))
+                cursor.execute(f'UPDATE pboq_items SET "{self.markup_col}" = ? WHERE "{self.pkg_col}" = ?', (str(markup_val), pkg))
             
             conn.commit()
             self.dataChanged.emit()

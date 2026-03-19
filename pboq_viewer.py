@@ -218,7 +218,17 @@ class PBOQDialog(QDialog):
                 for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
                         val = row_data[c_idx] if c_idx < len(row_data) else ""
-                        item = QTableWidgetItem(str(val) if val is not None else "")
+                        m = self.tools_pane.get_mappings()
+                        display_val = str(val) if val is not None else ""
+                        
+                        # Format Subbee Markup if mapped
+                        if c_idx == m.get('sub_markup', -1) and display_val:
+                            try:
+                                f_val = float(display_val.replace('%','').replace(',',''))
+                                display_val = "{:,.2f}%".format(f_val)
+                            except: pass
+                             
+                        item = QTableWidgetItem(display_val)
                         
                         # Apply Default Column Color
                         def_color = table.get_column_default_color(c_idx)
@@ -711,13 +721,13 @@ class PBOQDialog(QDialog):
         # Identify active vs inactive pricing roles
         if price_type == "Plug Rate":
             active_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
-            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
         elif price_type == "Subcontractor Rate":
-            active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
+            active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
-            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
+            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -757,7 +767,8 @@ class PBOQDialog(QDialog):
             'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
             'rate': "Gross Rate", 'rate_code': "Rate Code",
             'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
-            'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 'sub_rate': "Subbee Rate"
+            'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 'sub_rate': "Subbee Rate",
+            'sub_markup': "Subbee Markup (%)"
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
@@ -1690,6 +1701,26 @@ class PBOQDialog(QDialog):
     def _open_packages_summary(self):
         file_path = self.pboq_file_selector.currentData()
         if not file_path: return
-        dialog = PackageSummaryDialog(file_path, self)
-        dialog.dataChanged.connect(self._update_column_headers)
+        
+        m = self.tools_pane.get_mappings()
+        pkg_display_col = m.get('sub_package', -1)
+        markup_display_col = m.get('sub_markup', -1)
+        
+        if pkg_display_col < 0:
+             QMessageBox.warning(self, "Mapping Error", "Please map the 'Subbee Package' column in the tools pane first.")
+             return
+             
+        # Resolve actual DB column names
+        # self.db_columns contains [Sheet, Column 0, Column 1, ...]
+        pkg_db_col = self.db_columns[pkg_display_col + 1]
+        
+        # For markup, if not mapped, use the dedicated 'SubbeeMarkup' column we created in ensure_schema
+        if markup_display_col >= 0:
+            markup_db_col = self.db_columns[markup_display_col + 1]
+        else:
+            markup_db_col = "SubbeeMarkup"
+
+        dialog = PackageSummaryDialog(file_path, pkg_db_col, markup_db_col, self)
+        # Use _load_pboq_db to refresh everything after changes
+        dialog.dataChanged.connect(lambda: self._load_pboq_db(self.pboq_file_selector.currentIndex()))
         dialog.exec()
