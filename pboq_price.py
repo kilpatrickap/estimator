@@ -2,6 +2,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
 from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_tools_gross_rate import GrossRateTool
 from pboq_tools_plug_rate import PlugRateTool
+from pboq_tools_subbee import SubcontractorTool
 
 class PBOQPricePane(QWidget):
     """The side panel for Price Tools in the PBOQ viewer."""
@@ -11,6 +12,8 @@ class PBOQPricePane(QWidget):
     priceSORRequested = pyqtSignal(bool)
     linkBillRateRequested = pyqtSignal()
     clearPlugRequested = pyqtSignal()
+    openAdjudicatorRequested = pyqtSignal()
+    clearSubcontractorRequested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -65,6 +68,14 @@ class PBOQPricePane(QWidget):
         self.plug_rate_tool.linkBillRateRequested.connect(self.linkBillRateRequested.emit)
         self.stack_layout.addWidget(self.plug_rate_tool)
         
+        self.sub_tool = SubcontractorTool()
+        self.sub_tool.visibilityChanged.connect(self.rateVisibilityChanged.emit)
+        self.sub_tool.stateChanged.connect(self.stateChanged.emit)
+        self.sub_tool.linkBillRateRequested.connect(self.linkBillRateRequested.emit)
+        self.sub_tool.openAdjudicatorRequested.connect(self.openAdjudicatorRequested.emit)
+        self.sub_tool.clearSubcontractorRequested.connect(self.clearSubcontractorRequested.emit)
+        self.stack_layout.addWidget(self.sub_tool)
+        
         # Apply Balanced Compact Stylesheet
         self.setStyleSheet("""
             QGroupBox {
@@ -102,6 +113,7 @@ class PBOQPricePane(QWidget):
         text = self.price_type_combo.currentText()
         self.gross_rate_tool.setVisible(text == "Gross Rate")
         self.plug_rate_tool.setVisible(text == "Plug Rate")
+        self.sub_tool.setVisible(text == "Subcontractor Rate")
         
         # Emit visibility of current selection
         self.rateVisibilityChanged.emit(self.get_rate_visibility())
@@ -112,13 +124,16 @@ class PBOQPricePane(QWidget):
             return self.gross_rate_tool.show_gross_cb.isChecked()
         elif text == "Plug Rate":
             return self.plug_rate_tool.show_plug_cb.isChecked()
+        elif text == "Subcontractor Rate":
+            return self.sub_tool.show_sub_cb.isChecked()
         return False
 
     def get_state(self):
         return {
             "price_type": self.price_type_combo.currentText(),
             "gross_tool": self.gross_rate_tool.get_state(),
-            "plug_tool": self.plug_rate_tool.get_state()
+            "plug_tool": self.plug_rate_tool.get_state(),
+            "sub_tool": self.sub_tool.get_state()
         }
 
     def set_state(self, state):
@@ -134,6 +149,9 @@ class PBOQPricePane(QWidget):
             
             if "plug_tool" in state:
                 self.plug_rate_tool.set_state(state["plug_tool"])
+            
+            if "sub_tool" in state:
+                self.sub_tool.set_state(state["sub_tool"])
             
             self._on_type_changed()
         finally:

@@ -51,6 +51,20 @@ class PBOQLogic:
         if "PlugExchangeRates" not in db_columns:
             cursor.execute("ALTER TABLE pboq_items ADD COLUMN PlugExchangeRates TEXT")
             db_columns.append("PlugExchangeRates")
+            
+        # Ensure Subcontractor columns exist
+        if "SubbeePackage" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeePackage TEXT")
+            db_columns.append("SubbeePackage")
+        if "SubbeeName" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeName TEXT")
+            db_columns.append("SubbeeName")
+        if "SubbeeRate" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeRate TEXT")
+            db_columns.append("SubbeeRate")
+        if "SubbeeMarkup" not in db_columns:
+            cursor.execute("ALTER TABLE pboq_items ADD COLUMN SubbeeMarkup TEXT")
+            db_columns.append("SubbeeMarkup")
         
         # Ensure Formatting table exists
         cursor.execute("""
@@ -59,6 +73,18 @@ class PBOQLogic:
                 col_idx INTEGER,
                 fmt_json TEXT,
                 PRIMARY KEY (row_idx, col_idx)
+            )
+        """)
+        
+        # Ensure Subcontractor Quotes table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                package_name TEXT,
+                row_idx INTEGER,
+                subcontractor_name TEXT,
+                rate REAL,
+                FOREIGN KEY(row_idx) REFERENCES pboq_items(rowid)
             )
         """)
         

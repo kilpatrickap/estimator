@@ -15,6 +15,7 @@ from pboq_tools import PBOQToolsPane
 from pboq_price import PBOQPricePane
 from edit_item_dialog import EditItemDialog
 from pboq_plug_builder import PlugRateBuilderDialog
+from subcontractor_adjudicator import PackageAdjudicatorDialog
 
 class PBOQDialog(QDialog):
     """Priced Bill of Quantities viewer - Modularized and Maintainable."""
@@ -83,6 +84,8 @@ class PBOQDialog(QDialog):
         self.price_pane.priceSORRequested.connect(self._run_price_sor_logic)
         self.price_pane.linkBillRateRequested.connect(self._run_link_bill_to_rate_logic)
         self.price_pane.clearPlugRequested.connect(self._clear_plug_and_code)
+        self.price_pane.openAdjudicatorRequested.connect(self._open_package_adjudicator)
+        self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -690,10 +693,13 @@ class PBOQDialog(QDialog):
         # Identify active vs inactive pricing roles
         if price_type == "Plug Rate":
             active_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
-            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
+        elif price_type == "Subcontractor Rate":
+            active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
-            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
+            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1)]
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -728,7 +734,8 @@ class PBOQDialog(QDialog):
             'ref': "Ref/Item", 'desc': "Description", 'qty': "Quantity", 'unit': "Unit",
             'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
             'rate': "Gross Rate", 'rate_code': "Rate Code",
-            'plug_rate': "Plug Rate", 'plug_code': "Plug Code"
+            'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
+            'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 'sub_rate': "Subbee Rate"
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
@@ -992,6 +999,13 @@ class PBOQDialog(QDialog):
         rate_col = m.get('plug_rate', -1)
         code_col = m.get('plug_code', -1)
         self._clear_columns([rate_col, code_col], "Plug Rate & Code")
+
+    def _clear_sub_and_code(self):
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        name_col = m.get('sub_name', -1)
+        rate_col = m.get('sub_rate', -1)
+        self._clear_columns([pkg_col, name_col, rate_col], "Subcontractor Package, Name & Rate")
 
     def _clear_columns(self, col_indices, label):
         """Generic helper to clear one or more columns across all sheets."""
@@ -1315,9 +1329,15 @@ class PBOQDialog(QDialog):
         
         # Determine source rate column based on current Price Type
         price_type = self.price_pane.price_type_combo.currentText()
+        markup_pct = 0.0
+        
         if price_type == "Plug Rate":
             source_col_key = 'plug_rate'
             source_label = "Plug Rate"
+        elif price_type == "Subcontractor Rate":
+            source_col_key = 'sub_rate'
+            source_label = "Subcontractor Rate"
+            markup_pct = self.price_pane.sub_tool.markup_spin.value()
         else:
             source_col_key = 'rate' # Default to Gross Rate
             source_label = "Gross Rate"
@@ -1371,6 +1391,19 @@ class PBOQDialog(QDialog):
                             # Parse Qty and Rate (handle commas)
                             q_val = float(qty_item.text().replace(',', ''))
                             r_val = float(val_str.replace(',', ''))
+                            
+                            # Apply markup if subcontractor
+                            if price_type == "Subcontractor Rate" and markup_pct > 0:
+                                r_val = r_val * (1 + (markup_pct / 100.0))
+                                
+                                # Update Bill Rate UI with marked up rate
+                                marked_up_str = "{:,.2f}".format(r_val)
+                                bill_rate_item.setText(marked_up_str)
+                                
+                                # Overwrite the link_updates tuple with marked up rate
+                                link_updates.pop() # Remove original raw rate
+                                link_updates.append((row_id, marked_up_str))
+                                
                             a_val = q_val * r_val
                             a_str = "{:,.2f}".format(a_val)
                             
@@ -1432,3 +1465,93 @@ class PBOQDialog(QDialog):
                     self.tools_dock.deleteLater()
             except RuntimeError:
                 pass
+
+    # --- Subcontractor Adjudicator Handlers ---
+    def _open_package_adjudicator(self):
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
+        dialog = PackageAdjudicatorDialog(file_path, self)
+        dialog.exec()
+
+    def get_package_items(self, pkg):
+        """Called by PackageAdjudicatorDialog to get BOQ items for a specific package."""
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        desc_col = m.get('desc', -1)
+        qty_col = m.get('qty', -1)
+        unit_col = m.get('unit', -1)
+        
+        items = []
+        if pkg_col < 0: return items
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            for r in range(table.rowCount()):
+                pkg_item = table.item(r, pkg_col)
+                if pkg_item and pkg_item.text().strip() == pkg:
+                    row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    desc = table.item(r, desc_col).text().strip() if desc_col >= 0 and table.item(r, desc_col) else ""
+                    qty = table.item(r, qty_col).text().strip() if qty_col >= 0 and table.item(r, qty_col) else ""
+                    unit = table.item(r, unit_col).text().strip() if unit_col >= 0 and table.item(r, unit_col) else ""
+                    
+                    items.append({
+                        'rowid': row_id,
+                        'desc': desc,
+                        'qty': qty,
+                        'unit': unit
+                    })
+        return items
+
+    def apply_winning_subcontractor(self, pkg, winner_name, winning_rates):
+        """Called by PackageAdjudicatorDialog to apply chosen rates to PBOQ."""
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        name_col = m.get('sub_name', -1)
+        rate_col = m.get('sub_rate', -1)
+        
+        if pkg_col < 0 or name_col < 0 or rate_col < 0:
+            QMessageBox.warning(self, "Missing Columns", "Please map Subbee Package, Name, and Rate columns first.")
+            return
+            
+        rate_dict = dict(winning_rates) # rowid -> rate
+        
+        name_updates = []
+        rate_updates = []
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            for r in range(table.rowCount()):
+                pkg_item = table.item(r, pkg_col)
+                if pkg_item and pkg_item.text().strip() == pkg:
+                    row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    
+                    if row_id in rate_dict:
+                        name_item = table.item(r, name_col)
+                        if not name_item:
+                            name_item = QTableWidgetItem()
+                            table.setItem(r, name_col, name_item)
+                        name_item.setText(winner_name)
+                        name_updates.append((row_id, winner_name))
+                        
+                        rate_item = table.item(r, rate_col)
+                        if not rate_item:
+                            rate_item = QTableWidgetItem()
+                            table.setItem(r, rate_col, rate_item)
+                        # Format rate
+                        try:
+                            f_rate = "{:,.2f}".format(float(rate_dict[row_id]))
+                        except:
+                            f_rate = str(rate_dict[row_id])
+                        rate_item.setText(f_rate)
+                        rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        rate_updates.append((row_id, f_rate))
+                        
+        if name_updates:
+            self._persist_updates(name_col, name_updates)
+            self._persist_updates(rate_col, rate_updates)
+            self._update_stats()
+            QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.")
