@@ -772,21 +772,30 @@ class BOQSetupWindow(QWidget):
             QMessageBox.warning(self, "Warning", "No data to save to Priced BOQ.")
             return
         
-        # Build records with generic column names: Sheet + Column 0, Column 1, ...
+        # Build records with a guaranteed fixed schema to prevent "drift"
+        standard_cols = ["Sheet"] + [f"Column {i}" for i in range(14)]
+        named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
+                      "PlugCategory", "PlugCurrency", "PlugExchangeRates",
+                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup"]
+        full_schema_cols = standard_cols + named_cols
+        
         records = []
         for row_entry in all_rows:
-            record = {"Sheet": row_entry["Sheet"]}
+            # Create a dictionary with all potential columns initialized to empty strings
+            record = {col: "" for col in full_schema_cols}
+            record["Sheet"] = row_entry["Sheet"]
             for c_idx, val in enumerate(row_entry["row_values"]):
-                record[f"Column {c_idx}"] = val
-            # Fill remaining columns if this sheet had fewer columns
-            for c_idx in range(len(row_entry["row_values"]), max_cols):
-                record[f"Column {c_idx}"] = ""
+                # Only map if within the standard Column 0-13 range
+                if c_idx < 14:
+                    record[f"Column {c_idx}"] = val
             records.append(record)
             
         try:
-            df_out = pd.DataFrame(records)
+            # Create DataFrame with the explicit column order
+            df_out = pd.DataFrame(records, columns=full_schema_cols)
             conn = sqlite3.connect(pboq_file_path)
             df_out.to_sql('pboq_items', conn, if_exists='replace', index=False)
+
             
             # Save formatting data
             cursor = conn.cursor()

@@ -25,22 +25,17 @@ class PBOQLogic:
         cursor.execute("PRAGMA table_info(pboq_items)")
         db_columns = [info[1] for info in cursor.fetchall()]
         
-        # Ensure Standard Columns 0-13 exist for consistent mapping
-        for i in range(14):
-            col_name = f"Column {i}"
-            if col_name not in db_columns:
-                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
-                db_columns.append(col_name)
-
-        # Ensure Named logical columns exist for internal logic fallback
+        # Standard Columns and Named Columns in a fixed preferred order
+        standard_cols = [f"Column {i}" for i in range(14)]
         named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup"]
         
-        for nc in named_cols:
-            if nc not in db_columns:
-                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN {nc} TEXT")
-                db_columns.append(nc)
+        for col_name in standard_cols + named_cols:
+            if col_name not in db_columns:
+                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
+                db_columns.append(col_name)
+
         
         # Ensure Formatting table exists
         cursor.execute("""
