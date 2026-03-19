@@ -71,6 +71,7 @@ class PBOQDialog(QDialog):
         self.tools_pane.stateChanged.connect(self._save_pboq_state)
         self.tools_pane.columnHeadersRequested.connect(self._update_column_headers)
         self.tools_pane.wrapTextToggled.connect(self._toggle_wrap_text)
+        self.tools_pane.alignTextLeftToggled.connect(self._toggle_left_align)
         self.tools_pane.clearGrossRequested.connect(self._clear_gross_and_code)
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
@@ -115,6 +116,10 @@ class PBOQDialog(QDialog):
         self.tool_toggle_btn.clicked.connect(self._switch_tool_pane)
         top_bar.addWidget(self.tool_toggle_btn)
         
+        # Connect signals for global persistence as well
+        self.tools_pane.wrapTextToggled.connect(self._save_viewer_state)
+        self.tools_pane.alignTextLeftToggled.connect(self._save_viewer_state)
+        
         # Stats
         self.stats_label = QLabel("Items: 0 | Priced: 0 | Outstanding: 0")
         self.stats_label.setStyleSheet("font-weight: bold; margin-left: 20px;")
@@ -141,6 +146,14 @@ class PBOQDialog(QDialog):
         # Restore tool pane selection
         if state.get('active_pane') == 'price':
             self._switch_tool_pane()
+            
+        # Restore global UI preferences
+        if 'global_wrap' in state:
+            self.tools_pane.wrap_text_btn.setChecked(state['global_wrap'])
+            self._toggle_wrap_text(state['global_wrap'])
+        if 'global_align_left' in state:
+            self.tools_pane.align_left_btn.setChecked(state['global_align_left'])
+            self._toggle_left_align(state['global_align_left'])
 
     def _load_pboq_db(self, index):
         if index < 0: return
@@ -219,7 +232,8 @@ class PBOQDialog(QDialog):
                         
                         if item.text() == "0.00":
                             item.setForeground(const.COLOR_GRAY_TEXT)
-                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            # Removed hardcoded AlignRight, will be handled by _update_column_headers
+                            # item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             
                         table.setItem(r_idx, c_idx, item)
                     
@@ -727,6 +741,10 @@ class PBOQDialog(QDialog):
                     table.setColumnWidth(desc_col, 400)
             table.set_word_wrap_enabled(enabled)
 
+    def _toggle_left_align(self, enabled):
+        """Forces Left alignment across the table based on the toggle."""
+        self._update_column_headers()
+
     def _update_column_headers(self):
         m = self.tools_pane.get_mappings()
         
@@ -777,6 +795,9 @@ class PBOQDialog(QDialog):
             
             # Update columns identifying colors across sheets
             table.apply_column_colors(m, table.columnCount())
+            
+            # Apply dynamic alignment
+            table.apply_column_alignment(self.tools_pane.align_left_btn.isChecked(), m)
         
         # Ensure Rate visibility is synced with current mapping
         self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
@@ -845,7 +866,6 @@ class PBOQDialog(QDialog):
                         
                         rate_item.setText(d_rate_str)
                         rate_item.setForeground(const.COLOR_GRAY_TEXT)
-                        rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         rate_updates.append((rowid, d_rate_str))
                         
                         if m['bill_amount'] >= 0:
@@ -857,7 +877,6 @@ class PBOQDialog(QDialog):
                                 table.setItem(r, m['bill_amount'], amt_item)
                             amt_item.setText(amt_str)
                             amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                            amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             amt_updates.append((rowid, amt_str))
                     except ValueError: continue
 
@@ -874,6 +893,7 @@ class PBOQDialog(QDialog):
                 self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_amt_updates)
             
             self.tools_pane.extend_btn.setText("Extend" if is_revert else "Revert")
+            self._update_column_headers()
             QMessageBox.information(self, "Success", f"Processed {len(rate_updates)} rows.")
 
     def _clear_bill_rates(self):
@@ -984,6 +1004,7 @@ class PBOQDialog(QDialog):
             elif kw:
                 self.tools_pane.collect_btn.setText("Revert")
             
+            self._update_column_headers()
             self._save_pboq_state()
         finally:
             self.is_updating_logic = False
@@ -1071,6 +1092,7 @@ class PBOQDialog(QDialog):
                 self.tabs.setCurrentIndex(state.get('active_tab', 0))
                 # Apply word wrap state after loading
                 self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
+                self._toggle_left_align(self.tools_pane.align_left_btn.isChecked())
                 
                 # If sticky mode was active, refresh it
                 if self.tools_pane.collect_btn.text() == "Revert":
@@ -1082,7 +1104,9 @@ class PBOQDialog(QDialog):
         
         state = {
             'last_bill': self.pboq_file_selector.currentText(),
-            'active_pane': 'price' if hasattr(self, 'price_pane') and self.tools_dock.widget() == self.price_pane else 'tools'
+            'active_pane': 'price' if hasattr(self, 'price_pane') and self.tools_dock.widget() == self.price_pane else 'tools',
+            'global_wrap': self.tools_pane.wrap_text_btn.isChecked(),
+            'global_align_left': self.tools_pane.align_left_btn.isChecked()
         }
         
         with open(settings_file, 'w') as f:
@@ -1379,7 +1403,6 @@ class PBOQDialog(QDialog):
                 # Apply source color for visual consistency
                 bill_rate_item.setBackground(source_color)
                 bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
-                bill_rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
                 link_updates.append((row_id, val_str))
                 
@@ -1414,7 +1437,6 @@ class PBOQDialog(QDialog):
                             
                             amt_item.setText(a_str)
                             amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                            amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                             amt_updates.append((row_id, a_str))
                         except ValueError: pass
 
@@ -1442,6 +1464,7 @@ class PBOQDialog(QDialog):
                 self.logic.persist_batch_cell_formatting(db_path, m['bill_amount'], fmt_amt_updates)
 
             QMessageBox.information(self, "Linked", f"Successfully linked {len(link_updates)} Bill Rate cells to {source_label}s.\nBill Amounts have been updated where quantities were available.")
+            self._update_column_headers()
             self._update_stats()
         else:
             QMessageBox.information(self, "No Links", f"No items with {source_label}s were found to link in the current view.")
@@ -1547,11 +1570,11 @@ class PBOQDialog(QDialog):
                         except:
                             f_rate = str(rate_dict[row_id])
                         rate_item.setText(f_rate)
-                        rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                         rate_updates.append((row_id, f_rate))
                         
         if name_updates:
             self._persist_updates(name_col, name_updates)
             self._persist_updates(rate_col, rate_updates)
+            self._update_column_headers()
             self._update_stats()
             QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.")

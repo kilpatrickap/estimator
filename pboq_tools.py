@@ -13,9 +13,9 @@ class PBOQToolsPane(QWidget):
     extendRequested = pyqtSignal()
     clearBillRequested = pyqtSignal()
     collectRequested = pyqtSignal()
-    collectRequested = pyqtSignal()
     columnHeadersRequested = pyqtSignal()
     wrapTextToggled = pyqtSignal(bool)
+    alignTextLeftToggled = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -90,13 +90,19 @@ class PBOQToolsPane(QWidget):
         self.wrap_text_btn.clicked.connect(lambda checked: self.wrapTextToggled.emit(checked))
         self.wrap_text_btn.clicked.connect(self.stateChanged)
         
+        self.align_left_btn = QPushButton("Left Align Text")
+        self.align_left_btn.setCheckable(True)
+        self.align_left_btn.clicked.connect(lambda checked: self.alignTextLeftToggled.emit(checked))
+        self.align_left_btn.clicked.connect(self.stateChanged)
+
         self.clear_all_btn = QPushButton("Clear Gross & Code")
         self.clear_all_btn.clicked.connect(self.clearGrossRequested)
         
-        btn_row = QHBoxLayout()
-        btn_row.addWidget(self.wrap_text_btn)
-        btn_row.addWidget(self.clear_all_btn)
-        format_layout.addLayout(btn_row)
+        row1 = QHBoxLayout()
+        row1.addWidget(self.wrap_text_btn)
+        row1.addWidget(self.align_left_btn)
+        format_layout.addLayout(row1)
+        format_layout.addWidget(self.clear_all_btn)
         container_layout.addWidget(format_group)
 
         # 3. Extend
@@ -302,6 +308,7 @@ class PBOQToolsPane(QWidget):
             'collect_desc': self.collect_desc_cb.isChecked(),
             'collect_amount': self.collect_amount_cb.isChecked(),
             'wrap_text': self.wrap_text_btn.isChecked(),
+            'align_left': self.align_left_btn.isChecked(),
             'frozen': self.freeze_btn.isChecked(),
             'collect_revert': self.collect_btn.text() == "Revert"
         }
@@ -322,6 +329,7 @@ class PBOQToolsPane(QWidget):
             if 'collect_desc' in state: self.collect_desc_cb.setChecked(state['collect_desc'])
             if 'collect_amount' in state: self.collect_amount_cb.setChecked(state['collect_amount'])
             if 'wrap_text' in state: self.wrap_text_btn.setChecked(state['wrap_text'])
+            if 'align_left' in state: self.align_left_btn.setChecked(state['align_left'])
             if 'frozen' in state:
                 self.freeze_btn.setChecked(state['frozen'])
                 self._toggle_freeze(state['frozen'])
@@ -351,7 +359,7 @@ class PBOQToolsPane(QWidget):
             self.cb_bill_rate, self.cb_bill_amount, 
             self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
             self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate,
-            self.wrap_text_btn, self.clear_all_btn,
+            self.wrap_text_btn, self.align_left_btn, self.clear_all_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
             self.dummy_rate_spin, self.extend_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
