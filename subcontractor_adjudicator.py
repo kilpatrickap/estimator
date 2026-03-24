@@ -1,7 +1,7 @@
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QMessageBox, QInputDialog, QAbstractItemView)
+                             QMessageBox, QInputDialog, QAbstractItemView, QCheckBox)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 
@@ -30,12 +30,26 @@ class PackageAdjudicatorDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8) # Tighter margins
         layout.setSpacing(6)                  # Tighter spacing
+        # Top Bar
         top_bar = QHBoxLayout()
-        top_bar.addWidget(QLabel("Select Work Package:"))
+        
+        # Left side: combo and checkbox
+        left_vbox = QVBoxLayout()
+        
+        combo_hbox = QHBoxLayout()
+        combo_hbox.addWidget(QLabel("Select Work Package:"))
         self.package_combo = QComboBox()
         self.package_combo.setMinimumWidth(200)
         self.package_combo.currentIndexChanged.connect(self._on_package_selected)
-        top_bar.addWidget(self.package_combo)
+        combo_hbox.addWidget(self.package_combo)
+        left_vbox.addLayout(combo_hbox)
+        
+        self.toggle_amounts_cb = QCheckBox("Toggle Amounts")
+        self.toggle_amounts_cb.setChecked(False)
+        self.toggle_amounts_cb.stateChanged.connect(self._on_toggle_amounts)
+        left_vbox.addWidget(self.toggle_amounts_cb)
+        
+        top_bar.addLayout(left_vbox)
         top_bar.addStretch()
         
         self.add_subbee_btn = QPushButton("Add Subcontractor")
@@ -137,6 +151,17 @@ class PackageAdjudicatorDialog(QDialog):
         """Keep summary table perfectly aligned when user drags headers."""
         self.summary_table.setColumnWidth(logicalIndex, newSize)
 
+    def _on_toggle_amounts(self, state):
+        self._apply_toggle_amounts()
+        self._sync_table_widths()
+
+    def _apply_toggle_amounts(self):
+        show_amounts = self.toggle_amounts_cb.isChecked()
+        for s_idx in range(len(self.subcontractors)):
+            amt_col = BASE_COL_COUNT + (s_idx * 2) + 1
+            self.table.setColumnHidden(amt_col, not show_amounts)
+            self.summary_table.setColumnHidden(amt_col, not show_amounts)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_table_widths()
@@ -237,15 +262,22 @@ class PackageAdjudicatorDialog(QDialog):
                 if item:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
-            # Fill quotes
+            # Fill quotes and empty amounts
             rid = d.get('rowid')
             for s_idx, sub in enumerate(self.subcontractors):
-                col = BASE_COL_COUNT + s_idx
+                col = BASE_COL_COUNT + (s_idx * 2)
+                amt_col = col + 1
                 rate = quotes.get(sub, {}).get(rid, "")
                 if rate:
                     self.table.setItem(r, col, QTableWidgetItem(f"{rate:,.2f}"))
                 else:
                     self.table.setItem(r, col, QTableWidgetItem(""))
+                    
+                # Setup Amount Cell
+                amt_item = QTableWidgetItem("")
+                amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                amt_item.setBackground(QBrush(QColor("#f5f5f5")))  # light gray background
+                self.table.setItem(r, amt_col, amt_item)
         
         self.table.blockSignals(False)
         self._calculate_totals()
@@ -253,11 +285,15 @@ class PackageAdjudicatorDialog(QDialog):
 
     def _update_headers(self):
         base = ["Ref/Item", "Description", "Qty", "Unit"]
-        total_cols = BASE_COL_COUNT + len(self.subcontractors)
+        total_cols = BASE_COL_COUNT + (len(self.subcontractors) * 2)
         self.table.setColumnCount(total_cols)
         self.summary_table.setColumnCount(total_cols)
         
-        headers = base + self.subcontractors
+        headers = base.copy()
+        for sub in self.subcontractors:
+            headers.append(f"{sub}")
+            headers.append(f"{sub} Amount")
+            
         self.table.setHorizontalHeaderLabels(headers)
         
         # Initial sizing - tightened for 768p efficiency
@@ -266,7 +302,12 @@ class PackageAdjudicatorDialog(QDialog):
         self.table.setColumnWidth(2, 60)  # Qty
         self.table.setColumnWidth(3, 50)  # Unit
         
+        for s_idx in range(len(self.subcontractors)):
+            amt_col = BASE_COL_COUNT + (s_idx * 2) + 1
+            self.table.setColumnWidth(amt_col, 100) # Give amount columns width
+            
         self._sync_table_widths()
+        self._apply_toggle_amounts()
 
     # ── Subcontractor Management ──────────────────────────────────
 
@@ -287,9 +328,14 @@ class PackageAdjudicatorDialog(QDialog):
             
             # Add empty column cells
             self.table.blockSignals(True)
-            col = BASE_COL_COUNT + len(self.subcontractors) - 1
+            col = BASE_COL_COUNT + ((len(self.subcontractors) - 1) * 2)
+            amt_col = col + 1
             for r in range(self.table.rowCount()):
                 self.table.setItem(r, col, QTableWidgetItem(""))
+                amt_item = QTableWidgetItem("")
+                amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                amt_item.setBackground(QBrush(QColor("#f5f5f5")))
+                self.table.setItem(r, amt_col, amt_item)
             self.table.blockSignals(False)
             self._calculate_totals()
 
@@ -341,7 +387,8 @@ class PackageAdjudicatorDialog(QDialog):
 
     def _on_item_changed(self, item):
         col = item.column()
-        if col >= BASE_COL_COUNT:  # Quote column
+        # Verify it's a rate column and not an amount column
+        if col >= BASE_COL_COUNT and (col - BASE_COL_COUNT) % 2 == 0:
             self._save_quote(item)
             
             # Format to 2 decimal places with commas
@@ -360,7 +407,8 @@ class PackageAdjudicatorDialog(QDialog):
     def _save_quote(self, item):
         r = item.row()
         c = item.column()
-        sub_name = self.subcontractors[c - BASE_COL_COUNT]
+        s_idx = (c - BASE_COL_COUNT) // 2
+        sub_name = self.subcontractors[s_idx]
         rowid = self.items_data[r]['rowid']
         pkg = self.package_combo.currentText()
         
@@ -401,18 +449,30 @@ class PackageAdjudicatorDialog(QDialog):
 
         totals = []
         for s_idx, sub_name in enumerate(self.subcontractors):
-            col = BASE_COL_COUNT + s_idx
+            col = BASE_COL_COUNT + (s_idx * 2)
+            amt_col = col + 1
             total = 0.0
+            
             for r in range(self.table.rowCount()):
                 qty_item = self.table.item(r, 2)
                 rate_item = self.table.item(r, col)
                 
                 qty = clean_float(qty_item.text()) if qty_item else 0.0
                 rate = clean_float(rate_item.text()) if rate_item else 0.0
-                total += qty * rate
-            
+                row_total = qty * rate
+                total += row_total
+                
+                # Dynamically update the amount cell
+                amt_item = self.table.item(r, amt_col)
+                if amt_item:
+                    if row_total > 0:
+                        amt_item.setText(f"{row_total:,.2f}")
+                    else:
+                        amt_item.setText("")
+                        
             totals.append(total)
             
+            # Place the total in the Rate column
             total_item = QTableWidgetItem(f"{total:,.2f}")
             font = total_item.font()
             font.setBold(True)
@@ -420,6 +480,11 @@ class PackageAdjudicatorDialog(QDialog):
             total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.summary_table.setItem(0, col, total_item)
+            
+            # Place empty item in the amt column
+            empty_item = QTableWidgetItem("")
+            empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summary_table.setItem(0, amt_col, empty_item)
 
         # Identify and display the dynamic winner (lowest total)
         current_winner_name = ""
@@ -429,7 +494,7 @@ class PackageAdjudicatorDialog(QDialog):
                 min_total = min(non_zero)
                 # Find the name matching this min total
                 for s_idx, total in enumerate(totals):
-                    col = BASE_COL_COUNT + s_idx
+                    col = BASE_COL_COUNT + (s_idx * 2)
                     item = self.summary_table.item(0, col)
                     if item:
                         if total == min_total and total > 0:
@@ -454,7 +519,7 @@ class PackageAdjudicatorDialog(QDialog):
         for r in range(self.table.rowCount()):
             rates = []
             for s_idx in range(len(self.subcontractors)):
-                col = BASE_COL_COUNT + s_idx
+                col = BASE_COL_COUNT + (s_idx * 2)
                 item = self.table.item(r, col)
                 txt = item.text().replace(',', '') if item else ""
                 try:
@@ -468,7 +533,7 @@ class PackageAdjudicatorDialog(QDialog):
             if len(valid_rates) < 2:
                 # Clear any prior coloring if not enough to compare
                 for s_idx in range(len(self.subcontractors)):
-                    col = BASE_COL_COUNT + s_idx
+                    col = BASE_COL_COUNT + (s_idx * 2)
                     item = self.table.item(r, col)
                     if item:
                         item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
@@ -479,7 +544,7 @@ class PackageAdjudicatorDialog(QDialog):
 
             self.table.blockSignals(True)
             for s_idx in range(len(self.subcontractors)):
-                col = BASE_COL_COUNT + s_idx
+                col = BASE_COL_COUNT + (s_idx * 2)
                 item = self.table.item(r, col)
                 if not item:
                     continue
@@ -505,7 +570,7 @@ class PackageAdjudicatorDialog(QDialog):
             
         winner, ok = QInputDialog.getItem(self, "Select Winner", "Choose winning subcontractor for this package:", self.subcontractors, 0, False)
         if ok and winner:
-            col = self.subcontractors.index(winner) + BASE_COL_COUNT
+            col = BASE_COL_COUNT + (self.subcontractors.index(winner) * 2)
             winning_rates = []
             
             for r in range(self.table.rowCount()):
