@@ -62,10 +62,10 @@ class SubcontractorIO:
             worksheet.column_dimensions['A'].hidden = True
 
             # --- PRE-PASS: Identify Relevant Headings ---
-            # A heading is "relevant" if there is at least one target item between it and the next heading
             relevant_headings = set()
-            current_heading_block = []
             
+            # Phase 1: Forward Scan with "Bucket fix"
+            current_heading_block = []
             for row_idx in range(2, len(df) + 2):
                 df_row = df.iloc[row_idx - 2]
                 qty = df_row['Qty']
@@ -74,15 +74,39 @@ class SubcontractorIO:
                 is_heading = not str(qty).strip() or str(qty).lower() == 'nan'
                 
                 if is_heading:
+                    # 1. Look-ahead: Add heading to bucket
                     current_heading_block.append(row_idx)
                 else:
                     if is_target:
-                        # We hit a target item! All headings collected since the last target are relevant
+                        # Target hit. All bucket headings are relevant to this target.
                         for h_idx in current_heading_block:
                             relevant_headings.add(h_idx)
-                        current_heading_block = [] # Reset block because they are already marked
-                    # If it's a non-target item (e.g. concrete qty), we just keep going, waiting for a target or another heading
-                    
+                        current_heading_block = [] # Reset bucket
+                    else:
+                        # 2. My Fix: Non-target item hit. Must dump the bucket because these headings belong to this non-target item!
+                        current_heading_block = []
+                        
+            # Phase 2: Look-Behind Validation
+            for row_idx in range(2, len(df) + 2):
+                df_row = df.iloc[row_idx - 2]
+                is_target = df_row['_is_target']
+                
+                if is_target:
+                    # 3. Look-behind: Walk backwards up the BOQ starting from the row immediately above this target
+                    j = row_idx - 1
+                    while j >= 2:
+                        prev_row = df.iloc[j - 2]
+                        prev_qty = prev_row['Qty']
+                        
+                        is_prev_heading = not str(prev_qty).strip() or str(prev_qty).lower() == 'nan'
+                        
+                        if is_prev_heading:
+                            # Found a heading! Validate it into the relevant set and keep climbing upwards
+                            relevant_headings.add(j)
+                            j -= 1
+                        else:
+                            # We hit a row with a quantity (a priced item). We have exited the heading block. Stop looking behind.
+                            break                    
             # --- MAIN EXPORT PASS ---
             for row_idx in range(2, len(df) + 2):
                 df_row = df.iloc[row_idx - 2]
