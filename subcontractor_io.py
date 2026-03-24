@@ -124,8 +124,12 @@ class SubcontractorIO:
                             cell.protection = Protection(locked=True)
                             cell.fill = heading_fill
                             
-                            # Extra wide description for headings
-                            if col_idx == 3: cell.font = Font(bold=True)
+                            # Default top alignment, plus wrap for description and bolding
+                            if col_idx == 3: 
+                                cell.font = Font(bold=True)
+                                cell.alignment = Alignment(wrap_text=True, vertical="top")
+                            else:
+                                cell.alignment = Alignment(vertical="top")
                     else:
                         # NOISE Heading: Hide it completely
                         worksheet.row_dimensions[row_idx].hidden = True
@@ -138,6 +142,12 @@ class SubcontractorIO:
                     for col_idx in range(1, len(export_df.columns) + 1):
                         cell = worksheet.cell(row=row_idx, column=col_idx)
                         
+                        # Default top alignment, plus wrap for description
+                        if col_idx == 3:
+                            cell.alignment = Alignment(wrap_text=True, vertical="top")
+                        else:
+                            cell.alignment = Alignment(vertical="top")
+                            
                         if col_idx == 6: # Column F: 'Rate' -> Unlocked for input
                             cell.protection = Protection(locked=False)
                             cell.fill = input_fill
