@@ -1676,7 +1676,7 @@ class PBOQDialog(QDialog):
             return
         pkg_db_col = self.db_columns[pkg_display_col + 1]
         
-        dialog = PackageAdjudicatorDialog(file_path, pkg_db_col, self)
+        dialog = PackageAdjudicatorDialog(file_path, pkg_db_col, self.project_dir, self)
         dialog.exec()
 
     def get_package_items(self, pkg):

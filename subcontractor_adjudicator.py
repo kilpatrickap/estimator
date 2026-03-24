@@ -1,7 +1,8 @@
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QMessageBox, QInputDialog, QAbstractItemView, QCheckBox)
+                             QMessageBox, QInputDialog, QAbstractItemView, QCheckBox, QFileDialog)
+import os
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 
@@ -18,10 +19,11 @@ COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for all pricing columns (Re
 
 
 class PackageAdjudicatorDialog(QDialog):
-    def __init__(self, pboq_db_path, pkg_db_col, parent=None):
+    def __init__(self, pboq_db_path, pkg_db_col, project_dir, parent=None):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
         self.pkg_db_col = pkg_db_col
+        self.project_dir = project_dir
         self.setWindowTitle("Subcontractor Package Adjudicator")
         self.resize(1250, 680) # Optimized default for 1366x768
         self.setMinimumSize(900, 500)
@@ -61,6 +63,15 @@ class PackageAdjudicatorDialog(QDialog):
         self.remove_subbee_btn = QPushButton("Remove Subcontractor")
         self.remove_subbee_btn.clicked.connect(self._remove_subcontractor)
         top_bar.addWidget(self.remove_subbee_btn)
+        
+        # Add Excel IO Buttons
+        self.export_rfq_btn = QPushButton("Export RFQ (Excel)")
+        self.export_rfq_btn.clicked.connect(self._export_rfq)
+        top_bar.addWidget(self.export_rfq_btn)
+
+        self.import_rfq_btn = QPushButton("Import RFQ (Excel)")
+        self.import_rfq_btn.clicked.connect(self._import_rfq)
+        top_bar.addWidget(self.import_rfq_btn)
         
         layout.addLayout(top_bar)
 
@@ -378,6 +389,75 @@ class PackageAdjudicatorDialog(QDialog):
             except sqlite3.Error:
                 pass
             self._build_table(quotes)
+
+    # ── Excel RFQ Import/Export ──────────────────────────────────
+    
+    def _export_rfq(self):
+        pkg = self.package_combo.currentText()
+        if pkg == "-- Select Package --" or not pkg:
+            QMessageBox.warning(self, "Select Package", "Please select a work package to export.")
+            return
+
+        if not self.items_data:
+            QMessageBox.warning(self, "Empty Package", "No items to export for this package.")
+            return
+
+        # Automatically construct the target path: project_dir/RFQs/[Package Name]/RFQ_[Package Name].xlsx
+        safe_pkg_name = pkg.replace('/', '_').replace('\\', '_')
+        rfq_base_folder = os.path.join(self.project_dir, "RFQs")
+        pkg_folder = os.path.join(rfq_base_folder, safe_pkg_name)
+        
+        try:
+            os.makedirs(pkg_folder, exist_ok=True)
+            file_path = os.path.join(pkg_folder, f"RFQ_{safe_pkg_name}.xlsx")
+            
+            from subcontractor_io import SubcontractorIO
+            SubcontractorIO.export_rfq(self.pboq_db_path, pkg, file_path, self.items_data)
+            
+            if hasattr(self.parent(), 'main_window') and hasattr(self.parent().main_window, 'statusBar'):
+                self.parent().main_window.statusBar().showMessage(f"Target RFQ exported: {file_path}", 4000)
+            
+            reply = QMessageBox.information(self, "Export Successful", 
+                                         f"RFQ Template generated successfully at:\n{file_path}\n\nWould you like to open the folder?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply == QMessageBox.StandardButton.Yes:
+                import subprocess
+                # Use platform agnostic open if possible, here using windows explorer
+                if os.name == 'nt':
+                    subprocess.run(['explorer', pkg_folder])
+        except Exception as e:
+            QMessageBox.critical(self, "Export Error", f"Failed to generate Excel RFQ:\n{e}")
+
+    def _import_rfq(self):
+        pkg = self.package_combo.currentText()
+        if pkg == "-- Select Package --" or not pkg:
+            QMessageBox.warning(self, "Select Package", "Please select a work package first.")
+            return
+
+        file_path, _ = QFileDialog.getOpenFileName(self, "Import RFQ", "", "Excel Files (*.xlsx *.xls)")
+        if not file_path:
+            return
+
+        name, ok = QInputDialog.getText(self, "Subcontractor Name", 
+                                        "Enter the name of the subcontractor who provided this quote:")
+        if not ok or not name.strip():
+            return
+            
+        name = name.strip()
+
+        try:
+            from subcontractor_io import SubcontractorIO
+            updates = SubcontractorIO.import_rfq(self.pboq_db_path, pkg, file_path, name)
+            
+            if updates > 0:
+                QMessageBox.information(self, "Import Successful", 
+                                      f"Successfully imported {updates} rates from {name}.\n\nRefreshing table...")
+                self._on_package_selected() # Refresh the view
+            else:
+                 QMessageBox.information(self, "No Quotes Imported", 
+                                      f"No valid quotes were found in the uploaded file for package '{pkg}'.")
+        except Exception as e:
+            QMessageBox.critical(self, "Import Error", f"Failed to import RFQ quotes:\n{str(e)}")
 
     # ── Quote Editing & Persistence ───────────────────────────────
 
