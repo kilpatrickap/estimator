@@ -24,14 +24,18 @@ class SubcontractorIO:
                 "Qty": row.get('qty', ''),
                 "Unit": row.get('unit', ''),
                 "Rate": "", # Left blank for the subbee
-                "Amount": "" # Can be formula or blank
+                "Amount": "", # Can be formula or blank
+                "_is_target": row.get('is_target_pkg', False) # internal flag for pandas iteration
             })
 
         df = pd.DataFrame(data)
 
         # 2. Save directly via pandas to openpyxl writer to manipulate styles
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            df.to_excel(writer, index=False, sheet_name="RFQ")
+            # We don't want to export our internal flag to the final Excel file
+            export_df = df.drop(columns=['_is_target'])
+            export_df.to_excel(writer, index=False, sheet_name="RFQ")
+            
             workbook = writer.book
             worksheet = writer.sheets["RFQ"]
 
@@ -43,11 +47,12 @@ class SubcontractorIO:
             # Colors and Styles
             header_fill = PatternFill(start_color="1F497D", end_color="1F497D", fill_type="solid")
             header_font = Font(color="FFFFFF", bold=True)
-            readonly_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+            readonly_fill = PatternFill(start_color="F9F9F9", end_color="F9F9F9", fill_type="solid") # subtle gray
+            heading_fill = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid") # light green (like PBOQ)
             input_fill = PatternFill(start_color="FFFFE0", end_color="FFFFE0", fill_type="solid") # Light yellow
 
             # Format Headers
-            for col in range(1, len(df.columns) + 1):
+            for col in range(1, len(export_df.columns) + 1):
                 cell = worksheet.cell(row=1, column=col)
                 cell.fill = header_fill
                 cell.font = header_font
@@ -56,30 +61,55 @@ class SubcontractorIO:
             # 4. Hide Internal ID column (Column A / 1)
             worksheet.column_dimensions['A'].hidden = True
 
-            # 5. Lock and format rows
+            # 5. Lock and format rows purely based on our 3 Rules
             for row_idx in range(2, len(df) + 2):
-                for col_idx in range(1, len(df.columns) + 1):
-                    cell = worksheet.cell(row=row_idx, column=col_idx)
-                    
-                    if col_idx == 6: # Column F: 'Rate' -> Unlocked for input
-                        cell.protection = Protection(locked=False)
-                        cell.fill = input_fill
-                    elif col_idx == 7: # Column G: 'Amount' -> Formula
+                df_row = df.iloc[row_idx - 2]
+                qty = df_row['Qty']
+                is_target = df_row['_is_target']
+                
+                # Rule 1: Structural Rows (Headings, Notes, Blanks) -> Qty is empty
+                if not str(qty).strip() or str(qty).lower() == 'nan':
+                    # It's a heading/note. Make it visible, give it a slight heading color, lock everything
+                    for col_idx in range(1, len(export_df.columns) + 1):
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
                         cell.protection = Protection(locked=True)
-                        cell.fill = readonly_fill
-                        # qty * rate
-                        cell.value = f"=IF(ISNUMBER(D{row_idx})*ISNUMBER(F{row_idx}), D{row_idx}*F{row_idx}, \"\")"
-                        cell.number_format = '#,##0.00'
-                    else:
+                        cell.fill = heading_fill
+                        
+                        # Extra wide description for headings
+                        if col_idx == 3: cell.font = Font(bold=True)
+                        
+                # Rule 2: Target Package Items -> Has Qty AND is Target
+                elif is_target:
+                    for col_idx in range(1, len(export_df.columns) + 1):
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
+                        
+                        if col_idx == 6: # Column F: 'Rate' -> Unlocked for input
+                            cell.protection = Protection(locked=False)
+                            cell.fill = input_fill
+                        elif col_idx == 7: # Column G: 'Amount' -> Formula
+                            cell.protection = Protection(locked=True)
+                            cell.fill = readonly_fill
+                            # qty * rate
+                            cell.value = f"=IF(ISNUMBER(D{row_idx})*ISNUMBER(F{row_idx}), D{row_idx}*F{row_idx}, \"\")"
+                            cell.number_format = '#,##0.00'
+                        else:
+                            cell.protection = Protection(locked=True)
+                            cell.fill = readonly_fill
+                            
+                # Rule 3: Other Trades' Items -> Has Qty BUT is NOT Target
+                else:
+                    # Hide the entire row
+                    worksheet.row_dimensions[row_idx].hidden = True
+                    for col_idx in range(1, len(export_df.columns) + 1):
+                        cell = worksheet.cell(row=row_idx, column=col_idx)
                         cell.protection = Protection(locked=True)
-                        cell.fill = readonly_fill
 
-            # Adjust Widths for better viewing
+            # 6. Adjust Widths for better viewing
             worksheet.column_dimensions['B'].width = 10 # Ref
-            worksheet.column_dimensions['C'].width = 60 # Description
-            worksheet.column_dimensions['D'].width = 10 # Qty
+            worksheet.column_dimensions['C'].width = 75 # Description (wider for headings)
+            worksheet.column_dimensions['D'].width = 12 # Qty
             worksheet.column_dimensions['E'].width = 10 # Unit
-            worksheet.column_dimensions['F'].width = 15 # Rate
+            worksheet.column_dimensions['F'].width = 18 # Rate
             worksheet.column_dimensions['G'].width = 20 # Amount
 
     @staticmethod

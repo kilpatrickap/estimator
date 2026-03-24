@@ -398,8 +398,15 @@ class PackageAdjudicatorDialog(QDialog):
             QMessageBox.warning(self, "Select Package", "Please select a work package to export.")
             return
 
-        if not self.items_data:
-            QMessageBox.warning(self, "Empty Package", "No items to export for this package.")
+        # Grab the FULL structured PBOQ just for export
+        if hasattr(self.parent(), 'get_full_pboq_for_export'):
+            full_export_data = self.parent().get_full_pboq_for_export(pkg)
+        else:
+            QMessageBox.critical(self, "Export Error", "Parent viewer does not support full export.")
+            return
+
+        if not full_export_data:
+            QMessageBox.warning(self, "Empty Export", "No data available to export.")
             return
 
         # Automatically construct the target path: project_dir/RFQs/[Package Name]/RFQ_[Package Name].xlsx
@@ -412,7 +419,7 @@ class PackageAdjudicatorDialog(QDialog):
             file_path = os.path.join(pkg_folder, f"RFQ_{safe_pkg_name}.xlsx")
             
             from subcontractor_io import SubcontractorIO
-            SubcontractorIO.export_rfq(self.pboq_db_path, pkg, file_path, self.items_data)
+            SubcontractorIO.export_rfq(self.pboq_db_path, pkg, file_path, full_export_data)
             
             if hasattr(self.parent(), 'main_window') and hasattr(self.parent().main_window, 'statusBar'):
                 self.parent().main_window.statusBar().showMessage(f"Target RFQ exported: {file_path}", 4000)

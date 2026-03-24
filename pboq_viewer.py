@@ -1715,6 +1715,49 @@ class PBOQDialog(QDialog):
                     })
         return items
 
+    def get_full_pboq_for_export(self, target_pkg):
+        """
+        Extracts the entire PBOQ structure for 'Filtered Full BOQ' Excel export.
+        Returns a list of dicts for ALL rows. Each dict includes 'is_target_pkg'.
+        """
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        ref_col = m.get('ref', -1)
+        desc_col = m.get('desc', -1)
+        qty_col = m.get('qty', -1)
+        unit_col = m.get('unit', -1)
+        
+        items = []
+        if pkg_col < 0: return items
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            for r in range(table.rowCount()):
+                pkg_item = table.item(r, pkg_col)
+                current_pkg = pkg_item.text().strip() if pkg_item else ""
+                
+                row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                ref = table.item(r, ref_col).text().strip() if ref_col >= 0 and table.item(r, ref_col) else ""
+                desc = table.item(r, desc_col).text().strip() if desc_col >= 0 and table.item(r, desc_col) else ""
+                qty = table.item(r, qty_col).text().strip() if qty_col >= 0 and table.item(r, qty_col) else ""
+                unit = table.item(r, unit_col).text().strip() if unit_col >= 0 and table.item(r, unit_col) else ""
+                rate = table.item(r, m['bill_rate']).text().strip() if m['bill_rate'] >= 0 and table.item(r, m['bill_rate']) else ""
+                
+                is_target = (current_pkg == target_pkg)
+                
+                items.append({
+                    'rowid': row_id,
+                    'ref': ref,
+                    'desc': desc,
+                    'qty': qty,
+                    'unit': unit,
+                    'bill_rate': rate,
+                    'is_target_pkg': is_target
+                })
+        return items
+
     def apply_winning_subcontractor(self, pkg, winner_name, winning_rates):
         """Called by PackageAdjudicatorDialog to apply chosen rates to PBOQ."""
         m = self.tools_pane.get_mappings()
