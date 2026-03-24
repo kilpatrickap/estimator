@@ -17,15 +17,21 @@ class SubcontractorIO:
         # 1. Prepare Data for Pandas DataFrame
         data = []
         for row in items_data:
+            qty_raw = row.get('qty', '')
+            try:
+                qty_val = float(str(qty_raw).replace(',', '').strip())
+            except ValueError:
+                qty_val = qty_raw # Leave as empty string or original text if not a number
+                
             data.append({
-                "Internal_ID": row.get('rowid', ''), # The critical hidden key
+                "Internal_ID": row.get('rowid', ''), 
                 "Ref": row.get('ref', ''),
                 "Description": row.get('desc', ''),
-                "Qty": row.get('qty', ''),
+                "Qty": qty_val, # Now a true float
                 "Unit": row.get('unit', ''),
-                "Rate": "", # Left blank for the subbee
-                "Amount": "", # Can be formula or blank
-                "_is_target": row.get('is_target_pkg', False) # internal flag for pandas iteration
+                "Rate": "", 
+                "Amount": "", 
+                "_is_target": row.get('is_target_pkg', False) 
             })
 
         df = pd.DataFrame(data)
@@ -151,11 +157,12 @@ class SubcontractorIO:
                         if col_idx == 6: # Column F: 'Rate' -> Unlocked for input
                             cell.protection = Protection(locked=False)
                             cell.fill = input_fill
+                            cell.number_format = '#,##0.00'
                         elif col_idx == 7: # Column G: 'Amount' -> Formula
                             cell.protection = Protection(locked=True)
                             cell.fill = readonly_fill
-                            # qty * rate
-                            cell.value = f"=IF(ISNUMBER(D{row_idx})*ISNUMBER(F{row_idx}), D{row_idx}*F{row_idx}, \"\")"
+                            # Simplified, foolproof formula: If Rate is blank, show blank. Else, multiply Qty * Rate.
+                            cell.value = f'=IF(F{row_idx}="", "", D{row_idx}*F{row_idx})'
                             cell.number_format = '#,##0.00'
                         else:
                             cell.protection = Protection(locked=True)

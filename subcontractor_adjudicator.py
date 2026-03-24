@@ -409,14 +409,18 @@ class PackageAdjudicatorDialog(QDialog):
             QMessageBox.warning(self, "Empty Export", "No data available to export.")
             return
 
-        # Automatically construct the target path: project_dir/RFQs/[Package Name]/RFQ_[Package Name].xlsx
+        # Extract the BOQ name from the database path (e.g., "Bill A.db" -> "Bill A")
+        boq_name = os.path.splitext(os.path.basename(self.pboq_db_path))[0]
+        safe_boq_name = boq_name.replace('/', '_').replace('\\', '_')
         safe_pkg_name = pkg.replace('/', '_').replace('\\', '_')
+        
+        # Automatically construct the target path: project_dir/RFQs/[Package Name]/[BOQ Name]_RFQ_[Package Name].xlsx
         rfq_base_folder = os.path.join(self.project_dir, "RFQs")
         pkg_folder = os.path.join(rfq_base_folder, safe_pkg_name)
         
         try:
             os.makedirs(pkg_folder, exist_ok=True)
-            file_path = os.path.join(pkg_folder, f"RFQ_{safe_pkg_name}.xlsx")
+            file_path = os.path.join(pkg_folder, f"{safe_boq_name}_RFQ_{safe_pkg_name}.xlsx")
             
             from subcontractor_io import SubcontractorIO
             SubcontractorIO.export_rfq(self.pboq_db_path, pkg, file_path, full_export_data)
