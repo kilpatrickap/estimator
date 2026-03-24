@@ -61,22 +61,53 @@ class SubcontractorIO:
             # 4. Hide Internal ID column (Column A / 1)
             worksheet.column_dimensions['A'].hidden = True
 
-            # 5. Lock and format rows purely based on our 3 Rules
+            # --- PRE-PASS: Identify Relevant Headings ---
+            # A heading is "relevant" if there is at least one target item between it and the next heading
+            relevant_headings = set()
+            current_heading_block = []
+            
             for row_idx in range(2, len(df) + 2):
                 df_row = df.iloc[row_idx - 2]
                 qty = df_row['Qty']
                 is_target = df_row['_is_target']
                 
+                is_heading = not str(qty).strip() or str(qty).lower() == 'nan'
+                
+                if is_heading:
+                    current_heading_block.append(row_idx)
+                else:
+                    if is_target:
+                        # We hit a target item! All headings collected since the last target are relevant
+                        for h_idx in current_heading_block:
+                            relevant_headings.add(h_idx)
+                        current_heading_block = [] # Reset block because they are already marked
+                    # If it's a non-target item (e.g. concrete qty), we just keep going, waiting for a target or another heading
+                    
+            # --- MAIN EXPORT PASS ---
+            for row_idx in range(2, len(df) + 2):
+                df_row = df.iloc[row_idx - 2]
+                qty = df_row['Qty']
+                is_target = df_row['_is_target']
+                
+                is_heading = not str(qty).strip() or str(qty).lower() == 'nan'
+                
                 # Rule 1: Structural Rows (Headings, Notes, Blanks) -> Qty is empty
-                if not str(qty).strip() or str(qty).lower() == 'nan':
-                    # It's a heading/note. Make it visible, give it a slight heading color, lock everything
-                    for col_idx in range(1, len(export_df.columns) + 1):
-                        cell = worksheet.cell(row=row_idx, column=col_idx)
-                        cell.protection = Protection(locked=True)
-                        cell.fill = heading_fill
-                        
-                        # Extra wide description for headings
-                        if col_idx == 3: cell.font = Font(bold=True)
+                if is_heading:
+                    if row_idx in relevant_headings:
+                        # It's a RELEVANT heading/note. Make it visible, give it a slight heading color, lock everything
+                        for col_idx in range(1, len(export_df.columns) + 1):
+                            cell = worksheet.cell(row=row_idx, column=col_idx)
+                            cell.protection = Protection(locked=True)
+                            cell.fill = heading_fill
+                            
+                            # Extra wide description for headings
+                            if col_idx == 3: cell.font = Font(bold=True)
+                    else:
+                        # NOISE Heading: Hide it completely
+                        worksheet.row_dimensions[row_idx].hidden = True
+                        for col_idx in range(1, len(export_df.columns) + 1):
+                            cell = worksheet.cell(row=row_idx, column=col_idx)
+                            cell.protection = Protection(locked=True)
                         
                 # Rule 2: Target Package Items -> Has Qty AND is Target
                 elif is_target:
