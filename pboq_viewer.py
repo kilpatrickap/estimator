@@ -1604,6 +1604,7 @@ class PBOQDialog(QDialog):
         """Called by PackageAdjudicatorDialog to get BOQ items for a specific package."""
         m = self.tools_pane.get_mappings()
         pkg_col = m.get('sub_package', -1)
+        ref_col = m.get('ref', -1)
         desc_col = m.get('desc', -1)
         qty_col = m.get('qty', -1)
         unit_col = m.get('unit', -1)
@@ -1619,12 +1620,14 @@ class PBOQDialog(QDialog):
                 pkg_item = table.item(r, pkg_col)
                 if pkg_item and pkg_item.text().strip() == pkg:
                     row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    ref = table.item(r, ref_col).text().strip() if ref_col >= 0 and table.item(r, ref_col) else ""
                     desc = table.item(r, desc_col).text().strip() if desc_col >= 0 and table.item(r, desc_col) else ""
                     qty = table.item(r, qty_col).text().strip() if qty_col >= 0 and table.item(r, qty_col) else ""
                     unit = table.item(r, unit_col).text().strip() if unit_col >= 0 and table.item(r, unit_col) else ""
                     
                     items.append({
                         'rowid': row_id,
+                        'ref': ref,
                         'desc': desc,
                         'qty': qty,
                         'unit': unit
@@ -1637,6 +1640,7 @@ class PBOQDialog(QDialog):
         pkg_col = m.get('sub_package', -1)
         name_col = m.get('sub_name', -1)
         rate_col = m.get('sub_rate', -1)
+        markup_col = m.get('sub_markup', -1)
         
         if pkg_col < 0 or name_col < 0 or rate_col < 0:
             QMessageBox.warning(self, "Missing Columns", "Please map Subbee Package, Name, and Rate columns first.")
@@ -1644,8 +1648,26 @@ class PBOQDialog(QDialog):
             
         rate_dict = dict(winning_rates) # rowid -> rate
         
+        # Look up existing markup for this package from DB
+        markup_str = ""
+        file_path = self.pboq_file_selector.currentData()
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT SubbeeMarkup FROM pboq_items WHERE SubbeePackage = ? AND SubbeeMarkup IS NOT NULL AND SubbeeMarkup != '' LIMIT 1", (pkg,))
+            res = cursor.fetchone()
+            if res and res[0]:
+                try:
+                    markup_str = "{:,.2f}%".format(float(str(res[0]).replace('%', '').replace(',', '')))
+                except:
+                    markup_str = str(res[0])
+            conn.close()
+        except:
+            pass
+        
         name_updates = []
         rate_updates = []
+        markup_updates = []
         
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -1676,9 +1698,20 @@ class PBOQDialog(QDialog):
                         rate_item.setText(f_rate)
                         rate_updates.append((row_id, f_rate))
                         
+                        # Write markup if available and column mapped
+                        if markup_col >= 0 and markup_str:
+                            mk_item = table.item(r, markup_col)
+                            if not mk_item:
+                                mk_item = QTableWidgetItem()
+                                table.setItem(r, markup_col, mk_item)
+                            mk_item.setText(markup_str)
+                            markup_updates.append((row_id, markup_str))
+                        
         if name_updates:
             self._persist_updates(name_col, name_updates)
             self._persist_updates(rate_col, rate_updates)
+            if markup_updates:
+                self._persist_updates(markup_col, markup_updates)
             self._update_column_headers()
             self._update_stats()
             QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.")

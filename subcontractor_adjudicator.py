@@ -3,13 +3,23 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
                              QMessageBox, QInputDialog, QAbstractItemView)
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QBrush
+
+# Number of fixed (read-only) base columns: Ref, Description, Qty, Unit
+BASE_COL_COUNT = 4
+
+# Colors for comparison highlighting
+COLOR_LOWEST = QColor("#c8e6c9")   # Light green — best rate
+COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
+COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
+
 
 class PackageAdjudicatorDialog(QDialog):
     def __init__(self, pboq_db_path, parent=None):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
         self.setWindowTitle("Subcontractor Package Adjudicator")
-        self.setMinimumSize(800, 500)
+        self.setMinimumSize(900, 550)
         self._init_ui()
         self._load_packages()
 
@@ -28,31 +38,43 @@ class PackageAdjudicatorDialog(QDialog):
         self.add_subbee_btn = QPushButton("Add Subcontractor")
         self.add_subbee_btn.clicked.connect(self._add_subcontractor)
         top_bar.addWidget(self.add_subbee_btn)
+
+        self.remove_subbee_btn = QPushButton("Remove Subcontractor")
+        self.remove_subbee_btn.clicked.connect(self._remove_subcontractor)
+        top_bar.addWidget(self.remove_subbee_btn)
         
         layout.addLayout(top_bar)
 
-        # Table
+        # Main Table
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Description", "Qty", "Unit"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnCount(BASE_COL_COUNT)
+        self.table.setHorizontalHeaderLabels(["Ref/Item", "Description", "Qty", "Unit"])
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.table.setAlternatingRowColors(True)
         self.table.itemChanged.connect(self._on_item_changed)
         layout.addWidget(self.table)
         
         # Summary Row (totals)
         self.summary_table = QTableWidget()
-        self.summary_table.setColumnCount(3)
+        self.summary_table.setColumnCount(BASE_COL_COUNT)
         self.summary_table.setRowCount(1)
-        self.summary_table.setFixedHeight(60)
+        self.summary_table.setFixedHeight(50)
         self.summary_table.horizontalHeader().hide()
         self.summary_table.verticalHeader().hide()
-        self.summary_table.setItem(0, 0, QTableWidgetItem("PACKAGE TOTAL:"))
-        self.summary_table.item(0, 0).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        font = self.summary_table.item(0, 0).font()
+
+        lbl_item = QTableWidgetItem("PACKAGE TOTAL:")
+        lbl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        font = lbl_item.font()
         font.setBold(True)
-        self.summary_table.item(0, 0).setFont(font)
-        
+        lbl_item.setFont(font)
+        self.summary_table.setItem(0, 0, lbl_item)
+        # Make first BASE_COL_COUNT cells non-editable in summary
+        for c in range(1, BASE_COL_COUNT):
+            it = QTableWidgetItem("")
+            it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summary_table.setItem(0, c, it)
+
         self.summary_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         layout.addWidget(self.summary_table)
 
@@ -66,16 +88,18 @@ class PackageAdjudicatorDialog(QDialog):
         layout.addLayout(bottom_bar)
 
         # State vars
-        self.items_data = [] # list of dicts: rowid, desc, qty, unit
-        self.subcontractors = [] # list of names
+        self.items_data = []      # list of dicts: rowid, ref, desc, qty, unit
+        self.subcontractors = []  # list of names
 
     def _sync_table_widths(self):
-        for i in range(1, self.table.columnCount()):
+        for i in range(self.table.columnCount()):
             self.summary_table.setColumnWidth(i, self.table.columnWidth(i))
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_table_widths()
+
+    # ── Data Loading ──────────────────────────────────────────────
 
     def _load_packages(self):
         self.package_combo.blockSignals(True)
@@ -102,14 +126,11 @@ class PackageAdjudicatorDialog(QDialog):
             self._update_headers()
             return
             
-        # Extract columns logic requires finding mapped desc/qty/unit, but here we'll just read db columns directly via PBOQDialog knowledge, or dynamically.
-        # Actually, pboq_items columns: Sheet, Column 1..N. Since formatting table maps row,col -> we can't easily query desc if we don't know the column. 
-        # But we can query the rowid. For now, let's fetch all rows for the package and assume standard column order if possible, or query the view.
-        # Wait, the parent (PBOQDialog) has the mappings. We can ask parent for data.
+        # Get items from parent PBOQ dialog
         if hasattr(self.parent(), 'get_package_items'):
             self.items_data = self.parent().get_package_items(pkg)
         else:
-            self.items_data = [] # fallback if not implemented
+            self.items_data = []
         
         # Load existing quotes from DB
         self.subcontractors = []
@@ -129,25 +150,30 @@ class PackageAdjudicatorDialog(QDialog):
 
         self._build_table(quotes)
 
+    # ── Table Construction ────────────────────────────────────────
+
     def _build_table(self, quotes):
         self.table.blockSignals(True)
         self.table.setRowCount(len(self.items_data))
         self._update_headers()
         
         for r, d in enumerate(self.items_data):
-            self.table.setItem(r, 0, QTableWidgetItem(str(d.get('desc', ''))))
-            self.table.setItem(r, 1, QTableWidgetItem(str(d.get('qty', ''))))
-            self.table.setItem(r, 2, QTableWidgetItem(str(d.get('unit', ''))))
+            # Base columns: Ref, Description, Qty, Unit
+            self.table.setItem(r, 0, QTableWidgetItem(str(d.get('ref', ''))))
+            self.table.setItem(r, 1, QTableWidgetItem(str(d.get('desc', ''))))
+            self.table.setItem(r, 2, QTableWidgetItem(str(d.get('qty', ''))))
+            self.table.setItem(r, 3, QTableWidgetItem(str(d.get('unit', ''))))
             
-            # Make first 3 cols read-only
-            for c in range(3):
+            # Make base columns read-only
+            for c in range(BASE_COL_COUNT):
                 item = self.table.item(r, c)
-                if item: item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                if item:
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
             # Fill quotes
             rid = d.get('rowid')
-            for c, sub in enumerate(self.subcontractors):
-                col = c + 3
+            for s_idx, sub in enumerate(self.subcontractors):
+                col = BASE_COL_COUNT + s_idx
                 rate = quotes.get(sub, {}).get(rid, "")
                 if rate:
                     self.table.setItem(r, col, QTableWidgetItem(f"{rate:,.2f}"))
@@ -156,15 +182,19 @@ class PackageAdjudicatorDialog(QDialog):
         
         self.table.blockSignals(False)
         self._calculate_totals()
+        self._apply_comparison_colors()
 
     def _update_headers(self):
-        base = ["Description", "Qty", "Unit"]
-        self.table.setColumnCount(len(base) + len(self.subcontractors))
-        self.summary_table.setColumnCount(len(base) + len(self.subcontractors))
+        base = ["Ref/Item", "Description", "Qty", "Unit"]
+        total_cols = BASE_COL_COUNT + len(self.subcontractors)
+        self.table.setColumnCount(total_cols)
+        self.summary_table.setColumnCount(total_cols)
         
         headers = base + self.subcontractors
         self.table.setHorizontalHeaderLabels(headers)
         self._sync_table_widths()
+
+    # ── Subcontractor Management ──────────────────────────────────
 
     def _add_subcontractor(self):
         pkg = self.package_combo.currentText()
@@ -181,24 +211,71 @@ class PackageAdjudicatorDialog(QDialog):
             self.subcontractors.append(name)
             self._update_headers()
             
-            # add empty column
+            # Add empty column cells
             self.table.blockSignals(True)
-            col = len(self.subcontractors) + 2
+            col = BASE_COL_COUNT + len(self.subcontractors) - 1
             for r in range(self.table.rowCount()):
                 self.table.setItem(r, col, QTableWidgetItem(""))
             self.table.blockSignals(False)
             self._calculate_totals()
 
+    def _remove_subcontractor(self):
+        pkg = self.package_combo.currentText()
+        if not self.subcontractors:
+            QMessageBox.warning(self, "No Subcontractors", "No subcontractors to remove.")
+            return
+            
+        name, ok = QInputDialog.getItem(self, "Remove Subcontractor", 
+                                        "Select subcontractor to remove:", 
+                                        self.subcontractors, 0, False)
+        if ok and name:
+            reply = QMessageBox.question(self, "Confirm Removal", 
+                                         f"Remove '{name}' and all their quotes for this package?",
+                                         QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            if reply != QMessageBox.StandardButton.Yes:
+                return
+
+            # Delete from database
+            try:
+                conn = sqlite3.connect(self.pboq_db_path)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM subcontractor_quotes WHERE package_name=? AND subcontractor_name=?", (pkg, name))
+                conn.commit()
+                conn.close()
+            except sqlite3.Error as e:
+                QMessageBox.critical(self, "Error", f"Failed to remove quotes: {e}")
+                return
+
+            # Rebuild table
+            self.subcontractors.remove(name)
+            # Reload quotes for remaining subcontractors
+            quotes = {}
+            try:
+                conn = sqlite3.connect(self.pboq_db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT subcontractor_name, row_idx, rate FROM subcontractor_quotes WHERE package_name=?", (pkg,))
+                for sub_name, rid, rate in cursor.fetchall():
+                    if sub_name not in quotes:
+                        quotes[sub_name] = {}
+                    quotes[sub_name][rid] = rate
+                conn.close()
+            except sqlite3.Error:
+                pass
+            self._build_table(quotes)
+
+    # ── Quote Editing & Persistence ───────────────────────────────
+
     def _on_item_changed(self, item):
         col = item.column()
-        if col >= 3: # Quote column
+        if col >= BASE_COL_COUNT:  # Quote column
             self._save_quote(item)
             self._calculate_totals()
+            self._apply_comparison_colors()
 
     def _save_quote(self, item):
         r = item.row()
         c = item.column()
-        sub_name = self.subcontractors[c - 3]
+        sub_name = self.subcontractors[c - BASE_COL_COUNT]
         rowid = self.items_data[r]['rowid']
         pkg = self.package_combo.currentText()
         
@@ -212,7 +289,6 @@ class PackageAdjudicatorDialog(QDialog):
             conn = sqlite3.connect(self.pboq_db_path)
             cursor = conn.cursor()
             
-            # Check if exists
             cursor.execute("SELECT id FROM subcontractor_quotes WHERE package_name=? AND row_idx=? AND subcontractor_name=?", (pkg, rowid, sub_name))
             res = cursor.fetchone()
             if res:
@@ -225,12 +301,15 @@ class PackageAdjudicatorDialog(QDialog):
         except sqlite3.Error as e:
             print(f"Error saving quote: {e}")
 
+    # ── Totals & Comparison ───────────────────────────────────────
+
     def _calculate_totals(self):
-        for c, sub_name in enumerate(self.subcontractors):
-            col = c + 3
+        totals = []
+        for s_idx, sub_name in enumerate(self.subcontractors):
+            col = BASE_COL_COUNT + s_idx
             total = 0.0
             for r in range(self.table.rowCount()):
-                qty_txt = self.table.item(r, 1).text().replace(',', '')
+                qty_txt = self.table.item(r, 2).text().replace(',', '') if self.table.item(r, 2) else ""
                 rate_txt = self.table.item(r, col).text().replace(',', '') if self.table.item(r, col) else ""
                 
                 try:
@@ -240,11 +319,79 @@ class PackageAdjudicatorDialog(QDialog):
                 except ValueError:
                     pass
             
-            self.summary_table.setItem(0, col, QTableWidgetItem(f"{total:,.2f}"))
-            font = self.summary_table.item(0, col).font()
+            totals.append(total)
+            
+            total_item = QTableWidgetItem(f"{total:,.2f}")
+            font = total_item.font()
             font.setBold(True)
-            self.summary_table.item(0, col).setFont(font)
-            self.summary_table.item(0, col).setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            total_item.setFont(font)
+            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summary_table.setItem(0, col, total_item)
+
+        # Highlight lowest total in green
+        if len(totals) > 1:
+            non_zero = [t for t in totals if t > 0]
+            if non_zero:
+                min_total = min(non_zero)
+                for s_idx, total in enumerate(totals):
+                    col = BASE_COL_COUNT + s_idx
+                    item = self.summary_table.item(0, col)
+                    if item:
+                        if total == min_total and total > 0:
+                            item.setForeground(COLOR_TOTAL_BEST)
+                        else:
+                            item.setForeground(Qt.GlobalColor.black)
+
+    def _apply_comparison_colors(self):
+        """Color-code the lowest rate per row (green) and highest (red)."""
+        if len(self.subcontractors) < 2:
+            return
+
+        for r in range(self.table.rowCount()):
+            rates = []
+            for s_idx in range(len(self.subcontractors)):
+                col = BASE_COL_COUNT + s_idx
+                item = self.table.item(r, col)
+                txt = item.text().replace(',', '') if item else ""
+                try:
+                    val = float(txt) if txt else None
+                except ValueError:
+                    val = None
+                rates.append(val)
+
+            # Filter to non-zero, non-None values
+            valid_rates = [v for v in rates if v is not None and v > 0]
+            if len(valid_rates) < 2:
+                # Clear any prior coloring if not enough to compare
+                for s_idx in range(len(self.subcontractors)):
+                    col = BASE_COL_COUNT + s_idx
+                    item = self.table.item(r, col)
+                    if item:
+                        item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                continue
+
+            min_rate = min(valid_rates)
+            max_rate = max(valid_rates)
+
+            self.table.blockSignals(True)
+            for s_idx in range(len(self.subcontractors)):
+                col = BASE_COL_COUNT + s_idx
+                item = self.table.item(r, col)
+                if not item:
+                    continue
+                val = rates[s_idx]
+                if val is None or val == 0:
+                    item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                elif val == min_rate:
+                    item.setBackground(COLOR_LOWEST)
+                elif val == max_rate:
+                    item.setBackground(COLOR_HIGHEST)
+                else:
+                    item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+            self.table.blockSignals(False)
+
+    # ── Winner Selection ──────────────────────────────────────────
 
     def _select_winner(self):
         pkg = self.package_combo.currentText()
@@ -254,7 +401,7 @@ class PackageAdjudicatorDialog(QDialog):
             
         winner, ok = QInputDialog.getItem(self, "Select Winner", "Choose winning subcontractor for this package:", self.subcontractors, 0, False)
         if ok and winner:
-            col = self.subcontractors.index(winner) + 3
+            col = self.subcontractors.index(winner) + BASE_COL_COUNT
             winning_rates = []
             
             for r in range(self.table.rowCount()):
@@ -264,7 +411,7 @@ class PackageAdjudicatorDialog(QDialog):
                 if rate:
                     winning_rates.append((rowid, rate))
             
-            # tell parent to apply this to pboq_items
+            # Tell parent to apply this to pboq_items
             if hasattr(self.parent(), 'apply_winning_subcontractor'):
                 self.parent().apply_winning_subcontractor(pkg, winner, winning_rates)
                 
