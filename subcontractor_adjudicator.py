@@ -429,9 +429,9 @@ class PackageAdjudicatorDialog(QDialog):
                                          QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             if reply == QMessageBox.StandardButton.Yes:
                 import subprocess
-                # Use platform agnostic open if possible, here using windows explorer
                 if os.name == 'nt':
-                    subprocess.run(['explorer', pkg_folder])
+                    # /select, flag opens the folder AND highlights the specific file
+                    subprocess.run(['explorer', '/select,', os.path.normpath(file_path)])
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to generate Excel RFQ:\n{e}")
 
