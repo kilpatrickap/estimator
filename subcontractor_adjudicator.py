@@ -14,7 +14,7 @@ COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
 COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
 COLOR_BASE_COL = QColor("#e3f2fd")    # Very Light Blue for base columns
-COLOR_PRICE_COL = QColor("#fff3e0")   # Very Light Orange for all pricing columns (Ref & Sub)
+COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for all pricing columns (Ref & Sub)
 
 
 class PackageAdjudicatorDialog(QDialog):
