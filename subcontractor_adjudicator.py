@@ -13,7 +13,8 @@ COLOR_LOWEST = QColor("#c8e6c9")   # Light green — best rate
 COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
 COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
-COLOR_REF_COL = QColor("#e1f5fe") # Light Blue for reference columns
+COLOR_BASE_COL = QColor("#e3f2fd")    # Very Light Blue for base columns
+COLOR_PRICE_COL = QColor("#fff3e0")   # Very Light Orange for all pricing columns (Ref & Sub)
 
 
 class PackageAdjudicatorDialog(QDialog):
@@ -232,6 +233,13 @@ class PackageAdjudicatorDialog(QDialog):
             self.table.setItem(r, 2, QTableWidgetItem(str(d.get('qty', ''))))
             self.table.setItem(r, 3, QTableWidgetItem(str(d.get('unit', ''))))
             
+            # Apply light blue to base columns
+            for c in range(4):
+                item = self.table.item(r, c)
+                if item:
+                    item.setBackground(QBrush(COLOR_BASE_COL))
+                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
             rate_val = d.get('bill_rate', '')
             try:
                 rate_float = float(rate_val.replace(',', '')) if rate_val else 0.0
@@ -240,14 +248,9 @@ class PackageAdjudicatorDialog(QDialog):
                 rate_str = str(rate_val)
             
             ref_rate_item = QTableWidgetItem(rate_str)
-            ref_rate_item.setBackground(QBrush(COLOR_REF_COL))
+            ref_rate_item.setBackground(QBrush(COLOR_PRICE_COL))
             self.table.setItem(r, 4, ref_rate_item)
-            
-            # Make base columns read-only
-            for c in range(BASE_COL_COUNT):
-                item = self.table.item(r, c)
-                if item:
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            ref_rate_item.setFlags(ref_rate_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
             # Fill quotes and empty amounts
             rid = d.get('rowid')
@@ -258,13 +261,14 @@ class PackageAdjudicatorDialog(QDialog):
                 
                 rate_item = QTableWidgetItem(f"{rate:,.2f}" if rate else "")
                 rate_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                rate_item.setBackground(QBrush(COLOR_PRICE_COL)) # Same consistency color
                 self.table.setItem(r, col, rate_item)
                     
                 # Setup Amount Cell
                 amt_item = QTableWidgetItem("")
                 amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 amt_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                amt_item.setBackground(QBrush(QColor("#f5f5f5")))  # light gray background
+                amt_item.setBackground(QBrush(COLOR_PRICE_COL)) # Same consistency color
                 self.table.setItem(r, amt_col, amt_item)
         
         self.table.blockSignals(False)
@@ -320,10 +324,13 @@ class PackageAdjudicatorDialog(QDialog):
             col = BASE_COL_COUNT + ((len(self.subcontractors) - 1) * 2)
             amt_col = col + 1
             for r in range(self.table.rowCount()):
-                self.table.setItem(r, col, QTableWidgetItem(""))
+                rate_item = QTableWidgetItem("")
+                rate_item.setBackground(QBrush(COLOR_PRICE_COL))
+                self.table.setItem(r, col, rate_item)
+                
                 amt_item = QTableWidgetItem("")
                 amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                amt_item.setBackground(QBrush(QColor("#f5f5f5")))
+                amt_item.setBackground(QBrush(COLOR_PRICE_COL))
                 self.table.setItem(r, amt_col, amt_item)
             self.table.blockSignals(False)
             self._calculate_totals()
@@ -448,6 +455,15 @@ class PackageAdjudicatorDialog(QDialog):
             ref_rate = clean_float(ref_rate_item.text()) if ref_rate_item else 0.0
             ref_amt_total += (qty * ref_rate)
 
+        # Set summary background colors for base and pricing columns
+        for c in range(4):
+            it = self.summary_table.item(0, c)
+            if it: it.setBackground(QBrush(COLOR_BASE_COL))
+            
+        for c in range(4, self.summary_table.columnCount()):
+            itp = self.summary_table.item(0, c)
+            if itp: itp.setBackground(QBrush(COLOR_PRICE_COL))
+
         # Place Ref Total in column 4 (under Ref Rate) if desired, or just use it in the winner label
         if ref_amt_total > 0:
             it = self.summary_table.item(0, 4)
@@ -567,12 +583,12 @@ class PackageAdjudicatorDialog(QDialog):
             # Filter to non-zero, non-None values
             valid_rates = [v for v in rates if v is not None and v > 0]
             if len(valid_rates) < 2:
-                # Clear any prior coloring if not enough to compare
+                # Clear any prior coloring if not enough to compare (+ keep consistency color)
                 for s_idx in range(len(self.subcontractors)):
                     col = BASE_COL_COUNT + (s_idx * 2)
                     item = self.table.item(r, col)
                     if item:
-                        item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                        item.setBackground(QBrush(COLOR_PRICE_COL))
                 continue
 
             min_rate = min(valid_rates)
@@ -586,7 +602,7 @@ class PackageAdjudicatorDialog(QDialog):
                     continue
                 val = rates[s_idx]
                 if val is None or val == 0:
-                    item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                    item.setBackground(QBrush(COLOR_PRICE_COL))
                 elif val == min_rate:
                     item.setBackground(COLOR_LOWEST)
                 elif val == max_rate:
