@@ -372,7 +372,11 @@ class PBOQDialog(QDialog):
             return # Can't assign if no package exists
         
         # Query available quotes for this specific row and package
-        conn = sqlite3.connect(self.current_db_path)
+        db_path = self.pboq_file_selector.currentData()
+        if not db_path:
+            return
+            
+        conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
         try:
             cursor.execute("SELECT subcontractor_name, rate FROM subcontractor_quotes WHERE package_name=? AND row_idx=? AND rate > 0", (pkg, rowid))
