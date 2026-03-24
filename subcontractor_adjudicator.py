@@ -5,14 +5,15 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 
-# Number of fixed (read-only) base columns: Ref, Description, Qty, Unit
-BASE_COL_COUNT = 4
+# Number of fixed (read-only) base columns: Ref, Description, Qty, Unit, Ref Rate
+BASE_COL_COUNT = 5
 
 # Colors for comparison highlighting
 COLOR_LOWEST = QColor("#c8e6c9")   # Light green — best rate
 COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
 COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
+COLOR_REF_COL = QColor("#e1f5fe") # Light Blue for reference columns
 
 
 class PackageAdjudicatorDialog(QDialog):
@@ -65,7 +66,7 @@ class PackageAdjudicatorDialog(QDialog):
         # Main Table
         self.table = QTableWidget()
         self.table.setColumnCount(BASE_COL_COUNT)
-        self.table.setHorizontalHeaderLabels(["Ref/Item", "Description", "Qty", "Unit"])
+        self.table.setHorizontalHeaderLabels(["Ref/Item", "Description", "Qty", "Unit", "Est. Rate"])
         
         # UI Refinements: Adjustable columns and wrapping
         header = self.table.horizontalHeader()
@@ -118,10 +119,10 @@ class PackageAdjudicatorDialog(QDialog):
         font.setBold(True)
         lbl_item.setFont(font)
         lbl_item.setFlags(lbl_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-        self.summary_table.setItem(0, BASE_COL_COUNT - 1, lbl_item)
+        self.summary_table.setItem(0, 3, lbl_item) # Col 3 (Unit)
 
         # Fill remaining base cells
-        for c in [0, 2]: # Ref and Qty columns are empty
+        for c in [0, 2, 4]: # Ref, Qty, and Ref Rate columns are empty in summary for now
             it = QTableWidgetItem("")
             it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.summary_table.setItem(0, c, it)
@@ -138,8 +139,9 @@ class PackageAdjudicatorDialog(QDialog):
         layout.addLayout(bottom_bar)
 
         # State vars
-        self.items_data = []      # list of dicts: rowid, ref, desc, qty, unit
+        self.items_data = []      # list of dicts: rowid, ref, desc, qty, unit, bill_rate
         self.subcontractors = []  # list of names
+        self.current_winner_name = ""
 
     def _sync_table_widths(self):
         # Match vertical header width (row numbers)
@@ -225,11 +227,21 @@ class PackageAdjudicatorDialog(QDialog):
         self._update_headers()
         
         for r, d in enumerate(self.items_data):
-            # Base columns: Ref, Description, Qty, Unit
             self.table.setItem(r, 0, QTableWidgetItem(str(d.get('ref', ''))))
             self.table.setItem(r, 1, QTableWidgetItem(str(d.get('desc', ''))))
             self.table.setItem(r, 2, QTableWidgetItem(str(d.get('qty', ''))))
             self.table.setItem(r, 3, QTableWidgetItem(str(d.get('unit', ''))))
+            
+            rate_val = d.get('bill_rate', '')
+            try:
+                rate_float = float(rate_val.replace(',', '')) if rate_val else 0.0
+                rate_str = f"{rate_float:,.2f}" if rate_float != 0 else ""
+            except:
+                rate_str = str(rate_val)
+            
+            ref_rate_item = QTableWidgetItem(rate_str)
+            ref_rate_item.setBackground(QBrush(COLOR_REF_COL))
+            self.table.setItem(r, 4, ref_rate_item)
             
             # Make base columns read-only
             for c in range(BASE_COL_COUNT):
@@ -260,7 +272,7 @@ class PackageAdjudicatorDialog(QDialog):
         self._apply_comparison_colors()
 
     def _update_headers(self):
-        base = ["Ref/Item", "Description", "Qty", "Unit"]
+        base = ["Ref/Item", "Description", "Qty", "Unit", "Ref Rate (Bill)"]
         total_cols = BASE_COL_COUNT + (len(self.subcontractors) * 2)
         self.table.setColumnCount(total_cols)
         self.summary_table.setColumnCount(total_cols)
@@ -277,6 +289,7 @@ class PackageAdjudicatorDialog(QDialog):
         self.table.setColumnWidth(1, 400) # Description (keep wide)
         self.table.setColumnWidth(2, 60)  # Qty
         self.table.setColumnWidth(3, 50)  # Unit
+        self.table.setColumnWidth(4, 100) # Ref Rate
         
         for s_idx in range(len(self.subcontractors)):
             amt_col = BASE_COL_COUNT + (s_idx * 2) + 1
@@ -426,6 +439,26 @@ class PackageAdjudicatorDialog(QDialog):
 
         rate_totals = []
         amount_totals = []
+        ref_amt_total = 0.0
+        
+        for r in range(self.table.rowCount()):
+            qty_item = self.table.item(r, 2)
+            ref_rate_item = self.table.item(r, 4)
+            qty = clean_float(qty_item.text()) if qty_item else 0.0
+            ref_rate = clean_float(ref_rate_item.text()) if ref_rate_item else 0.0
+            ref_amt_total += (qty * ref_rate)
+
+        # Place Ref Total in column 4 (under Ref Rate) if desired, or just use it in the winner label
+        if ref_amt_total > 0:
+            it = self.summary_table.item(0, 4)
+            if it:
+                it.setText(f"{ref_amt_total:,.2f}")
+                it.setForeground(QColor("#78909c")) # Slate gray
+                font = it.font()
+                font.setBold(True)
+                it.setFont(font)
+                it.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+
         for s_idx, sub_name in enumerate(self.subcontractors):
             col = BASE_COL_COUNT + (s_idx * 2)
             amt_col = col + 1
@@ -471,7 +504,7 @@ class PackageAdjudicatorDialog(QDialog):
             self.summary_table.setItem(0, amt_col, a_item)
 
         # Identify and display the dynamic winner based on AMOUNT
-        current_winner_name = ""
+        self.current_winner_name = ""
         if len(amount_totals) > 0:
             non_zero = [t for t in amount_totals if t > 0]
             if non_zero:
@@ -485,7 +518,7 @@ class PackageAdjudicatorDialog(QDialog):
                     if total == min_total and total > 0:
                         if r_item: r_item.setForeground(COLOR_TOTAL_BEST)
                         if a_item: a_item.setForeground(COLOR_TOTAL_BEST)
-                        current_winner_name = self.subcontractors[s_idx]
+                        self.current_winner_name = self.subcontractors[s_idx]
                     else:
                         if r_item: r_item.setForeground(Qt.GlobalColor.black)
                         if a_item: a_item.setForeground(Qt.GlobalColor.black)
@@ -493,10 +526,26 @@ class PackageAdjudicatorDialog(QDialog):
         # Update summary label dynamically
         it = self.summary_table.item(0, 1)
         if it:
-            if current_winner_name:
-                it.setText(f"WINNER: {current_winner_name.upper()}")
+            if self.current_winner_name:
+                it.setText(f"WINNER: {self.current_winner_name.upper()}")
             else:
                 it.setText("WINNER: [NONE SELECTED]")
+
+        # --- Calculate and show comparison stats ---
+        if len(self.subcontractors) > 0 and it:
+            valid_totals = [t for t in amount_totals if t > 0]
+            if valid_totals:
+                # 1. Average Quote
+                if len(valid_totals) > 1:
+                    avg_total = sum(valid_totals) / len(valid_totals)
+                    it.setText(f"{it.text()}  |  AVG: {avg_total:,.2f}")
+                
+                # 2. Saving compared to Estimated Budget
+                if ref_amt_total > 0:
+                    min_total = min(valid_totals)
+                    saving = ref_amt_total - min_total
+                    saving_pct = (saving / ref_amt_total) * 100
+                    it.setText(f"{it.text()}  |  SAVING: {saving:,.2f} ({saving_pct:,.1f}%)")
 
     def _apply_comparison_colors(self):
         """Color-code the lowest rate per row (green) and highest (red)."""
@@ -555,7 +604,12 @@ class PackageAdjudicatorDialog(QDialog):
             QMessageBox.warning(self, "No Subcontractors", "No subcontractors to select.")
             return
             
-        winner, ok = QInputDialog.getItem(self, "Select Winner", "Choose winning subcontractor for this package:", self.subcontractors, 0, False)
+        # Default to the lowest bidder (identified in self.current_winner_name)
+        default_idx = 0
+        if self.current_winner_name in self.subcontractors:
+            default_idx = self.subcontractors.index(self.current_winner_name)
+            
+        winner, ok = QInputDialog.getItem(self, "Select Winner", "Choose winning subcontractor for this package:", self.subcontractors, default_idx, False)
         if ok and winner:
             col = BASE_COL_COUNT + (self.subcontractors.index(winner) * 2)
             winning_rates = []

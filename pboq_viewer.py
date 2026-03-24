@@ -1703,13 +1703,15 @@ class PBOQDialog(QDialog):
                     desc = table.item(r, desc_col).text().strip() if desc_col >= 0 and table.item(r, desc_col) else ""
                     qty = table.item(r, qty_col).text().strip() if qty_col >= 0 and table.item(r, qty_col) else ""
                     unit = table.item(r, unit_col).text().strip() if unit_col >= 0 and table.item(r, unit_col) else ""
+                    rate = table.item(r, m['bill_rate']).text().strip() if m['bill_rate'] >= 0 and table.item(r, m['bill_rate']) else ""
                     
                     items.append({
                         'rowid': row_id,
                         'ref': ref,
                         'desc': desc,
                         'qty': qty,
-                        'unit': unit
+                        'unit': unit,
+                        'bill_rate': rate
                     })
         return items
 
