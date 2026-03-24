@@ -268,14 +268,15 @@ class PackageAdjudicatorDialog(QDialog):
                 col = BASE_COL_COUNT + (s_idx * 2)
                 amt_col = col + 1
                 rate = quotes.get(sub, {}).get(rid, "")
-                if rate:
-                    self.table.setItem(r, col, QTableWidgetItem(f"{rate:,.2f}"))
-                else:
-                    self.table.setItem(r, col, QTableWidgetItem(""))
+                
+                rate_item = QTableWidgetItem(f"{rate:,.2f}" if rate else "")
+                rate_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                self.table.setItem(r, col, rate_item)
                     
                 # Setup Amount Cell
                 amt_item = QTableWidgetItem("")
                 amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                amt_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 amt_item.setBackground(QBrush(QColor("#f5f5f5")))  # light gray background
                 self.table.setItem(r, amt_col, amt_item)
         
@@ -292,7 +293,7 @@ class PackageAdjudicatorDialog(QDialog):
         headers = base.copy()
         for sub in self.subcontractors:
             headers.append(f"{sub}")
-            headers.append(f"{sub} Amount")
+            headers.append("Amount")
             
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -397,6 +398,7 @@ class PackageAdjudicatorDialog(QDialog):
                 val = float(txt)
                 self.table.blockSignals(True)
                 item.setText(f"{val:,.2f}")
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table.blockSignals(False)
             except ValueError:
                 pass
@@ -447,11 +449,13 @@ class PackageAdjudicatorDialog(QDialog):
             except (ValueError, TypeError):
                 return 0.0
 
-        totals = []
+        rate_totals = []
+        amount_totals = []
         for s_idx, sub_name in enumerate(self.subcontractors):
             col = BASE_COL_COUNT + (s_idx * 2)
             amt_col = col + 1
-            total = 0.0
+            r_total = 0.0
+            a_total = 0.0
             
             for r in range(self.table.rowCount()):
                 qty_item = self.table.item(r, 2)
@@ -460,7 +464,9 @@ class PackageAdjudicatorDialog(QDialog):
                 qty = clean_float(qty_item.text()) if qty_item else 0.0
                 rate = clean_float(rate_item.text()) if rate_item else 0.0
                 row_total = qty * rate
-                total += row_total
+                
+                r_total += rate
+                a_total += row_total
                 
                 # Dynamically update the amount cell
                 amt_item = self.table.item(r, amt_col)
@@ -470,38 +476,44 @@ class PackageAdjudicatorDialog(QDialog):
                     else:
                         amt_item.setText("")
                         
-            totals.append(total)
+            rate_totals.append(r_total)
+            amount_totals.append(a_total)
             
-            # Place the total in the Rate column
-            total_item = QTableWidgetItem(f"{total:,.2f}")
-            font = total_item.font()
+            # Place the Rate total
+            r_item = QTableWidgetItem(f"{r_total:,.2f}")
+            font = r_item.font()
             font.setBold(True)
-            total_item.setFont(font)
-            total_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.summary_table.setItem(0, col, total_item)
+            r_item.setFont(font)
+            r_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            r_item.setFlags(r_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summary_table.setItem(0, col, r_item)
             
-            # Place empty item in the amt column
-            empty_item = QTableWidgetItem("")
-            empty_item.setFlags(empty_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-            self.summary_table.setItem(0, amt_col, empty_item)
+            # Place the Amount total
+            a_item = QTableWidgetItem(f"{a_total:,.2f}")
+            a_item.setFont(font)
+            a_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            a_item.setFlags(a_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.summary_table.setItem(0, amt_col, a_item)
 
-        # Identify and display the dynamic winner (lowest total)
+        # Identify and display the dynamic winner based on AMOUNT
         current_winner_name = ""
-        if len(totals) > 0:
-            non_zero = [t for t in totals if t > 0]
+        if len(amount_totals) > 0:
+            non_zero = [t for t in amount_totals if t > 0]
             if non_zero:
                 min_total = min(non_zero)
-                # Find the name matching this min total
-                for s_idx, total in enumerate(totals):
+                for s_idx, total in enumerate(amount_totals):
                     col = BASE_COL_COUNT + (s_idx * 2)
-                    item = self.summary_table.item(0, col)
-                    if item:
-                        if total == min_total and total > 0:
-                            item.setForeground(COLOR_TOTAL_BEST)
-                            current_winner_name = self.subcontractors[s_idx] # This is the dynamic winner
-                        else:
-                            item.setForeground(Qt.GlobalColor.black)
+                    amt_col = col + 1
+                    r_item = self.summary_table.item(0, col)
+                    a_item = self.summary_table.item(0, amt_col)
+                    
+                    if total == min_total and total > 0:
+                        if r_item: r_item.setForeground(COLOR_TOTAL_BEST)
+                        if a_item: a_item.setForeground(COLOR_TOTAL_BEST)
+                        current_winner_name = self.subcontractors[s_idx]
+                    else:
+                        if r_item: r_item.setForeground(Qt.GlobalColor.black)
+                        if a_item: a_item.setForeground(Qt.GlobalColor.black)
         
         # Update summary label dynamically
         it = self.summary_table.item(0, 1)
