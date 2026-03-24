@@ -17,7 +17,8 @@ COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
 COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
 COLOR_BASE_COL = QColor("#e3f2fd")    # Very Light Blue for base columns
-COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for all pricing columns (Ref & Sub)
+COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for Rate columns
+COLOR_AMOUNT_COL = QColor("#e1bee7")  # Light Violet for Amount columns
 
 
 class AddSubcontractorDialog(QDialog):
@@ -399,7 +400,7 @@ class PackageAdjudicatorDialog(QDialog):
                 amt_item = QTableWidgetItem("")
                 amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 amt_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                amt_item.setBackground(QBrush(COLOR_PRICE_COL)) # Same consistency color
+                amt_item.setBackground(QBrush(COLOR_AMOUNT_COL)) # Light Violet
                 self.table.setItem(r, amt_col, amt_item)
         
         self.table.blockSignals(False)
@@ -509,7 +510,7 @@ class PackageAdjudicatorDialog(QDialog):
                     
                     amt_item = QTableWidgetItem("")
                     amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                    amt_item.setBackground(QBrush(COLOR_PRICE_COL))
+                    amt_item.setBackground(QBrush(COLOR_AMOUNT_COL)) # Light Violet
                     self.table.setItem(r, amt_col, amt_item)
                 self.table.blockSignals(False)
                 self._calculate_totals()
