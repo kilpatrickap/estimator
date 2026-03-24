@@ -216,31 +216,6 @@ class PackageAdjudicatorDialog(QDialog):
             pass
 
         self._build_table(quotes)
-        self._load_current_winner(pkg)
-
-    def _load_current_winner(self, pkg):
-        """Looks up currently assigned subcontractor in PBOQ and shows in summary."""
-        winner_name = ""
-        try:
-            # We assume SubbeeName is standard or we check parent's mapping
-            if hasattr(self.parent(), 'tools_pane'):
-                m = self.parent().tools_pane.get_mappings()
-                name_disp_col = m.get('sub_name', -1)
-                if name_disp_col >= 0 and hasattr(self.parent(), 'db_columns'):
-                    name_db_col = self.parent().db_columns[name_disp_col + 1]
-                    
-                    conn = sqlite3.connect(self.pboq_db_path)
-                    cursor = conn.cursor()
-                    cursor.execute(f'SELECT "{name_db_col}" FROM pboq_items WHERE "{self.pkg_db_col}" = ? AND "{name_db_col}" != \'\' LIMIT 1', (pkg,))
-                    res = cursor.fetchone()
-                    if res: winner_name = res[0]
-                    conn.close()
-        except:
-            pass
-        
-        it = self.summary_table.item(0, 1) # Winner is now in cell 1 (Description)
-        if it:
-            it.setText(f"WINNER: {winner_name.upper()}" if winner_name else "WINNER: [NONE SELECTED]")
 
     # ── Table Construction ────────────────────────────────────────
 
