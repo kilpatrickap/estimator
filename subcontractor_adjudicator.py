@@ -21,14 +21,15 @@ class PackageAdjudicatorDialog(QDialog):
         self.pboq_db_path = pboq_db_path
         self.pkg_db_col = pkg_db_col
         self.setWindowTitle("Subcontractor Package Adjudicator")
-        self.setMinimumSize(900, 550)
+        self.resize(1250, 680) # Optimized default for 1366x768
+        self.setMinimumSize(900, 500)
         self._init_ui()
         self._load_packages()
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
-
-        # Top Bar
+        layout.setContentsMargins(8, 8, 8, 8) # Tighter margins
+        layout.setSpacing(6)                  # Tighter spacing
         top_bar = QHBoxLayout()
         top_bar.addWidget(QLabel("Select Work Package:"))
         self.package_combo = QComboBox()
@@ -96,8 +97,8 @@ class PackageAdjudicatorDialog(QDialog):
         winner_lbl.setFlags(winner_lbl.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.summary_table.setItem(0, 1, winner_lbl)
 
-        # "TOTAL:" Label right next to the figures (Col 3 / Unit)
-        lbl_item = QTableWidgetItem("TOTAL:")
+        # "TOTALS:" Label right next to the figures (Col 3 / Unit)
+        lbl_item = QTableWidgetItem("TOTALS:")
         lbl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         font = lbl_item.font()
         font.setBold(True)
@@ -259,11 +260,11 @@ class PackageAdjudicatorDialog(QDialog):
         headers = base + self.subcontractors
         self.table.setHorizontalHeaderLabels(headers)
         
-        # Initial sizing
-        self.table.setColumnWidth(0, 80)
-        self.table.setColumnWidth(1, 300)
-        self.table.setColumnWidth(2, 70)
-        self.table.setColumnWidth(3, 60)
+        # Initial sizing - tightened for 768p efficiency
+        self.table.setColumnWidth(0, 60)  # Ref/Item
+        self.table.setColumnWidth(1, 400) # Description (keep wide)
+        self.table.setColumnWidth(2, 60)  # Qty
+        self.table.setColumnWidth(3, 50)  # Unit
         
         self._sync_table_widths()
 
@@ -388,20 +389,27 @@ class PackageAdjudicatorDialog(QDialog):
     # ── Totals & Comparison ───────────────────────────────────────
 
     def _calculate_totals(self):
+        """Calculates package totals per subcontractor with robust numeric parsing."""
+        def clean_float(text):
+            if not text: return 0.0
+            try:
+                # Remove commas, spaces, and other non-numeric visual formatting
+                clean_text = text.replace(',', '').replace(' ', '').strip()
+                return float(clean_text) if clean_text else 0.0
+            except (ValueError, TypeError):
+                return 0.0
+
         totals = []
         for s_idx, sub_name in enumerate(self.subcontractors):
             col = BASE_COL_COUNT + s_idx
             total = 0.0
             for r in range(self.table.rowCount()):
-                qty_txt = self.table.item(r, 2).text().replace(',', '') if self.table.item(r, 2) else ""
-                rate_txt = self.table.item(r, col).text().replace(',', '') if self.table.item(r, col) else ""
+                qty_item = self.table.item(r, 2)
+                rate_item = self.table.item(r, col)
                 
-                try:
-                    qty = float(qty_txt) if qty_txt else 0.0
-                    rate = float(rate_txt) if rate_txt else 0.0
-                    total += qty * rate
-                except ValueError:
-                    pass
+                qty = clean_float(qty_item.text()) if qty_item else 0.0
+                rate = clean_float(rate_item.text()) if rate_item else 0.0
+                total += qty * rate
             
             totals.append(total)
             
