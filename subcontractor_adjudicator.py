@@ -11,6 +11,7 @@ BASE_COL_COUNT = 4
 # Colors for comparison highlighting
 COLOR_LOWEST = QColor("#c8e6c9")   # Light green — best rate
 COLOR_HIGHEST = QColor("#ffcdd2")  # Light red — worst rate
+COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
 
 
@@ -60,39 +61,56 @@ class PackageAdjudicatorDialog(QDialog):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
         self.table.itemChanged.connect(self._on_item_changed)
+        
+        # Link header resizing to the summary table
+        self.table.horizontalHeader().sectionResized.connect(self._on_section_resized)
+        
         layout.addWidget(self.table)
         
         # Summary Row (totals)
         self.summary_table = QTableWidget()
         self.summary_table.setColumnCount(BASE_COL_COUNT)
         self.summary_table.setRowCount(1)
-        self.summary_table.setFixedHeight(50)
+        self.summary_table.setFixedHeight(36)
         self.summary_table.horizontalHeader().hide()
-        self.summary_table.verticalHeader().hide()
-
-        lbl_item = QTableWidgetItem("PACKAGE TOTAL:")
-        lbl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        font = lbl_item.font()
-        font.setBold(True)
-        lbl_item.setFont(font)
-        self.summary_table.setItem(0, 0, lbl_item)
         
-        # Winner display cell next to label
-        winner_lbl = QTableWidgetItem("")
+        # Show vertical header to match the main table's row number offset
+        self.summary_table.verticalHeader().setVisible(True)
+        self.summary_table.setVerticalHeaderLabels([""])
+        self.summary_table.verticalHeader().setFixedWidth(self.table.verticalHeader().width())
+        
+        # Hide summary scrollbars visually, but link horizontal scroll to main table
+        self.summary_table.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.summary_table.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.table.horizontalScrollBar().valueChanged.connect(
+            self.summary_table.horizontalScrollBar().setValue
+        )
+
+        # Winner Display (Col 1 - Description)
+        winner_lbl = QTableWidgetItem("WINNER: [NONE SELECTED]")
         winner_lbl.setForeground(COLOR_TOTAL_BEST)
         f = winner_lbl.font()
         f.setBold(True)
         winner_lbl.setFont(f)
+        winner_lbl.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         winner_lbl.setFlags(winner_lbl.flags() & ~Qt.ItemFlag.ItemIsEditable)
         self.summary_table.setItem(0, 1, winner_lbl)
 
-        # Make remaining BASE_COL_COUNT cells non-editable
-        for c in range(2, BASE_COL_COUNT):
+        # "TOTAL:" Label right next to the figures (Col 3 / Unit)
+        lbl_item = QTableWidgetItem("TOTAL:")
+        lbl_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        font = lbl_item.font()
+        font.setBold(True)
+        lbl_item.setFont(font)
+        lbl_item.setFlags(lbl_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.summary_table.setItem(0, BASE_COL_COUNT - 1, lbl_item)
+
+        # Fill remaining base cells
+        for c in [0, 2]: # Ref and Qty columns are empty
             it = QTableWidgetItem("")
             it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.summary_table.setItem(0, c, it)
-
-        self.summary_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            
         layout.addWidget(self.summary_table)
 
         # Bottom Bar
@@ -109,8 +127,14 @@ class PackageAdjudicatorDialog(QDialog):
         self.subcontractors = []  # list of names
 
     def _sync_table_widths(self):
+        # Match vertical header width (row numbers)
+        self.summary_table.verticalHeader().setFixedWidth(self.table.verticalHeader().width())
         for i in range(self.table.columnCount()):
             self.summary_table.setColumnWidth(i, self.table.columnWidth(i))
+
+    def _on_section_resized(self, logicalIndex, oldSize, newSize):
+        """Keep summary table perfectly aligned when user drags headers."""
+        self.summary_table.setColumnWidth(logicalIndex, newSize)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -188,9 +212,9 @@ class PackageAdjudicatorDialog(QDialog):
         except:
             pass
         
-        it = self.summary_table.item(0, 1)
+        it = self.summary_table.item(0, 1) # Winner is now in cell 1 (Description)
         if it:
-            it.setText(f" [{winner_name.upper()}]" if winner_name else " [NONE SELECTED]")
+            it.setText(f"WINNER: {winner_name.upper()}" if winner_name else "WINNER: [NONE SELECTED]")
 
     # ── Table Construction ────────────────────────────────────────
 
@@ -389,19 +413,30 @@ class PackageAdjudicatorDialog(QDialog):
             total_item.setFlags(total_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.summary_table.setItem(0, col, total_item)
 
-        # Highlight lowest total in green
-        if len(totals) > 1:
+        # Identify and display the dynamic winner (lowest total)
+        current_winner_name = ""
+        if len(totals) > 0:
             non_zero = [t for t in totals if t > 0]
             if non_zero:
                 min_total = min(non_zero)
+                # Find the name matching this min total
                 for s_idx, total in enumerate(totals):
                     col = BASE_COL_COUNT + s_idx
                     item = self.summary_table.item(0, col)
                     if item:
                         if total == min_total and total > 0:
                             item.setForeground(COLOR_TOTAL_BEST)
+                            current_winner_name = self.subcontractors[s_idx] # This is the dynamic winner
                         else:
                             item.setForeground(Qt.GlobalColor.black)
+        
+        # Update summary label dynamically
+        it = self.summary_table.item(0, 1)
+        if it:
+            if current_winner_name:
+                it.setText(f"WINNER: {current_winner_name.upper()}")
+            else:
+                it.setText("WINNER: [NONE SELECTED]")
 
     def _apply_comparison_colors(self):
         """Color-code the lowest rate per row (green) and highest (red)."""
@@ -448,7 +483,8 @@ class PackageAdjudicatorDialog(QDialog):
                 elif val == max_rate:
                     item.setBackground(COLOR_HIGHEST)
                 else:
-                    item.setBackground(QBrush(Qt.BrushStyle.NoBrush))
+                    # Anything else is a "middle" value
+                    item.setBackground(COLOR_MIDDLE)
             self.table.blockSignals(False)
 
     # ── Winner Selection ──────────────────────────────────────────
@@ -473,7 +509,7 @@ class PackageAdjudicatorDialog(QDialog):
             
             # Update summary UI
             it = self.summary_table.item(0, 1)
-            if it: it.setText(f" [{winner.upper()}]")
+            if it: it.setText(f"WINNER: {winner.upper()}")
             
             # Tell parent to apply this to pboq_items
             if hasattr(self.parent(), 'apply_winning_subcontractor'):
