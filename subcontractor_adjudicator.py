@@ -15,9 +15,10 @@ COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
 
 
 class PackageAdjudicatorDialog(QDialog):
-    def __init__(self, pboq_db_path, parent=None):
+    def __init__(self, pboq_db_path, pkg_db_col, parent=None):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
+        self.pkg_db_col = pkg_db_col
         self.setWindowTitle("Subcontractor Package Adjudicator")
         self.setMinimumSize(900, 550)
         self._init_ui()
@@ -49,7 +50,13 @@ class PackageAdjudicatorDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(BASE_COL_COUNT)
         self.table.setHorizontalHeaderLabels(["Ref/Item", "Description", "Qty", "Unit"])
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        
+        # UI Refinements: Adjustable columns and wrapping
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setAlternatingRowColors(True)
         self.table.itemChanged.connect(self._on_item_changed)
@@ -69,8 +76,18 @@ class PackageAdjudicatorDialog(QDialog):
         font.setBold(True)
         lbl_item.setFont(font)
         self.summary_table.setItem(0, 0, lbl_item)
-        # Make first BASE_COL_COUNT cells non-editable in summary
-        for c in range(1, BASE_COL_COUNT):
+        
+        # Winner display cell next to label
+        winner_lbl = QTableWidgetItem("")
+        winner_lbl.setForeground(COLOR_TOTAL_BEST)
+        f = winner_lbl.font()
+        f.setBold(True)
+        winner_lbl.setFont(f)
+        winner_lbl.setFlags(winner_lbl.flags() & ~Qt.ItemFlag.ItemIsEditable)
+        self.summary_table.setItem(0, 1, winner_lbl)
+
+        # Make remaining BASE_COL_COUNT cells non-editable
+        for c in range(2, BASE_COL_COUNT):
             it = QTableWidgetItem("")
             it.setFlags(it.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.summary_table.setItem(0, c, it)
@@ -108,7 +125,7 @@ class PackageAdjudicatorDialog(QDialog):
         conn = sqlite3.connect(self.pboq_db_path)
         cursor = conn.cursor()
         try:
-            cursor.execute("SELECT DISTINCT SubbeePackage FROM pboq_items WHERE SubbeePackage IS NOT NULL AND SubbeePackage != ''")
+            cursor.execute(f'SELECT DISTINCT "{self.pkg_db_col}" FROM pboq_items WHERE "{self.pkg_db_col}" IS NOT NULL AND "{self.pkg_db_col}" != \'\'')
             packages = [row[0] for row in cursor.fetchall()]
             self.package_combo.addItems(["-- Select Package --"] + sorted(packages))
         except sqlite3.Error:
@@ -149,6 +166,31 @@ class PackageAdjudicatorDialog(QDialog):
             pass
 
         self._build_table(quotes)
+        self._load_current_winner(pkg)
+
+    def _load_current_winner(self, pkg):
+        """Looks up currently assigned subcontractor in PBOQ and shows in summary."""
+        winner_name = ""
+        try:
+            # We assume SubbeeName is standard or we check parent's mapping
+            if hasattr(self.parent(), 'tools_pane'):
+                m = self.parent().tools_pane.get_mappings()
+                name_disp_col = m.get('sub_name', -1)
+                if name_disp_col >= 0 and hasattr(self.parent(), 'db_columns'):
+                    name_db_col = self.parent().db_columns[name_disp_col + 1]
+                    
+                    conn = sqlite3.connect(self.pboq_db_path)
+                    cursor = conn.cursor()
+                    cursor.execute(f'SELECT "{name_db_col}" FROM pboq_items WHERE "{self.pkg_db_col}" = ? AND "{name_db_col}" != \'\' LIMIT 1', (pkg,))
+                    res = cursor.fetchone()
+                    if res: winner_name = res[0]
+                    conn.close()
+        except:
+            pass
+        
+        it = self.summary_table.item(0, 1)
+        if it:
+            it.setText(f" [{winner_name.upper()}]" if winner_name else " [NONE SELECTED]")
 
     # ── Table Construction ────────────────────────────────────────
 
@@ -192,6 +234,13 @@ class PackageAdjudicatorDialog(QDialog):
         
         headers = base + self.subcontractors
         self.table.setHorizontalHeaderLabels(headers)
+        
+        # Initial sizing
+        self.table.setColumnWidth(0, 80)
+        self.table.setColumnWidth(1, 300)
+        self.table.setColumnWidth(2, 70)
+        self.table.setColumnWidth(3, 60)
+        
         self._sync_table_widths()
 
     # ── Subcontractor Management ──────────────────────────────────
@@ -269,6 +318,17 @@ class PackageAdjudicatorDialog(QDialog):
         col = item.column()
         if col >= BASE_COL_COUNT:  # Quote column
             self._save_quote(item)
+            
+            # Format to 2 decimal places with commas
+            txt = item.text().replace(',', '')
+            try:
+                val = float(txt)
+                self.table.blockSignals(True)
+                item.setText(f"{val:,.2f}")
+                self.table.blockSignals(False)
+            except ValueError:
+                pass
+
             self._calculate_totals()
             self._apply_comparison_colors()
 
@@ -409,7 +469,11 @@ class PackageAdjudicatorDialog(QDialog):
                 item = self.table.item(r, col)
                 rate = item.text().strip() if item else ""
                 if rate:
-                    winning_rates.append((rowid, rate))
+                    winning_rates.append((rowid, rate.replace(',', '')))
+            
+            # Update summary UI
+            it = self.summary_table.item(0, 1)
+            if it: it.setText(f" [{winner.upper()}]")
             
             # Tell parent to apply this to pboq_items
             if hasattr(self.parent(), 'apply_winning_subcontractor'):

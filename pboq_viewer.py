@@ -1597,7 +1597,15 @@ class PBOQDialog(QDialog):
     def _open_package_adjudicator(self):
         file_path = self.pboq_file_selector.currentData()
         if not file_path: return
-        dialog = PackageAdjudicatorDialog(file_path, self)
+        
+        m = self.tools_pane.get_mappings()
+        pkg_display_col = m.get('sub_package', -1)
+        if pkg_display_col < 0:
+            QMessageBox.warning(self, "Mapping Error", "Please map the 'Subbee Package' column first.")
+            return
+        pkg_db_col = self.db_columns[pkg_display_col + 1]
+        
+        dialog = PackageAdjudicatorDialog(file_path, pkg_db_col, self)
         dialog.exec()
 
     def get_package_items(self, pkg):
