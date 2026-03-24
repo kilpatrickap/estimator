@@ -141,6 +141,7 @@ class AddSubcontractorDialog(QDialog):
             return name, "EXISTING", self.existing_combo.currentData()
         return name, "MANUAL", None
 
+class PackageAdjudicatorDialog(QDialog):
     def __init__(self, pboq_db_path, pkg_db_col, project_dir, parent=None):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
