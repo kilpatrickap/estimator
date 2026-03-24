@@ -1,8 +1,10 @@
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
                              QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-                             QMessageBox, QInputDialog, QAbstractItemView, QCheckBox, QFileDialog)
+                             QMessageBox, QInputDialog, QAbstractItemView, QCheckBox, 
+                             QFileDialog, QRadioButton, QLineEdit, QGroupBox)
 import os
+import shutil
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QBrush
 
@@ -18,7 +20,127 @@ COLOR_BASE_COL = QColor("#e3f2fd")    # Very Light Blue for base columns
 COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for all pricing columns (Ref & Sub)
 
 
-class PackageAdjudicatorDialog(QDialog):
+class AddSubcontractorDialog(QDialog):
+    """Wizard for adding a subcontractor, optionally managing RFQ Excel file imports."""
+    def __init__(self, project_dir, pkg_name, parent=None):
+        super().__init__(parent)
+        self.project_dir = project_dir
+        self.pkg_name = pkg_name
+        self.safe_pkg = pkg_name.replace('/', '_').replace('\\', '_')
+        self.selected_file_path = ""
+        self.setWindowTitle("New Subcontractor Wizard")
+        self.resize(500, 300)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        
+        # Subcontractor Name
+        name_layout = QHBoxLayout()
+        name_layout.addWidget(QLabel("Subcontractor Name:"))
+        self.name_input = QLineEdit()
+        self.name_input.textChanged.connect(self._on_name_changed)
+        name_layout.addWidget(self.name_input)
+        layout.addLayout(name_layout)
+        
+        # Import Options
+        self.import_group = QGroupBox("Import Options")
+        ig_layout = QVBoxLayout(self.import_group)
+        
+        self.radio_manual = QRadioButton("Manual Entry (Add blank column)")
+        self.radio_manual.setChecked(True)
+        self.radio_manual.toggled.connect(self._toggle_ui)
+        ig_layout.addWidget(self.radio_manual)
+        
+        self.radio_new_file = QRadioButton("Import New Excel RFQ...")
+        self.radio_new_file.toggled.connect(self._toggle_ui)
+        ig_layout.addWidget(self.radio_new_file)
+        
+        # Browse UI
+        self.browse_layout = QHBoxLayout()
+        self.browse_btn = QPushButton("Browse...")
+        self.browse_btn.clicked.connect(self._browse_file)
+        self.browse_btn.setEnabled(False)
+        self.browse_layout.addWidget(self.browse_btn)
+        
+        self.file_lbl = QLabel("No file selected")
+        self.file_lbl.setStyleSheet("color: gray; font-style: italic;")
+        self.browse_layout.addWidget(self.file_lbl)
+        ig_layout.addLayout(self.browse_layout)
+        
+        self.radio_existing = QRadioButton("Import Existing Received RFQ")
+        self.radio_existing.toggled.connect(self._toggle_ui)
+        ig_layout.addWidget(self.radio_existing)
+        
+        # Dropdown UI
+        self.existing_combo = QComboBox()
+        self.existing_combo.setEnabled(False)
+        ig_layout.addWidget(self.existing_combo)
+        
+        layout.addWidget(self.import_group)
+        
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+        self.ok_btn = QPushButton("OK")
+        self.ok_btn.clicked.connect(self.accept)
+        self.ok_btn.setEnabled(False) # Require name
+        
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.clicked.connect(self.reject)
+        
+        btn_layout.addWidget(self.ok_btn)
+        btn_layout.addWidget(cancel_btn)
+        layout.addLayout(btn_layout)
+
+    def _on_name_changed(self, text):
+        self.ok_btn.setEnabled(bool(text.strip()))
+        self._refresh_existing_dropdown()
+
+    def _toggle_ui(self):
+        self.browse_btn.setEnabled(self.radio_new_file.isChecked())
+        self.existing_combo.setEnabled(self.radio_existing.isChecked())
+        if self.radio_existing.isChecked() and self.existing_combo.count() == 0:
+            # If they checked existing but none exist, warn them
+            self.file_lbl.setText("No existing files found for this subbee.")
+
+    def _browse_file(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Select Priced RFQ", "", "Excel Files (*.xlsx *.xls)")
+        if file_path:
+            self.selected_file_path = file_path
+            self.file_lbl.setText(os.path.basename(file_path))
+            self.file_lbl.setStyleSheet("color: black;")
+
+    def _refresh_existing_dropdown(self):
+        self.existing_combo.clear()
+        name = self.name_input.text().strip()
+        if not name: return
+        
+        safe_name = name.replace('/', '_').replace('\\', '_')
+        target_dir = os.path.join(self.project_dir, "Received RFQs", self.safe_pkg, safe_name)
+        
+        if os.path.exists(target_dir):
+            files = [f for f in os.listdir(target_dir) if f.endswith(('.xlsx', '.xls'))]
+            for f in sorted(files, reverse=True): # Newest first typically
+                self.existing_combo.addItem(f, os.path.join(target_dir, f))
+                
+        if self.existing_combo.count() > 0:
+            self.radio_existing.setEnabled(True)
+        else:
+            self.radio_existing.setEnabled(False)
+            if self.radio_existing.isChecked():
+                self.radio_manual.setChecked(True)
+
+    def get_result(self):
+        name = self.name_input.text().strip()
+        if self.radio_manual.isChecked():
+            return name, "MANUAL", None
+        elif self.radio_new_file.isChecked():
+            return name, "NEW", self.selected_file_path
+        elif self.radio_existing.isChecked():
+            return name, "EXISTING", self.existing_combo.currentData()
+        return name, "MANUAL", None
+
     def __init__(self, pboq_db_path, pkg_db_col, project_dir, parent=None):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
@@ -65,13 +187,10 @@ class PackageAdjudicatorDialog(QDialog):
         top_bar.addWidget(self.remove_subbee_btn)
         
         # Add Excel IO Buttons
-        self.export_rfq_btn = QPushButton("Export RFQ (Excel)")
+        self.export_rfq_btn = QPushButton("Export RFQ Template (Excel)")
         self.export_rfq_btn.clicked.connect(self._export_rfq)
         top_bar.addWidget(self.export_rfq_btn)
 
-        self.import_rfq_btn = QPushButton("Import RFQ (Excel)")
-        self.import_rfq_btn.clicked.connect(self._import_rfq)
-        top_bar.addWidget(self.import_rfq_btn)
         
         layout.addLayout(top_bar)
 
@@ -318,33 +437,81 @@ class PackageAdjudicatorDialog(QDialog):
     def _add_subcontractor(self):
         pkg = self.package_combo.currentText()
         if pkg == "-- Select Package --" or not pkg:
-            QMessageBox.warning(self, "Select Package", "Please select a work package first.")
+            QMessageBox.warning(self, "No Package", "Please select a work package first.")
             return
-            
-        name, ok = QInputDialog.getText(self, "New Subcontractor", "Enter Subcontractor Name:")
-        if ok and name.strip():
-            name = name.strip()
+
+        wizard = AddSubcontractorDialog(self.project_dir, pkg, self)
+        if wizard.exec() == QDialog.DialogCode.Accepted:
+            name, import_type, file_path = wizard.get_result()
+            if not name: return
+
             if name in self.subcontractors:
-                QMessageBox.warning(self, "Duplicate", "Subcontractor already exists.")
+                QMessageBox.warning(self, "Duplicate", f"Subcontractor '{name}' already exists.")
                 return
+
+            # Handle DMS Import Logic
+            if import_type in ("NEW", "EXISTING") and file_path:
+                if import_type == "NEW":
+                    # Copy to DMS structure
+                    safe_pkg = pkg.replace('/', '_').replace('\\', '_')
+                    safe_sub = name.replace('/', '_').replace('\\', '_')
+                    boq_name = os.path.splitext(os.path.basename(self.pboq_db_path))[0]
+                    safe_boq = boq_name.replace('/', '_').replace('\\', '_')
+                    
+                    target_dir = os.path.join(self.project_dir, "Received RFQs", safe_pkg, safe_sub)
+                    os.makedirs(target_dir, exist_ok=True)
+                    
+                    # Generate filename with timestamp or revision to avoid overwrite if multiple
+                    import datetime
+                    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    new_filename = f"{safe_boq}_Received_RFQ_{safe_pkg}_{safe_sub}_{timestamp}.xlsx"
+                    dms_filepath = os.path.join(target_dir, new_filename)
+                    
+                    try:
+                        shutil.copy2(file_path, dms_filepath)
+                        file_path_to_import = dms_filepath # Use the new safe copy
+                    except Exception as e:
+                        QMessageBox.critical(self, "Copy Error", f"Failed to save file to project DMS:\n{e}")
+                        return
+                else:
+                    file_path_to_import = file_path # Already in DMS
+
+                # Execute Import
+                try:
+                    from subcontractor_io import SubcontractorIO
+                    updates = SubcontractorIO.import_rfq(self.pboq_db_path, pkg, file_path_to_import, name)
+                    if updates > 0:
+                        QMessageBox.information(self, "Import Successful", 
+                                              f"Successfully imported {updates} rates from '{name}'.")
+                    else:
+                        QMessageBox.information(self, "No Quotes", "No valid quotes found in file.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Import Error", f"Failed to parse RFQ:\n{e}")
+                    # Even if import failed, we continue to add the name column
+
+            # Add manual/imported subbee column
             self.subcontractors.append(name)
             self._update_headers()
             
-            # Add empty column cells
-            self.table.blockSignals(True)
-            col = BASE_COL_COUNT + ((len(self.subcontractors) - 1) * 2)
-            amt_col = col + 1
-            for r in range(self.table.rowCount()):
-                rate_item = QTableWidgetItem("")
-                rate_item.setBackground(QBrush(COLOR_PRICE_COL))
-                self.table.setItem(r, col, rate_item)
-                
-                amt_item = QTableWidgetItem("")
-                amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                amt_item.setBackground(QBrush(COLOR_PRICE_COL))
-                self.table.setItem(r, amt_col, amt_item)
-            self.table.blockSignals(False)
-            self._calculate_totals()
+            # Rebuild view data to include newly imported quotes AND the new column
+            if import_type in ("NEW", "EXISTING"):
+                self._on_package_selected() # This handles full DB reload for imports
+            else:
+                # Manual entry: just add the visual column since it's not in DB yet
+                self.table.blockSignals(True)
+                col = BASE_COL_COUNT + ((len(self.subcontractors) - 1) * 2)
+                amt_col = col + 1
+                for r in range(self.table.rowCount()):
+                    rate_item = QTableWidgetItem("")
+                    rate_item.setBackground(QBrush(COLOR_PRICE_COL))
+                    self.table.setItem(r, col, rate_item)
+                    
+                    amt_item = QTableWidgetItem("")
+                    amt_item.setFlags(amt_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    amt_item.setBackground(QBrush(COLOR_PRICE_COL))
+                    self.table.setItem(r, amt_col, amt_item)
+                self.table.blockSignals(False)
+                self._calculate_totals()
 
     def _remove_subcontractor(self):
         pkg = self.package_combo.currentText()
@@ -438,37 +605,6 @@ class PackageAdjudicatorDialog(QDialog):
                     subprocess.run(['explorer', '/select,', os.path.normpath(file_path)])
         except Exception as e:
             QMessageBox.critical(self, "Export Error", f"Failed to generate Excel RFQ:\n{e}")
-
-    def _import_rfq(self):
-        pkg = self.package_combo.currentText()
-        if pkg == "-- Select Package --" or not pkg:
-            QMessageBox.warning(self, "Select Package", "Please select a work package first.")
-            return
-
-        file_path, _ = QFileDialog.getOpenFileName(self, "Import RFQ", "", "Excel Files (*.xlsx *.xls)")
-        if not file_path:
-            return
-
-        name, ok = QInputDialog.getText(self, "Subcontractor Name", 
-                                        "Enter the name of the subcontractor who provided this quote:")
-        if not ok or not name.strip():
-            return
-            
-        name = name.strip()
-
-        try:
-            from subcontractor_io import SubcontractorIO
-            updates = SubcontractorIO.import_rfq(self.pboq_db_path, pkg, file_path, name)
-            
-            if updates > 0:
-                QMessageBox.information(self, "Import Successful", 
-                                      f"Successfully imported {updates} rates from {name}.\n\nRefreshing table...")
-                self._on_package_selected() # Refresh the view
-            else:
-                 QMessageBox.information(self, "No Quotes Imported", 
-                                      f"No valid quotes were found in the uploaded file for package '{pkg}'.")
-        except Exception as e:
-            QMessageBox.critical(self, "Import Error", f"Failed to import RFQ quotes:\n{str(e)}")
 
     # ── Quote Editing & Persistence ───────────────────────────────
 
