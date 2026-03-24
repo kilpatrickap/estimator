@@ -327,8 +327,8 @@ class PBOQDialog(QDialog):
                     self._persist_updates(col, [(rowid, "")])
                     self._update_stats()
         
-        elif col in [m.get('rate', -1), m.get('rate_code', -1)]:
-            # Standardified Gross Rate / SOR context menu
+        elif col == m.get('rate', -1):
+            # Gross Rate context menu (not on Rate Code column)
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False)
             
         elif col == m.get('plug_rate', -1):
