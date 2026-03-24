@@ -18,7 +18,7 @@ COLOR_MIDDLE = QColor("#fff9c4")   # Light yellow — middle rate
 COLOR_TOTAL_BEST = QColor("#2E7D32")  # Dark green text for lowest total
 COLOR_BASE_COL = QColor("#e3f2fd")    # Very Light Blue for base columns
 COLOR_PRICE_COL = QColor("#ffe0b2")   # Light Orange for Rate columns
-COLOR_AMOUNT_COL = QColor("#e1bee7")  # Light Violet for Amount columns
+COLOR_AMOUNT_COL = QColor("#eeeeee")  # Light Grey for Amount columns
 
 
 class AddSubcontractorDialog(QDialog):
