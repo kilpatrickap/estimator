@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBo
                              QFileDialog, QRadioButton, QLineEdit, QGroupBox)
 import os
 import shutil
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui import QColor, QBrush
 
 # Number of fixed (read-only) base columns: Ref, Description, Qty, Unit, Ref Rate
@@ -149,10 +149,21 @@ class PackageAdjudicatorDialog(QDialog):
         self.pkg_db_col = pkg_db_col
         self.project_dir = project_dir
         self.setWindowTitle("Subcontractor Package Adjudicator")
-        self.resize(1250, 680) # Optimized default for 1366x768
+        self.resize(1250, 680)
         self.setMinimumSize(900, 500)
         self._init_ui()
+        
+        self.settings = QSettings("Consar", "EstimatorSubAdjudicator")
+        self._load_state()
+        
         self._load_packages()
+        
+        # Restore last selected package if it exists
+        last_pkg = self.settings.value("selected_package", "")
+        if last_pkg:
+            idx = self.package_combo.findText(last_pkg)
+            if idx >= 0:
+                self.package_combo.setCurrentIndex(idx)
 
     def _init_ui(self):
         layout = QVBoxLayout(self)
@@ -300,6 +311,31 @@ class PackageAdjudicatorDialog(QDialog):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._sync_table_widths()
+
+    # ── State Persistence ─────────────────────────────────────────
+
+    def _save_state(self):
+        self.settings.setValue("geometry", self.saveGeometry())
+        self.settings.setValue("show_amounts", self.toggle_amounts_cb.isChecked())
+        if self.package_combo.currentText() != "-- Select Package --":
+            self.settings.setValue("selected_package", self.package_combo.currentText())
+        else:
+            self.settings.setValue("selected_package", "")
+
+    def _load_state(self):
+        geom = self.settings.value("geometry")
+        if geom:
+            self.restoreGeometry(geom)
+            
+        show_amounts = self.settings.value("show_amounts", False, type=bool)
+        # block signals briefly to avoid premature UI updates before packages load
+        self.toggle_amounts_cb.blockSignals(True)
+        self.toggle_amounts_cb.setChecked(show_amounts)
+        self.toggle_amounts_cb.blockSignals(False)
+
+    def closeEvent(self, event):
+        self._save_state()
+        super().closeEvent(event)
 
     # ── Data Loading ──────────────────────────────────────────────
 
