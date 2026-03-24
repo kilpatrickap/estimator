@@ -1050,7 +1050,8 @@ class PBOQDialog(QDialog):
         pkg_col = m.get('sub_package', -1)
         name_col = m.get('sub_name', -1)
         rate_col = m.get('sub_rate', -1)
-        self._clear_columns([pkg_col, name_col, rate_col], "Subcontractor Package, Name & Rate")
+        markup_col = m.get('sub_markup', -1)
+        self._clear_columns([pkg_col, name_col, rate_col, markup_col], "Subcontractor Package, Name, Rate & Markup")
 
     def _clear_columns(self, col_indices, label):
         """Generic helper to clear one or more columns across all sheets."""
