@@ -25,11 +25,9 @@ class PBOQTable(QTableWidget):
         self.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
 
     def _show_context_menu(self, pos):
-        """Shows a context menu for the Bill Amount column."""
-        # itemAt requires coordinates relative to the viewport.
-        # pos here is relative to the QTableWidget itself (which includes headers).
-        viewport_pos = self.viewport().mapFromParent(pos)
-        item = self.itemAt(viewport_pos)
+        """Shows a context menu for the clicked column."""
+        # pos from customContextMenuRequested is already in viewport coordinates
+        item = self.itemAt(pos)
         if not item: return
         
         row = item.row()

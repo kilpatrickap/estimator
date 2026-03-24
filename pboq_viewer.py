@@ -324,8 +324,6 @@ class PBOQDialog(QDialog):
                 item = table.item(row, col)
                 if item:
                     item.setText("")
-                    if col == m['bill_amount']:
-                        self.logic.remove_link(self.pboq_file_selector.currentData(), rowid)
                     self._persist_updates(col, [(rowid, "")])
                     self._update_stats()
         
@@ -333,9 +331,31 @@ class PBOQDialog(QDialog):
             # Standardified Gross Rate / SOR context menu
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False)
             
-        elif col in [m.get('plug_rate', -1), m.get('plug_code', -1)]:
-            # Standardified Plug Rate context menu
+        elif col == m.get('plug_rate', -1):
+            # Plug Rate context menu (not on Plug Code column)
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=True)
+
+        elif col == m.get('sub_package', -1) and col >= 0:
+            # Subcontractor Package context menu
+            menu = QMenu(self)
+            clear_action = menu.addAction("Clear Package Assignment")
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            
+            if action == clear_action:
+                selected_indexes = table.selectedIndexes()
+                selected_rows = set(idx.row() for idx in selected_indexes) if selected_indexes else [row]
+                
+                updates = []
+                for r in selected_rows:
+                    it = table.item(r, col)
+                    if it:
+                        it.setText("")
+                        rid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        updates.append((rid, ""))
+                        
+                if updates:
+                    self._persist_updates(col, updates)
+                    self._update_stats()
 
     def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True):
         """Standardized rate context menu based on the SOR Table design."""
@@ -1571,30 +1591,7 @@ class PBOQDialog(QDialog):
             self._update_column_headers()
             self._update_stats()
 
-    def _handle_context_menu(self, table, pos, row, col, rowid):
-        m = self.tools_pane.get_mappings()
-        pkg_col = m.get('sub_package', -1)
-        
-        if col == pkg_col and pkg_col >= 0:
-            menu = QMenu(self)
-            clear_action = menu.addAction("Clear Package Assignment")
-            action = menu.exec(table.viewport().mapToGlobal(pos))
-            
-            if action == clear_action:
-                selected_indexes = table.selectedIndexes()
-                selected_rows = set(idx.row() for idx in selected_indexes) if selected_indexes else [row]
-                
-                updates = []
-                for r in selected_rows:
-                    it = table.item(r, pkg_col)
-                    if it:
-                        it.setText("")
-                        rid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                        updates.append((rid, ""))
-                        
-                if updates:
-                    self._persist_updates(pkg_col, updates)
-                    self._update_stats()
+
 
     def _open_package_adjudicator(self):
         file_path = self.pboq_file_selector.currentData()
