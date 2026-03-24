@@ -357,6 +357,73 @@ class PBOQDialog(QDialog):
                     self._persist_updates(col, updates)
                     self._update_stats()
 
+        elif col == m.get('sub_name', -1) and col >= 0:
+            self._handle_subbee_assign_menu(table, pos, row, col, rowid)
+
+    def _handle_subbee_assign_menu(self, table, pos, row, col, rowid):
+        m = self.tools_pane.get_mappings()
+        pkg_col = m.get('sub_package', -1)
+        if pkg_col < 0: return
+        
+        # Get package name for this row
+        pkg_item = table.item(row, pkg_col)
+        pkg = pkg_item.text() if pkg_item else ""
+        if not pkg: 
+            return # Can't assign if no package exists
+        
+        # Query available quotes for this specific row and package
+        conn = sqlite3.connect(self.current_db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT subcontractor_name, rate FROM subcontractor_quotes WHERE package_name=? AND row_idx=? AND rate > 0", (pkg, rowid))
+            quotes = cursor.fetchall()
+        except sqlite3.Error:
+            quotes = []
+        conn.close()
+        
+        menu = QMenu(self)
+        assign_menu = menu.addMenu("Assign Item To...")
+        
+        if quotes:
+            for sub_name, rate in quotes:
+                act = assign_menu.addAction(f"{sub_name} (Rate: {rate:,.2f})")
+                act.setData((sub_name, rate))
+        else:
+            assign_menu.addAction("No quotes available").setEnabled(False)
+            
+        menu.addSeparator()
+        clear_act = menu.addAction("Clear Assignment")
+        
+        action = menu.exec(table.viewport().mapToGlobal(pos))
+        if not action: return
+        
+        if action == clear_act:
+            self._apply_item_subcontractor(table, row, col, rowid, "")
+        elif action.data():
+            sub_name, rate = action.data()
+            self._apply_item_subcontractor(table, row, col, rowid, sub_name, rate)
+
+    def _apply_item_subcontractor(self, table, row, name_col, rowid, sub_name, rate=None):
+        """Surgically updates the Subcontractor Name and Subcontractor Rate directly (NOT Gross/Plug rate)."""
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('sub_rate', -1)
+        
+        # Update Name Column
+        name_item = table.item(row, name_col)
+        if name_item:
+            name_item.setText(sub_name)
+        self._persist_updates(name_col, [(rowid, sub_name)])
+        
+        # Update Rate Column
+        if rate_col >= 0:
+            rate_str = f"{rate:,.2f}" if rate is not None else ""
+            rate_item = table.item(row, rate_col)
+            if rate_item:
+                rate_item.setText(rate_str)
+            self._persist_updates(rate_col, [(rowid, rate_str)])
+            
+        self._update_stats()
+
     def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True):
         """Standardized rate context menu based on the SOR Table design."""
         m = self.tools_pane.get_mappings()
