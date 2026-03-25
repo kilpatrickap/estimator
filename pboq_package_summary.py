@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit)
+                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit, QTextEdit)
 from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_logic import PBOQLogic
 
@@ -16,8 +16,8 @@ class PackageSummaryDialog(QDialog):
         self.pkg_col = pkg_col
         self.markup_col = markup_col
         self.setWindowTitle("Work Packages Management")
-        self.setMinimumWidth(450)
-        self.setMinimumHeight(400)
+        self.setMinimumWidth(700) # Increased by ~55% for better visibility
+        self.setMinimumHeight(450)
         self._init_ui()
         self._load_data()
 
@@ -30,12 +30,22 @@ class PackageSummaryDialog(QDialog):
         self.table = QTableWidget()
         self.table.setColumnCount(3)
         self.table.setHorizontalHeaderLabels(["Package Name", "Markup (%)", "Notes"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
-        self.table.setAlternatingRowColors(True)
-        # Force column 1 to be slightly smaller
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+        
+        # Set all columns to Interactive (Adjustable)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        
+        # Doubled default width for Package Name (was ~100-150, now 250)
+        self.table.setColumnWidth(0, 250)
         self.table.setColumnWidth(1, 100)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        self.table.horizontalHeader().setStretchLastSection(True) # Notes column takes remaining space
+        
+        self.table.setAlternatingRowColors(True)
+        # Professional Excel-like row height (24px)
+        self.table.verticalHeader().setDefaultSectionSize(24)
+        self.table.verticalHeader().setMinimumSectionSize(24)
+        # Interactive mode allows manual override while keeping the Excel feel
+        self.table.verticalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         
         layout.addWidget(self.table)
         
@@ -86,6 +96,8 @@ class PackageSummaryDialog(QDialog):
             for i, (pkg, markup, notes) in enumerate(rows):
                 name_item = QTableWidgetItem(pkg)
                 name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                # Align Top-Left as requested
+                name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 self.table.setItem(i, 0, name_item)
                 
                 # Format markup as 2-decimal string
@@ -95,17 +107,62 @@ class PackageSummaryDialog(QDialog):
                     m_val = 10.0
                 
                 markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
-                markup_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                # Align Top-Center (Center horizontally, Top vertically)
+                markup_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
                 self.table.setItem(i, 1, markup_item)
                 
-                notes_edit = QLineEdit(notes if notes else "")
+                # Use QTextEdit for wrapping notes
+                notes_edit = QTextEdit(notes if notes else "")
                 notes_edit.setPlaceholderText("Markup composition ...")
+                notes_edit.setAcceptRichText(False)
+                # No internal scrollbars as requested
+                notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+                
+                # Ensure Top-Left alignment and clean look for 24px rows
+                notes_edit.setStyleSheet("QTextEdit { border: none; padding-top: 0px; padding-left: 2px; background: transparent; }")
                 self.table.setCellWidget(i, 2, notes_edit)
+                
+                # Dynamic row height adjustment based on content
+                notes_edit.textChanged.connect(lambda row=i, widget=notes_edit: self._adjust_row_height(row, widget))
+                # Initial adjustment for loaded data
+                self._adjust_row_height(i, notes_edit)
         except sqlite3.Error as e:
             print(f"Error loading packages summary: {e}")
         finally:
             conn.close()
             self.table.blockSignals(False)
+
+    def showEvent(self, event):
+        """Recalculate heights once the window is actually visible and widths are finalized."""
+        super().showEvent(event)
+        for i in range(self.table.rowCount()):
+            w = self.table.cellWidget(i, 2)
+            if w:
+                self._adjust_row_height(i, w)
+
+    def resizeEvent(self, event):
+        """Ensure heights update if the user stretches the window (changing the wrap)."""
+        super().resizeEvent(event)
+        for i in range(self.table.rowCount()):
+            w = self.table.cellWidget(i, 2)
+            if w:
+                self._adjust_row_height(i, w)
+
+    def _adjust_row_height(self, row, widget):
+        """Dynamically set the row height to fit the text content exactly."""
+        doc = widget.document()
+        
+        # To get accurate wrapped height, we MUST tell the document how wide it is
+        col_width = self.table.columnWidth(2)
+        if col_width > 0:
+            # Compensate for table padding/margins
+            doc.setTextWidth(col_width - 8)
+            
+        # Calculate the required height (content height + small buffer for margins)
+        target_h = int(doc.size().height()) + 4
+        # Maintain at least the 24px Excel default
+        self.table.setRowHeight(row, max(24, target_h))
 
     def _save_changes(self):
         conn = sqlite3.connect(self.db_path)
@@ -120,7 +177,7 @@ class PackageSummaryDialog(QDialog):
                     markup_val = 10.0 # fallback
                 
                 notes_widget = self.table.cellWidget(i, 2)
-                notes_val = notes_widget.text() if notes_widget else ""
+                notes_val = notes_widget.toPlainText() if notes_widget else ""
                 
                 # Apply this markup to all items in this package
                 cursor.execute(f'UPDATE pboq_items SET "{self.markup_col}" = ?, "SubbeeNotes" = ? WHERE "{self.pkg_col}" = ?', (str(markup_val), notes_val, pkg))
@@ -167,7 +224,7 @@ class PackageSummaryDialog(QDialog):
                 m_val = 10.0
                 
             notes_widget = self.table.cellWidget(i, 2)
-            n_val = notes_widget.text() if notes_widget else ""
+            n_val = notes_widget.toPlainText() if notes_widget else ""
             
             markups[pkg] = (m_val, n_val)
 
