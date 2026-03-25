@@ -30,17 +30,18 @@ class PackageSummaryDialog(QDialog):
         layout = QVBoxLayout(self)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["Package Name", "Project Category", "Markup (%)", "Notes"])
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Subcontractor Package", "Project Category", "Default Markup (%)"])
         
         # Set all columns to Interactive (Adjustable)
         header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Fixed)
         
-        self.table.setColumnWidth(0, 220) # Package Name
+        self.table.setColumnWidth(0, 250) # Package Name
         self.table.setColumnWidth(1, 180) # Category Dropdown
-        self.table.setColumnWidth(2, 90)  # Markup
-        self.table.horizontalHeader().setStretchLastSection(True) # Notes column takes remaining space
+        self.table.setColumnWidth(2, 120)  # Markup
         
         self.table.setAlternatingRowColors(True)
         # Professional Excel-like row height (24px)
@@ -67,7 +68,7 @@ class PackageSummaryDialog(QDialog):
         self.table.itemChanged.connect(self._handle_item_changed)
 
     def _handle_item_changed(self, item):
-        if item.column() == 1: # Markup column
+        if item.column() == 2: # Markup column
             self.table.blockSignals(True)
             txt = item.text().replace(',', '').replace('%', '')
             try:
@@ -90,7 +91,7 @@ class PackageSummaryDialog(QDialog):
 
             # Group by package name and find the most common markup (or max)
             cursor.execute(f"""
-                SELECT "{self.pkg_col}", MAX("{self.markup_col}"), MAX("SubbeeNotes") 
+                SELECT "{self.pkg_col}", MAX("{self.markup_col}")
                 FROM pboq_items 
                 WHERE "{self.pkg_col}" IS NOT NULL AND "{self.pkg_col}" != ''
                 GROUP BY "{self.pkg_col}"
@@ -98,11 +99,11 @@ class PackageSummaryDialog(QDialog):
             """)
             rows = cursor.fetchall()
             self.table.setRowCount(len(rows))
-            for i, (pkg, markup, notes) in enumerate(rows):
+            for i, (pkg, markup) in enumerate(rows):
                 # Col 0: Package Name (Read-only)
                 name_item = QTableWidgetItem(pkg)
                 name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(i, 0, name_item)
                 
                 # Col 1: Category Dropdown (NEW)
@@ -123,22 +124,11 @@ class PackageSummaryDialog(QDialog):
                     m_val = 10.0
                 
                 markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
-                markup_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+                markup_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(i, 2, markup_item)
                 
-                # Col 3: Notes (QTextEdit)
-                notes_edit = QTextEdit(notes if notes else "")
-                notes_edit.setPlaceholderText("Markup composition ...")
-                notes_edit.setAcceptRichText(False)
-                notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                notes_edit.setStyleSheet("QTextEdit { border: none; padding-top: 0px; padding-left: 2px; background: transparent; }")
-                self.table.setCellWidget(i, 3, notes_edit)
-                
-                notes_edit.textChanged.connect(lambda row=i, widget=notes_edit: self._adjust_row_height(row, widget))
-                self._adjust_row_height(i, notes_edit)
         except sqlite3.Error as e:
-            print(f"Error loading packages summary: {e}")
+            QMessageBox.critical(self, "Load Error", f"Failed to load package labels: {e}")
         finally:
             conn.close()
             self.table.blockSignals(False)
@@ -146,33 +136,12 @@ class PackageSummaryDialog(QDialog):
     def showEvent(self, event):
         """Recalculate heights once the window is actually visible and widths are finalized."""
         super().showEvent(event)
-        for i in range(self.table.rowCount()):
-            w = self.table.cellWidget(i, 2)
-            if w:
-                self._adjust_row_height(i, w)
+        # No dynamic height adjustment needed for single-line items
 
     def resizeEvent(self, event):
         """Ensure heights update if the user stretches the window (changing the wrap)."""
         super().resizeEvent(event)
-        for i in range(self.table.rowCount()):
-            w = self.table.cellWidget(i, 2)
-            if w:
-                self._adjust_row_height(i, w)
-
-    def _adjust_row_height(self, row, widget):
-        """Dynamically set the row height to fit the text content exactly."""
-        doc = widget.document()
-        
-        # To get accurate wrapped height, we MUST tell the document how wide it is
-        col_width = self.table.columnWidth(2)
-        if col_width > 0:
-            # Compensate for table padding/margins
-            doc.setTextWidth(col_width - 8)
-            
-        # Calculate the required height (content height + small buffer for margins)
-        target_h = int(doc.size().height()) + 4
-        # Maintain at least the 24px Excel default
-        self.table.setRowHeight(row, max(24, target_h))
+        # No dynamic height adjustment needed for single-line items
 
     def _save_changes(self):
         conn = sqlite3.connect(self.db_path)
@@ -188,27 +157,21 @@ class PackageSummaryDialog(QDialog):
 
                 # Fetch Markup
                 raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
-                try:
-                    markup_val = float(raw_m)
-                except ValueError:
-                    markup_val = 10.0
-                
-                # Fetch Notes
-                notes_widget = self.table.cellWidget(i, 3)
-                notes_val = notes_widget.toPlainText() if notes_widget else ""
+                try: markup_val = float(raw_m)
+                except ValueError: markup_val = 10.0
                 
                 # Apply this markup/category to all items in this package in the CURRENT PBOQ
                 cursor.execute(f"""
                     UPDATE pboq_items 
-                    SET "{self.markup_col}" = ?, "SubbeeNotes" = ?, "SubbeeCategory" = ? 
+                    SET "{self.markup_col}" = ?, "SubbeeCategory" = ? 
                     WHERE "{self.pkg_col}" = ?
-                """, (str(markup_val), notes_val, selected_cat, pkg))
+                """, (str(markup_val), selected_cat, pkg))
                 
                 # Prepare metadata for separate table
                 settings_to_save[pkg] = {
                     'category': selected_cat,
                     'markup': markup_val,
-                    'notes': notes_val
+                    'notes': ""
                 }
             
             conn.commit()
@@ -255,16 +218,10 @@ class PackageSummaryDialog(QDialog):
 
             # Fetch Markup
             raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
-            try:
-                m_val = float(raw_m)
-            except: 
-                m_val = 10.0
-                
-            # Fetch Notes
-            notes_widget = self.table.cellWidget(i, 3)
-            n_val = notes_widget.toPlainText() if notes_widget else ""
+            try: m_val = float(raw_m)
+            except: m_val = 10.0
             
-            package_settings[pkg] = {'markup': m_val, 'notes': n_val, 'category': selected_cat}
+            package_settings[pkg] = {'markup': m_val, 'category': selected_cat}
 
         if not package_settings: return
 
@@ -292,19 +249,19 @@ class PackageSummaryDialog(QDialog):
                     
                     sql = f"""
                         UPDATE pboq_items 
-                        SET "{target_markup_col}" = ?, SubbeeMarkup = ?, "SubbeeNotes" = ?, "SubbeeCategory" = ?
+                        SET "{target_markup_col}" = ?, SubbeeMarkup = ?, "SubbeeCategory" = ?
                         WHERE {where_clause}
                     """
-                    params = [str(data['markup']), str(data['markup']), data['notes'], data['category']] + [pkg] * len(cols_to_search)
+                    params = [str(data['markup']), str(data['markup']), data['category']] + [pkg] * len(cols_to_search)
                     
                     cursor.execute(sql, tuple(params))
                     rows_in_file += cursor.rowcount
 
                     # Update Package Settings Table
                     cursor.execute("""
-                        INSERT OR REPLACE INTO subcontractor_package_settings (package_name, category_name, markup_default, notes)
-                        VALUES (?, ?, ?, ?)
-                    """, (pkg, data['category'], data['markup'], data['notes']))
+                        INSERT OR REPLACE INTO subcontractor_package_settings (package_name, category_name, markup_default)
+                        VALUES (?, ?, ?)
+                    """, (pkg, data['category'], data['markup']))
                     
                 conn.commit()
                 conn.close()

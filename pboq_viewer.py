@@ -811,13 +811,13 @@ class PBOQDialog(QDialog):
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
         elif price_type == "Subcontractor Rate":
             active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
-                           m.get('sub_markup', -1), m.get('sub_notes', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
+                           m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
             inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), 
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
-                             m.get('sub_markup', -1), m.get('sub_notes', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
+                             m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -859,7 +859,7 @@ class PBOQDialog(QDialog):
             'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
             'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 
             'sub_rate': "Subbee Rate", 'sub_markup': "Subbee Markup (%)",
-            'sub_notes': "Subbee Notes", 'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
+            'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
@@ -874,9 +874,9 @@ class PBOQDialog(QDialog):
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
                 
-                # Automatically hide blank/extra columns beyond the standard pricing range (17 columns)
+                # Automatically hide blank/extra columns beyond the standard pricing range (16 columns)
                 # but only if they aren't mapped to anything.
-                if i >= 17:
+                if i >= 16:
                     table.setColumnHidden(i, role is None)
                 else:
                     # Ensure standard columns (0-7) are visible so user can map them
@@ -1829,7 +1829,7 @@ class PBOQDialog(QDialog):
         m = self.tools_pane.get_mappings()
         file_path = self.pboq_file_selector.currentData()
         
-        roles = ['sub_package', 'sub_name', 'sub_rate', 'sub_markup', 'sub_notes', 'sub_category', 'sub_code']
+        roles = ['sub_package', 'sub_name', 'sub_rate', 'sub_markup', 'sub_category', 'sub_code']
         cols = {role: m.get(role, -1) for role in roles}
         
         if cols['sub_package'] < 0 or cols['sub_name'] < 0 or cols['sub_rate'] < 0:
@@ -1840,9 +1840,9 @@ class PBOQDialog(QDialog):
         pkg_settings = PBOQLogic.get_package_settings(file_path).get(pkg, {})
         category = pkg_settings.get('category', 'Miscellaneous')
         markup = pkg_settings.get('markup', 0.0)
-        notes = pkg_settings.get('notes', '')
 
-        # 2. Resolve Prefix for the category
+        # 2. Resolve Prefix for the category (Strict: All Caps, Alphanumeric only)
+        import re
         db_path = "construction_costs.db"
         project_db_dir = os.path.join(self.project_dir, "Project Database")
         if os.path.exists(project_db_dir):
@@ -1852,10 +1852,12 @@ class PBOQDialog(QDialog):
                     break
         db_mgr = DatabaseManager(db_path)
         prefixes = db_mgr.get_category_prefixes_dict()
-        prefix = prefixes.get(category, "MISC")
-        sr_prefix = f"SR-{prefix}"
+        raw_prefix = prefixes.get(category, "MISC")
+        # Ensure prefix is clean (Alpha-only) and Upper Case
+        clean_prefix = re.sub(r'[^A-Z]', '', raw_prefix.upper())
+        sr_prefix = f"SR-{clean_prefix}"
 
-        # 3. Code Generation Logic: Find next sequential start point in THIS PBOQ
+        # 3. Code Generation Logic
         existing_codes = []
         try:
             conn = sqlite3.connect(file_path)
@@ -1865,20 +1867,47 @@ class PBOQDialog(QDialog):
             conn.close()
         except: pass
         
-        import re
-        def _get_next_ver(p, codes):
-            if not codes: return 1, 'A'
+        def _get_next_code(p, codes, current_idx):
+            """Returns the Nth code in a sequence starting from the last known code in the DB."""
+            import re
             pattern = re.compile(rf"^{re.escape(p)}(\d+)([A-Z])$")
-            max_num = 0
-            for c in codes:
-                match = pattern.match(c)
-                if match:
-                    num = int(match.group(1))
-                    if num > max_num: max_num = num
-            return max_num + 1, 'A'
+            max_num = 1
+            max_letter = '@' # Before 'A'
+            
+            if codes:
+                for c in codes:
+                    match = pattern.match(str(c))
+                    if match:
+                        num = int(match.group(1))
+                        let = match.group(2)
+                        if num > max_num:
+                            max_num = num
+                            max_letter = let
+                        elif num == max_num:
+                            if let > max_letter:
+                                max_letter = let
 
-        next_num, next_letter = _get_next_ver(sr_prefix, existing_codes)
-        
+            # If no valid codes exist, start at 1A
+            if max_letter == '@':
+                num, let = 1, 'A'
+            else:
+                # Increment from found max
+                if max_letter == 'Z':
+                    num, let = max_num + 1, 'A'
+                else:
+                    num, let = max_num, chr(ord(max_letter) + 1)
+            
+            # Now calculate the Nth jump based on current_idx (relative to start of package apply)
+            # We jump 'idx' steps from (num, let)
+            for _ in range(current_idx):
+                if let == 'Z':
+                    num += 1
+                    let = 'A'
+                else:
+                    let = chr(ord(let) + 1)
+            
+            return f"{p}{num}{let}"
+
         # 4. Apply Updates
         rate_dict = dict(winning_rates) # rowid -> rate
         db_updates = []
@@ -1903,30 +1932,26 @@ class PBOQDialog(QDialog):
                         except:
                             rate_str = str(raw_rate)
                         
-                        # Generate unique SR code for this specific row
-                        sub_code = f"{sr_prefix}{next_num}{chr(ord(next_letter) + current_item_index)}"
+                        # Generate unique SR code using jumping logic
+                        sub_code = _get_next_code(sr_prefix, existing_codes, current_item_index)
                         
                         # Update UI
-                        for text, col in [
+                        update_roles = [
                             (winner_name, cols['sub_name']),
                             (rate_str, cols['sub_rate']),
                             (markup_str, cols['sub_markup']),
-                            (notes, cols['sub_notes']),
                             (category, cols['sub_category']),
                             (sub_code, cols['sub_code'])
-                        ]:
-                            if col >= 0:
-                                itm = table.item(r, col)
+                        ]
+                        for text, col_idx in update_roles:
+                            if col_idx >= 0:
+                                itm = table.item(r, col_idx)
                                 if not itm:
                                     itm = QTableWidgetItem()
-                                    table.setItem(r, col, itm)
+                                    table.setItem(r, col_idx, itm)
                                 itm.setText(text)
 
-                        # Highlight
-                        for c in range(table.columnCount()):
-                            table.item(r, c).setBackground(QColor("#fff9c4")) # Light yellow for awarded
-
-                        db_updates.append((winner_name, rate_str, markup_str, notes, category, sub_code, row_id))
+                        db_updates.append((winner_name, rate_str, markup_str, category, sub_code, row_id))
                         current_item_index += 1
 
         # 5. Persist to Database
@@ -1937,7 +1962,7 @@ class PBOQDialog(QDialog):
                 cursor.executemany("""
                     UPDATE pboq_items 
                     SET SubbeeName = ?, SubbeeRate = ?, SubbeeMarkup = ?, 
-                        SubbeeNotes = ?, SubbeeCategory = ?, SubbeeCode = ?
+                        SubbeeCategory = ?, SubbeeCode = ?
                     WHERE rowid = ?
                 """, db_updates)
                 conn.commit()

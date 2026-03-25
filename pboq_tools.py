@@ -55,7 +55,6 @@ class PBOQToolsPane(QWidget):
         self.cb_sub_name = QComboBox()
         self.cb_sub_rate = QComboBox()
         self.cb_sub_markup = QComboBox()
-        self.cb_sub_notes = QComboBox()
         self.cb_sub_category = QComboBox()
         self.cb_sub_code = QComboBox()
         
@@ -68,7 +67,7 @@ class PBOQToolsPane(QWidget):
         for cb in [self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
                    self.cb_plug_rate, self.cb_plug_code, self.cb_sub_package, 
                    self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
-                   self.cb_sub_notes, self.cb_sub_category, self.cb_sub_code]:
+                   self.cb_sub_category, self.cb_sub_code]:
             cb.hide()
         
         # Connect signals
@@ -76,7 +75,7 @@ class PBOQToolsPane(QWidget):
                    self.cb_bill_rate, self.cb_bill_amount, 
                    self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                    self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
-                   self.cb_sub_notes, self.cb_sub_category, self.cb_sub_code]:
+                   self.cb_sub_category, self.cb_sub_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
             cb.currentIndexChanged.connect(self.columnHeadersRequested)
             cb.currentIndexChanged.connect(self.update_extend_labels)
@@ -220,7 +219,7 @@ class PBOQToolsPane(QWidget):
                   self.cb_bill_rate, self.cb_bill_amount, 
                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                   self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
-                  self.cb_sub_notes, self.cb_sub_category, self.cb_sub_code]
+                  self.cb_sub_category, self.cb_sub_code]
         
         for cb in combos:
             cb.blockSignals(True)
@@ -239,15 +238,14 @@ class PBOQToolsPane(QWidget):
         if num_columns > 11: self.cb_sub_name.setCurrentIndex(12)    # Column 11
         if num_columns > 12: self.cb_sub_rate.setCurrentIndex(13)    # Column 12
         if num_columns > 13: self.cb_sub_markup.setCurrentIndex(14)  # Column 13
-        if num_columns > 14: self.cb_sub_notes.setCurrentIndex(15)   # Column 14
-        if num_columns > 15: self.cb_sub_category.setCurrentIndex(16) # Column 15
-        if num_columns > 16: self.cb_sub_code.setCurrentIndex(17)     # Column 16
+        if num_columns > 14: self.cb_sub_category.setCurrentIndex(15) # Column 14
+        if num_columns > 15: self.cb_sub_code.setCurrentIndex(16)     # Column 15
         
         for cb in combos:
             cb.blockSignals(False)
 
     def get_mappings(self):
-        """Returns the current column mappings. Now enforces standardized indices (4-16) for Pricing/Subbee."""
+        """Returns the current column mappings. Now enforces standardized indices (4-15) for Pricing/Subbee."""
         m = {
             'ref': self.cb_ref.currentIndex() - 1,
             'desc': self.cb_desc.currentIndex() - 1,
@@ -266,9 +264,8 @@ class PBOQToolsPane(QWidget):
             'sub_name': 11,
             'sub_rate': 12,
             'sub_markup': 13,
-            'sub_notes': 14,
-            'sub_category': 15,
-            'sub_code': 16
+            'sub_category': 14,
+            'sub_code': 15
         }
         return m
     
