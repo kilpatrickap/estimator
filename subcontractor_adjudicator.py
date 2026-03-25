@@ -44,6 +44,22 @@ class AddSubcontractorDialog(QDialog):
         name_layout.addWidget(self.name_input)
         layout.addLayout(name_layout)
         
+        # Subcontractor Phone
+        phone_layout = QHBoxLayout()
+        phone_layout.addWidget(QLabel("Subcontractor Phone:"))
+        self.phone_input = QLineEdit()
+        self.phone_input.setPlaceholderText("Optional")
+        phone_layout.addWidget(self.phone_input)
+        layout.addLayout(phone_layout)
+        
+        # Subcontractor Email
+        email_layout = QHBoxLayout()
+        email_layout.addWidget(QLabel("Subcontractor Email:"))
+        self.email_input = QLineEdit()
+        self.email_input.setPlaceholderText("Optional")
+        email_layout.addWidget(self.email_input)
+        layout.addLayout(email_layout)
+        
         # Import Options
         self.import_group = QGroupBox("Import Options")
         ig_layout = QVBoxLayout(self.import_group)
@@ -134,13 +150,15 @@ class AddSubcontractorDialog(QDialog):
 
     def get_result(self):
         name = self.name_input.text().strip()
+        phone = self.phone_input.text().strip()
+        email = self.email_input.text().strip()
         if self.radio_manual.isChecked():
-            return name, "MANUAL", None
+            return name, phone, email, "MANUAL", None
         elif self.radio_new_file.isChecked():
-            return name, "NEW", self.selected_file_path
+            return name, phone, email, "NEW", self.selected_file_path
         elif self.radio_existing.isChecked():
-            return name, "EXISTING", self.existing_combo.currentData()
-        return name, "MANUAL", None
+            return name, phone, email, "EXISTING", self.existing_combo.currentData()
+        return name, phone, email, "MANUAL", None
 
 class PackageAdjudicatorDialog(QDialog):
     def __init__(self, pboq_db_path, pkg_db_col, project_dir, parent=None):
@@ -480,12 +498,27 @@ class PackageAdjudicatorDialog(QDialog):
 
         wizard = AddSubcontractorDialog(self.project_dir, pkg, self)
         if wizard.exec() == QDialog.DialogCode.Accepted:
-            name, import_type, file_path = wizard.get_result()
+            name, phone, email, import_type, file_path = wizard.get_result()
             if not name: return
 
             if name in self.subcontractors:
                 QMessageBox.warning(self, "Duplicate", f"Subcontractor '{name}' already exists.")
                 return
+
+            # Save Subcontractor Contact Details to DB
+            try:
+                conn = sqlite3.connect(self.pboq_db_path)
+                from pboq_logic import PBOQLogic
+                PBOQLogic.ensure_schema(conn)
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT OR REPLACE INTO subcontractor_details (name, phone, email) 
+                    VALUES (?, ?, ?)
+                """, (name, phone, email))
+                conn.commit()
+                conn.close()
+            except sqlite3.Error as e:
+                print(f"Failed to save subcontractor details: {e}")
 
             # Handle DMS Import Logic
             if import_type in ("NEW", "EXISTING") and file_path:

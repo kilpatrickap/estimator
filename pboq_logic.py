@@ -59,6 +59,15 @@ class PBOQLogic:
             )
         """)
         
+        # Ensure Subcontractor Details table exists for contact info
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_details (
+                name TEXT PRIMARY KEY,
+                phone TEXT,
+                email TEXT
+            )
+        """)
+        
         conn.commit()
         return True, db_columns
 
