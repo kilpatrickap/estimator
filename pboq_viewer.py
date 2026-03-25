@@ -205,20 +205,28 @@ class PBOQDialog(QDialog):
             logical_data = row[logical_start_idx:]
             
             # --- Logic Layer MERGE ---
-            # If a physical column is mapped to a subbee role, and the physical cell is empty, 
-            # we pull from the logical store.
+            # For subbee roles, prefer logical store values.
+            # Category and Code ALWAYS use logical store (they are the source of truth).
+            # Other roles only pull from logical store when the physical cell is empty.
             m = self.tools_pane.get_mappings()
             sub_roles = {
                 'sub_package': 0, 'sub_name': 1, 'sub_rate': 2, 
                 'sub_markup': 3, 'sub_category': 4, 'sub_code': 5
             }
+            # Roles where the logical store is always authoritative
+            logical_authoritative = {'sub_category', 'sub_code'}
             for role, l_idx in sub_roles.items():
                 p_idx = m.get(role, -1)
-                if p_idx >= 0 and p_idx < len(physical_data) - 1: # -1 because sheet is col 0 in db_columns? No, db_columns[0] is Sheet.
-                    # Mapping indices are 0-based across all display columns (Column 1 = index 0)
-                    # physical_data starts from row[1], which is Column 1. So physical_data[idx] is Column idx+1.
-                    if not physical_data[p_idx + 1] or physical_data[p_idx + 1] == "None":
-                        physical_data[p_idx + 1] = logical_data[l_idx]
+                if p_idx >= 0 and p_idx < len(physical_data) - 1:
+                    logical_val = logical_data[l_idx]
+                    if role in logical_authoritative:
+                        # Always prefer the logical store for category/code
+                        if logical_val and logical_val != "None":
+                            physical_data[p_idx + 1] = logical_val
+                    else:
+                        # Fallback: only use logical if physical is empty
+                        if not physical_data[p_idx + 1] or physical_data[p_idx + 1] == "None":
+                            physical_data[p_idx + 1] = logical_val
 
             sheet_name = str(physical_data[0]) if physical_data[0] else "Sheet 1"
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
@@ -731,12 +739,18 @@ class PBOQDialog(QDialog):
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
-        # Mirroring Logic: Sync physical edits to logical "SubbeeName" / "SubbeePackage"
+        # Mirroring Logic: Sync physical edits to logical subbee columns
         m = self.tools_pane.get_mappings()
-        if display_col == m.get('sub_name'):
-             self.logic.persist_batch_named_updates(file_path, "SubbeeName", updates)
-        elif display_col == m.get('sub_package'):
-             self.logic.persist_batch_named_updates(file_path, "SubbeePackage", updates)
+        mirror_map = {
+            'sub_name': 'SubbeeName',
+            'sub_package': 'SubbeePackage',
+            'sub_category': 'SubbeeCategory',
+            'sub_code': 'SubbeeCode',
+        }
+        for role, logical_col in mirror_map.items():
+            if display_col == m.get(role):
+                self.logic.persist_batch_named_updates(file_path, logical_col, updates)
+                break
 
         # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
         # AND we are not already in a logic update.
@@ -939,31 +953,34 @@ class PBOQDialog(QDialog):
         self._update_stats()
 
     def _sync_logical_assignment_columns(self):
-        """Backfills the hidden 'SubbeeName' and 'SubbeePackage' columns from whatever physical columns are currently mapped."""
+        """Backfills all hidden subbee logical columns from whatever physical columns are currently mapped."""
         m = self.tools_pane.get_mappings()
-        name_idx = m.get('sub_name', -1)
-        pkg_idx = m.get('sub_package', -1)
-        if name_idx < 0 and pkg_idx < 0: return
+        sync_map = {
+            'sub_name': 'SubbeeName',
+            'sub_package': 'SubbeePackage',
+            'sub_category': 'SubbeeCategory',
+            'sub_code': 'SubbeeCode',
+        }
+        # Build {role: display_col_idx} for roles that are actually mapped
+        active = {role: m.get(role, -1) for role in sync_map if m.get(role, -1) >= 0}
+        if not active: return
 
         file_path = self.pboq_file_selector.currentData()
-        name_updates, pkg_updates = [], []
+        updates = {role: [] for role in active}
         
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
             if not isinstance(table, PBOQTable): continue
             for r in range(table.rowCount()):
                 rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                if name_idx >= 0:
-                    item = table.item(r, name_idx)
+                for role, col_idx in active.items():
+                    item = table.item(r, col_idx)
                     val = item.text().strip() if item else ""
-                    name_updates.append((rowid, val))
-                if pkg_idx >= 0:
-                    item = table.item(r, pkg_idx)
-                    val = item.text().strip() if item else ""
-                    pkg_updates.append((rowid, val))
+                    updates[role].append((rowid, val))
         
-        if name_updates: self.logic.persist_batch_named_updates(file_path, "SubbeeName", name_updates)
-        if pkg_updates: self.logic.persist_batch_named_updates(file_path, "SubbeePackage", pkg_updates)
+        for role, upd_list in updates.items():
+            if upd_list:
+                self.logic.persist_batch_named_updates(file_path, sync_map[role], upd_list)
 
     # --- Worker Logic Methods ---
 
