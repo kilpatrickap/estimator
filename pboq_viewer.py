@@ -1951,7 +1951,20 @@ class PBOQDialog(QDialog):
                                     table.setItem(r, col_idx, itm)
                                 itm.setText(text)
 
-                        db_updates.append((winner_name, rate_str, markup_str, category, sub_code, row_id))
+                        # Prepare DB Update List
+                        # We build a list of (ColumnName, Value) pairs for THIS specific row
+                        physical_updates = []
+                        if cols['sub_name'] >= 0: physical_updates.append((self.db_columns[cols['sub_name'] + 1], winner_name))
+                        if cols['sub_rate'] >= 0: physical_updates.append((self.db_columns[cols['sub_rate'] + 1], rate_str))
+                        if cols['sub_markup'] >= 0: physical_updates.append((self.db_columns[cols['sub_markup'] + 1], markup_str))
+                        if cols['sub_category'] >= 0: physical_updates.append((self.db_columns[cols['sub_category'] + 1], category))
+                        if cols['sub_code'] >= 0: physical_updates.append((self.db_columns[cols['sub_code'] + 1], sub_code))
+
+                        db_updates.append({
+                            'rowid': row_id,
+                            'logical': (winner_name, rate_str, markup_str, category, sub_code),
+                            'physical': physical_updates
+                        })
                         current_item_index += 1
 
         # 5. Persist to Database
@@ -1959,12 +1972,19 @@ class PBOQDialog(QDialog):
             try:
                 conn = sqlite3.connect(file_path)
                 cursor = conn.cursor()
-                cursor.executemany("""
-                    UPDATE pboq_items 
-                    SET SubbeeName = ?, SubbeeRate = ?, SubbeeMarkup = ?, 
-                        SubbeeCategory = ?, SubbeeCode = ?
-                    WHERE rowid = ?
-                """, db_updates)
+                for up in db_updates:
+                    # Sync logical columns
+                    cursor.execute("""
+                        UPDATE pboq_items 
+                        SET SubbeeName = ?, SubbeeRate = ?, SubbeeMarkup = ?, 
+                            SubbeeCategory = ?, SubbeeCode = ?
+                        WHERE rowid = ?
+                    """, up['logical'] + (up['rowid'],))
+                    
+                    # Sync physical mapped columns
+                    for col_name, val in up['physical']:
+                        cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE rowid = ?', (val, up['rowid']))
+                
                 conn.commit()
                 conn.close()
                 self._update_stats()
