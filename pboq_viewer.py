@@ -4,7 +4,7 @@ import json
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QMessageBox, QComboBox, QTabWidget, QWidget,
                              QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu,
-                             QLineEdit, QPushButton)
+                             QLineEdit, QPushButton, QInputDialog)
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QColor, QBrush, QAction
 
@@ -186,18 +186,43 @@ class PBOQDialog(QDialog):
         formatting_data = self.logic.load_formatting(conn)
         cursor = conn.cursor()
         quoted_cols = [f'"{c}"' for c in self.db_columns]
-        cursor.execute(f"SELECT rowid, {', '.join(quoted_cols)} FROM pboq_items")
+        
+        # We fetch physical columns PLUS logical subbee columns for fallback/sync
+        logical_cols = ["SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeCategory", "SubbeeCode"]
+        query = f"SELECT rowid, {', '.join(quoted_cols)}, {', '.join(logical_cols)} FROM pboq_items"
+        cursor.execute(query)
         rows = cursor.fetchall()
         conn.close()
         
         self.rowid_to_item0 = {}
         sheet_groups = {}
+        # logical_start_idx is row[0] (rowid) + physical_cols (len(db_columns))
+        logical_start_idx = 1 + len(self.db_columns)
+        
         for g_idx, row in enumerate(rows):
             row_id = row[0]
-            sheet_data = row[1:]
-            sheet_name = str(sheet_data[0]) if sheet_data[0] else "Sheet 1"
+            physical_data = list(row[1:logical_start_idx])
+            logical_data = row[logical_start_idx:]
+            
+            # --- Logic Layer MERGE ---
+            # If a physical column is mapped to a subbee role, and the physical cell is empty, 
+            # we pull from the logical store.
+            m = self.tools_pane.get_mappings()
+            sub_roles = {
+                'sub_package': 0, 'sub_name': 1, 'sub_rate': 2, 
+                'sub_markup': 3, 'sub_category': 4, 'sub_code': 5
+            }
+            for role, l_idx in sub_roles.items():
+                p_idx = m.get(role, -1)
+                if p_idx >= 0 and p_idx < len(physical_data) - 1: # -1 because sheet is col 0 in db_columns? No, db_columns[0] is Sheet.
+                    # Mapping indices are 0-based across all display columns (Column 1 = index 0)
+                    # physical_data starts from row[1], which is Column 1. So physical_data[idx] is Column idx+1.
+                    if not physical_data[p_idx + 1] or physical_data[p_idx + 1] == "None":
+                        physical_data[p_idx + 1] = logical_data[l_idx]
+
+            sheet_name = str(physical_data[0]) if physical_data[0] else "Sheet 1"
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
-            sheet_groups[sheet_name].append((g_idx, row_id, sheet_data[1:]))
+            sheet_groups[sheet_name].append((g_idx, row_id, physical_data[1:]))
             
         self.tools_pane.populate_column_combos(num_display_cols)
         
@@ -1730,6 +1755,124 @@ class PBOQDialog(QDialog):
             self._update_stats()
 
 
+
+    def _handle_context_menu(self, table, pos, row, col, rowid):
+        """Displays context-sensitive actions for PBOQ table cells."""
+        m = self.tools_pane.get_mappings()
+        
+        # Check if we clicked on Subbee Category or Subbee Code
+        is_cat = (col == m.get('sub_category', -1))
+        is_code = (col == m.get('sub_code', -1))
+        
+        if is_cat or is_code:
+            menu = QMenu(self)
+            edit_act = QAction("Change Category & Regenerate Code", self)
+            edit_act.triggered.connect(lambda: self._recategorize_item(table, row, rowid))
+            menu.addAction(edit_act)
+            menu.exec(table.viewport().mapToGlobal(pos))
+
+    def _recategorize_item(self, table, row, rowid):
+        """Prompts user for a new category and regenerates the SR- code for that item."""
+        # 1. Resolve Project Categories
+        import re
+        db_path = "construction_costs.db"
+        project_db_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.lower().endswith('.db'):
+                    db_path = os.path.join(project_db_dir, f)
+                    break
+        db_mgr = DatabaseManager(db_path)
+        cat_prefixes = db_mgr.get_category_prefixes_dict()
+        categories = sorted(list(cat_prefixes.keys()))
+        
+        if not categories:
+            QMessageBox.warning(self, "No Categories", "Could not find any project categories in construction_costs.db.")
+            return
+
+        # 2. Prompt for selection
+        m = self.tools_pane.get_mappings()
+        cur_cat_item = table.item(row, m.get('sub_category', -1))
+        cur_cat = cur_cat_item.text() if cur_cat_item else ""
+        
+        new_cat, ok = QInputDialog.getItem(self, "Recategorize Item", "Select New Project Category:", 
+                                         categories, categories.index(cur_cat) if cur_cat in categories else 0, False)
+        
+        if not ok or not new_cat: return
+
+        # 3. Generate New Code Logic (Matches apply_winning_subcontractor)
+        raw_prefix = cat_prefixes.get(new_cat, "MISC")
+        clean_prefix = re.sub(r'[^A-Z]', '', raw_prefix.upper())
+        sr_prefix = f"SR-{clean_prefix}"
+        
+        file_path = self.pboq_file_selector.currentData()
+        existing_codes = []
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT SubbeeCode FROM pboq_items WHERE SubbeeCode LIKE ?", (f"{sr_prefix}%",))
+            existing_codes = [r[0] for r in cursor.fetchall() if r[0]]
+            conn.close()
+        except: pass
+
+        import re
+        pattern = re.compile(rf"^{re.escape(sr_prefix)}(\d+)([A-Z])$")
+        max_num = 1
+        max_letter = '@'
+        if existing_codes:
+            for c in existing_codes:
+                match = pattern.match(str(c))
+                if match:
+                    num = int(match.group(1))
+                    let = match.group(2)
+                    if num > max_num:
+                        max_num = num
+                        max_letter = let
+                    elif num == max_num:
+                        if let > max_letter:
+                            max_letter = let
+
+        if max_letter == '@': n, l = 1, 'A'
+        elif max_letter == 'Z': n, l = max_num + 1, 'A'
+        else: n, l = max_num, chr(ord(max_letter) + 1)
+        
+        new_code = f"{sr_prefix}{n}{l}"
+
+        # 4. Update UI & Database
+        cols = {
+            'sub_category': m.get('sub_category', -1),
+            'sub_code': m.get('sub_code', -1)
+        }
+        
+        # Update Table UI
+        if cols['sub_category'] >= 0:
+            itm = table.item(row, cols['sub_category'])
+            if not itm: itm = QTableWidgetItem(); table.setItem(row, cols['sub_category'], itm)
+            itm.setText(new_cat)
+        if cols['sub_code'] >= 0:
+            itm = table.item(row, cols['sub_code'])
+            if not itm: itm = QTableWidgetItem(); table.setItem(row, cols['sub_code'], itm)
+            itm.setText(new_code)
+
+        # Update Database (Both Logical and Physical)
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            # Logical
+            cursor.execute("UPDATE pboq_items SET SubbeeCategory = ?, SubbeeCode = ? WHERE rowid = ?", (new_cat, new_code, rowid))
+            # Physical
+            if cols['sub_category'] >= 0:
+                col_name = self.db_columns[cols['sub_category'] + 1]
+                cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE rowid = ?', (new_cat, rowid))
+            if cols['sub_code'] >= 0:
+                col_name = self.db_columns[cols['sub_code'] + 1]
+                cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE rowid = ?', (new_code, rowid))
+            
+            conn.commit()
+            conn.close()
+            QMessageBox.information(self, "Updated", f"Item recategorized to '{new_cat}'.\nNew Code: {new_code}")
+        except Exception as e:
+            QMessageBox.critical(self, "DB Error", f"Failed to persist recategorization: {e}")
 
     def _open_package_adjudicator(self):
         file_path = self.pboq_file_selector.currentData()
