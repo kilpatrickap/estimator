@@ -1122,17 +1122,42 @@ class PBOQDialog(QDialog):
         name_col = m.get('sub_name', -1)
         rate_col = m.get('sub_rate', -1)
         markup_col = m.get('sub_markup', -1)
-        self._clear_columns([pkg_col, name_col, rate_col, markup_col], "Subcontractor Package, Name, Rate & Markup")
+        
+        custom_warning = (
+            "WARNING: All existing Subcontractors data will be deleted.\n\n"
+            "This will permanently clear all Subcontractor assignments, markups, "
+            "and all stored quotes within this PBOQ file.\n\n"
+            "Are you absolutely sure you wish to proceed?"
+        )
+        self._clear_columns([pkg_col, name_col, rate_col, markup_col], "Subcontractor Package, Name, Rate & Markup", custom_prompt=custom_warning, is_subbee=True)
 
-    def _clear_columns(self, col_indices, label):
+    def _clear_columns(self, col_indices, label, custom_prompt=None, is_subbee=False):
         """Generic helper to clear one or more columns across all sheets."""
         if all(c < 0 for c in col_indices):
             QMessageBox.warning(self, "Clear", f"Please map the {label} columns first.")
             return
 
-        confirm = QMessageBox.question(self, "Clear", f"Are you sure you want to clear {label} content in ALL sheets?",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        prompt = custom_prompt if custom_prompt else f"Are you sure you want to clear {label} content in ALL sheets?"
+        
+        if custom_prompt:
+            confirm = QMessageBox.warning(self, "Clear Data Warning", prompt, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        else:
+            confirm = QMessageBox.question(self, "Clear Data", prompt, QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            
         if confirm != QMessageBox.StandardButton.Yes: return
+        
+        # If this is specifically the subcontractor clear, wipe the quotes DB table for this PBOQ too
+        if is_subbee:
+            try:
+                pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
+                import sqlite3
+                conn = sqlite3.connect(pboq_db_path)
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM subcontractor_quotes") # Wipe quotes
+                conn.commit()
+                conn.close()
+            except Exception as e:
+                print(f"Failed to clear subcontractor_quotes table: {e}")
 
         for i in range(self.tabs.count()):
             t = self.tabs.widget(i)
