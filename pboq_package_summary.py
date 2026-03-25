@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit, QTextEdit, QComboBox)
+                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit, QTextEdit, QComboBox, QWidget)
 from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_logic import PBOQLogic
 
@@ -104,16 +104,21 @@ class PackageSummaryDialog(QDialog):
                 name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 self.table.setItem(i, 0, name_item)
                 
-                # Col 1: Category Dropdown (NEW)
+                # Col 1: Category Dropdown (Wrapped for Top Alignment)
+                container = QWidget()
+                c_layout = QVBoxLayout(container)
+                c_layout.setContentsMargins(0, 0, 0, 0)
+                c_layout.setSpacing(0)
+                
                 cat_combo = QComboBox()
                 cat_combo.addItems(["-- Select Category --"] + self.category_names)
-                # Apply current mapping if exists
-                current_cat = pkg_settings.get(pkg, {}).get('category')
+                current_cat = pkg_settings.get(pkg, {}).get('category', '')
                 if current_cat in self.category_names:
                     cat_combo.setCurrentText(current_cat)
                 
-                cat_combo.setStyleSheet("QComboBox { border: none; background: transparent; }")
-                self.table.setCellWidget(i, 1, cat_combo)
+                cat_combo.setStyleSheet("QComboBox { border: none; background: transparent; padding: 0px; }")
+                c_layout.addWidget(cat_combo, 0, Qt.AlignmentFlag.AlignTop)
+                self.table.setCellWidget(i, 1, container)
 
                 # Col 2: Markup (%)
                 try:
@@ -176,9 +181,13 @@ class PackageSummaryDialog(QDialog):
             for i in range(self.table.rowCount()):
                 pkg = self.table.item(i, 0).text()
                 
-                # Fetch Category from dropdown
-                cat_combo = self.table.cellWidget(i, 1)
-                selected_cat = cat_combo.currentText() if cat_combo and cat_combo.currentIndex() > 0 else ""
+                # Fetch Category from dropdown (found inside the alignment wrapper)
+                cat_wrapper = self.table.cellWidget(i, 1)
+                selected_cat = ""
+                if cat_wrapper:
+                    cat_combo = cat_wrapper.layout().itemAt(0).widget()
+                    if isinstance(cat_combo, QComboBox) and cat_combo.currentIndex() > 0:
+                        selected_cat = cat_combo.currentText()
 
                 # Fetch Markup
                 raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
@@ -241,9 +250,13 @@ class PackageSummaryDialog(QDialog):
             pkg = self.table.item(i, 0).text().strip()
             if not pkg: continue
             
-            # Fetch Category from dropdown
-            cat_combo = self.table.cellWidget(i, 1)
-            selected_cat = cat_combo.currentText() if cat_combo and cat_combo.currentIndex() > 0 else ""
+            # Fetch Category from dropdown (inside wrapper)
+            cat_wrapper = self.table.cellWidget(i, 1)
+            selected_cat = ""
+            if cat_wrapper:
+                cat_combo = cat_wrapper.layout().itemAt(0).widget()
+                if isinstance(cat_combo, QComboBox) and cat_combo.currentIndex() > 0:
+                    selected_cat = cat_combo.currentText()
 
             # Fetch Markup
             raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
