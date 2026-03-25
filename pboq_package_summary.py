@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView)
+                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit)
 from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_logic import PBOQLogic
 
@@ -28,13 +28,14 @@ class PackageSummaryDialog(QDialog):
         layout = QVBoxLayout(self)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(2)
-        self.table.setHorizontalHeaderLabels(["Package Name", "Markup (%)"])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.table.setColumnCount(3)
+        self.table.setHorizontalHeaderLabels(["Package Name", "Markup (%)", "Notes"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setAlternatingRowColors(True)
         # Force column 1 to be slightly smaller
         self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
         self.table.setColumnWidth(1, 100)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         
         layout.addWidget(self.table)
         
@@ -69,10 +70,12 @@ class PackageSummaryDialog(QDialog):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         try:
+            # Ensure schema is up to date with new fields
+            PBOQLogic.ensure_schema(conn)
             # Group by package name and find the most common markup (or max)
             # This handles cases where items in a package might have drifted during manual edits
             cursor.execute(f"""
-                SELECT "{self.pkg_col}", MAX("{self.markup_col}") 
+                SELECT "{self.pkg_col}", MAX("{self.markup_col}"), MAX("SubbeeNotes") 
                 FROM pboq_items 
                 WHERE "{self.pkg_col}" IS NOT NULL AND "{self.pkg_col}" != ''
                 GROUP BY "{self.pkg_col}"
@@ -80,7 +83,7 @@ class PackageSummaryDialog(QDialog):
             """)
             rows = cursor.fetchall()
             self.table.setRowCount(len(rows))
-            for i, (pkg, markup) in enumerate(rows):
+            for i, (pkg, markup, notes) in enumerate(rows):
                 name_item = QTableWidgetItem(pkg)
                 name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(i, 0, name_item)
@@ -94,6 +97,10 @@ class PackageSummaryDialog(QDialog):
                 markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
                 markup_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.table.setItem(i, 1, markup_item)
+                
+                notes_edit = QLineEdit(notes if notes else "")
+                notes_edit.setPlaceholderText("Markup composition ...")
+                self.table.setCellWidget(i, 2, notes_edit)
         except sqlite3.Error as e:
             print(f"Error loading packages summary: {e}")
         finally:
@@ -112,8 +119,11 @@ class PackageSummaryDialog(QDialog):
                 except ValueError:
                     markup_val = 10.0 # fallback
                 
+                notes_widget = self.table.cellWidget(i, 2)
+                notes_val = notes_widget.text() if notes_widget else ""
+                
                 # Apply this markup to all items in this package
-                cursor.execute(f'UPDATE pboq_items SET "{self.markup_col}" = ? WHERE "{self.pkg_col}" = ?', (str(markup_val), pkg))
+                cursor.execute(f'UPDATE pboq_items SET "{self.markup_col}" = ?, "SubbeeNotes" = ? WHERE "{self.pkg_col}" = ?', (str(markup_val), notes_val, pkg))
             
             conn.commit()
             
@@ -152,8 +162,14 @@ class PackageSummaryDialog(QDialog):
             if not pkg: continue
             raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
             try:
-                markups[pkg] = float(raw_m)
-            except: pass
+                m_val = float(raw_m)
+            except: 
+                m_val = 10.0
+                
+            notes_widget = self.table.cellWidget(i, 2)
+            n_val = notes_widget.text() if notes_widget else ""
+            
+            markups[pkg] = (m_val, n_val)
 
         
         if not markups: return
@@ -186,15 +202,15 @@ class PackageSummaryDialog(QDialog):
                 target_markup_col = db_cols[14] if len(db_cols) > 14 else "Column 13"
                 
                 rows_in_file = 0
-                for pkg, markup in markups.items():
+                for pkg, (markup, notes) in markups.items():
                     # Search across ALL physical columns and logical SubbeePackage
                     # Using LIKE with wildcards and COLLATE NOCASE for maximum robustness
                     cols_to_search = [f'"{c}"' for c in db_cols if c != 'Sheet']
                     where_clause = " OR ".join([f"{c} LIKE ? COLLATE NOCASE" for c in cols_to_search])
                     
                     # Update both the mapped physical column and the named logical column
-                    sql = f'UPDATE pboq_items SET "{target_markup_col}" = ?, SubbeeMarkup = ? WHERE {where_clause}'
-                    params = [str(markup), str(markup)] + [pkg] * len(cols_to_search)
+                    sql = f'UPDATE pboq_items SET "{target_markup_col}" = ?, SubbeeMarkup = ?, "SubbeeNotes" = ? WHERE {where_clause}'
+                    params = [str(markup), str(markup), notes] + [pkg] * len(cols_to_search)
                     
                     cursor.execute(sql, tuple(params))
                     rows_in_file += cursor.rowcount
