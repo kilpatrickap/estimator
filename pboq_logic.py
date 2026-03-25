@@ -29,7 +29,7 @@ class PBOQLogic:
         standard_cols = [f"Column {i}" for i in range(14)]
         named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
-                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup",
+                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes",
                       "SubbeeCategory", "SubbeeCode"]
         
         for col_name in standard_cols + named_cols:
