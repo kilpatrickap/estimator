@@ -705,9 +705,15 @@ class PBOQDialog(QDialog):
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
+        # Mirroring Logic: Sync physical edits to logical "SubbeeName" / "SubbeePackage"
+        m = self.tools_pane.get_mappings()
+        if display_col == m.get('sub_name'):
+             self.logic.persist_batch_named_updates(file_path, "SubbeeName", updates)
+        elif display_col == m.get('sub_package'):
+             self.logic.persist_batch_named_updates(file_path, "SubbeePackage", updates)
+
         # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
         # AND we are not already in a logic update.
-        m = self.tools_pane.get_mappings()
         if display_col == m['bill_amount'] and not self.is_updating_logic:
             if self.tools_pane.collect_btn.text() == "Revert":
                 self._run_collect_logic(force_collect=True)
@@ -897,7 +903,37 @@ class PBOQDialog(QDialog):
         # Ensure Rate visibility is synced with current mapping
         self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
         
+        # Sync the Logical Backplane (ensure SubbeeName column has latest award data)
+        self._sync_logical_assignment_columns()
+
         self._update_stats()
+
+    def _sync_logical_assignment_columns(self):
+        """Backfills the hidden 'SubbeeName' and 'SubbeePackage' columns from whatever physical columns are currently mapped."""
+        m = self.tools_pane.get_mappings()
+        name_idx = m.get('sub_name', -1)
+        pkg_idx = m.get('sub_package', -1)
+        if name_idx < 0 and pkg_idx < 0: return
+
+        file_path = self.pboq_file_selector.currentData()
+        name_updates, pkg_updates = [], []
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            for r in range(table.rowCount()):
+                rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                if name_idx >= 0:
+                    item = table.item(r, name_idx)
+                    val = item.text().strip() if item else ""
+                    name_updates.append((rowid, val))
+                if pkg_idx >= 0:
+                    item = table.item(r, pkg_idx)
+                    val = item.text().strip() if item else ""
+                    pkg_updates.append((rowid, val))
+        
+        if name_updates: self.logic.persist_batch_named_updates(file_path, "SubbeeName", name_updates)
+        if pkg_updates: self.logic.persist_batch_named_updates(file_path, "SubbeePackage", pkg_updates)
 
     # --- Worker Logic Methods ---
 

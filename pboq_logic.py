@@ -107,6 +107,20 @@ class PBOQLogic:
             return False
 
     @staticmethod
+    def persist_batch_named_updates(file_path, col_name, updates):
+        """Updates a named column (like SubbeeName) directly by rowid."""
+        if not file_path or not os.path.exists(file_path): return False
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            for rowid, val in updates:
+                cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE rowid = ?', (val, rowid))
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error: return False
+
+    @staticmethod
     def persist_cell_formatting(file_path, global_row_idx, col_idx, bg_color=None, fg_color=None, bold=None):
         """Persists cell-level formatting (colors, bold) to the pboq_formatting table."""
         if not file_path or not os.path.exists(file_path): return

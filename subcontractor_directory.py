@@ -31,7 +31,6 @@ class SubcontractorDirectoryDialog(QDialog):
         top_bar.addStretch()
         
         self.delete_btn = QPushButton("Delete Selected")
-        self.delete_btn.setStyleSheet("color: #d32f2f;")  # Optional: Make it red
         self.delete_btn.clicked.connect(self._delete_selected)
         top_bar.addWidget(self.delete_btn)
         
@@ -101,18 +100,18 @@ class SubcontractorDirectoryDialog(QDialog):
         except sqlite3.Error as e:
             print(f"Error loading details: {e}")
             
-        # 2. Iterate through ALL project PBOQs to find assignments
+        # 2. Iterate through ALL project PBOQs to find assignments in the Logical Backplane
         all_dbs = self._get_all_pboq_dbs()
-        assignments = {} # name -> list of formal strings e.g. ["Waterproofing (2 items)"]
-        
-        # Dictionary to aggregate: name -> package -> integer count
+        assignments = {} # name -> list of strings
         agg_counts = {}
         
         for db_file in all_dbs:
             try:
                 conn = sqlite3.connect(db_file)
                 cursor = conn.cursor()
-                # Check if SubbeeName column exists first
+                
+                # We strictly query the logical columns 'SubbeeName' and 'SubbeePackage'
+                # which are mirrored by the PBOQ Viewer.
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 cols = [info[1] for info in cursor.fetchall()]
                 
@@ -123,8 +122,10 @@ class SubcontractorDirectoryDialog(QDialog):
                         WHERE "SubbeeName" IS NOT NULL AND "SubbeeName" != ''
                         GROUP BY "SubbeeName", "SubbeePackage"
                     ''')
+                    
                     for sub_name, pkg, count in cursor.fetchall():
-                        # Make sure subcontractor is in directory even if missing contact info
+                        if not sub_name: continue
+                        
                         if sub_name not in directories:
                             directories[sub_name] = {"phone": "", "email": ""}
                             
@@ -134,8 +135,8 @@ class SubcontractorDirectoryDialog(QDialog):
                             agg_counts[sub_name][pkg] = 0
                         agg_counts[sub_name][pkg] += count
                 conn.close()
-            except sqlite3.Error:
-                pass
+            except sqlite3.Error as e:
+                print(f"Error querying logical backplane in {db_file}: {e}")
                 
         # Format the assignment strings
         for sub_name, pkgs in agg_counts.items():
