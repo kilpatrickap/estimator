@@ -92,6 +92,7 @@ class PBOQDialog(QDialog):
         self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
         self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
         self.price_pane.managePackagesRequested.connect(self._open_packages_summary)
+        self.price_pane.openDirectoryRequested.connect(self._open_subcontractor_directory)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -1902,6 +1903,15 @@ class PBOQDialog(QDialog):
         pkg_db_col = self.db_columns[pkg_display_col + 1]
         
         dialog = PackageAdjudicatorDialog(file_path, pkg_db_col, self.project_dir, self)
+        dialog.exec()
+
+    def _open_subcontractor_directory(self):
+        """Opens the Subcontractor Directory directly from the Tool Pane."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
+        
+        from subcontractor_directory import SubcontractorDirectoryDialog
+        dialog = SubcontractorDirectoryDialog(file_path, self.project_dir, self)
         dialog.exec()
 
     def get_package_items(self, pkg):

@@ -217,11 +217,6 @@ class PackageAdjudicatorDialog(QDialog):
         self.remove_subbee_btn.clicked.connect(self._remove_subcontractor)
         top_bar.addWidget(self.remove_subbee_btn)
         
-        # Subcontractor Directory
-        self.directory_btn = QPushButton("Subcontractor Directory")
-        self.directory_btn.clicked.connect(self._open_directory)
-        top_bar.addWidget(self.directory_btn)
-        
         # Add Excel IO Buttons
         self.export_rfq_btn = QPushButton("Export RFQ Template (Excel)")
         self.export_rfq_btn.clicked.connect(self._export_rfq)
@@ -633,10 +628,6 @@ class PackageAdjudicatorDialog(QDialog):
                 pass
             self._build_table(quotes)
 
-    def _open_directory(self):
-        from subcontractor_directory import SubcontractorDirectoryDialog
-        dialog = SubcontractorDirectoryDialog(self.pboq_db_path, self.project_dir, self)
-        dialog.exec()
 
     # ── Excel RFQ Import/Export ──────────────────────────────────
     

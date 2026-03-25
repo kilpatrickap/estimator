@@ -1,5 +1,5 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, 
-                             QPushButton, QDoubleSpinBox, QLabel, QLineEdit)
+                             QPushButton, QDoubleSpinBox, QLabel, QLineEdit, QGridLayout)
 from PyQt6.QtCore import pyqtSignal
 
 class SubcontractorTool(QWidget):
@@ -12,6 +12,7 @@ class SubcontractorTool(QWidget):
     clearSubcontractorRequested = pyqtSignal()
     assignPackageRequested = pyqtSignal(str)
     managePackagesRequested = pyqtSignal()
+    openDirectoryRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -43,28 +44,36 @@ class SubcontractorTool(QWidget):
         assign_layout.addWidget(self.assign_package_btn)
         btn_layout.addLayout(assign_layout)
 
-        # Action Row (Packages & Adjudicator)
-        actions_row = QHBoxLayout()
+        # Action Grid (Orderly 2x2 Layout for primary actions)
+        grid_layout = QGridLayout()
+        grid_layout.setSpacing(5)
+        
         self.manage_packages_btn = QPushButton("Packages")
         self.manage_packages_btn.clicked.connect(self.managePackagesRequested.emit)
         
         self.adjudicator_btn = QPushButton("Adjudicator")
         self.adjudicator_btn.clicked.connect(self.openAdjudicatorRequested.emit)
         
-        actions_row.addWidget(self.manage_packages_btn)
-        actions_row.addWidget(self.adjudicator_btn)
-        btn_layout.addLayout(actions_row)
-
-        action_layout = QHBoxLayout()
-        self.clear_btn = QPushButton("Clear")
-        self.clear_btn.clicked.connect(self.clearSubcontractorRequested.emit)
-        action_layout.addWidget(self.clear_btn)
-
+        self.directory_btn = QPushButton("Directory")
+        self.directory_btn.clicked.connect(self.openDirectoryRequested.emit)
+        
         self.link_bill_rate_btn = QPushButton("Link to Bill Rate")
         self.link_bill_rate_btn.clicked.connect(lambda: self.linkBillRateRequested.emit())
-        action_layout.addWidget(self.link_bill_rate_btn)
+
+        # Row 0: Packages & Adjudicator
+        grid_layout.addWidget(self.manage_packages_btn, 0, 0)
+        grid_layout.addWidget(self.adjudicator_btn, 0, 1)
         
-        btn_layout.addLayout(action_layout)
+        # Row 1: Directory (under Packages) & Link (under Adjudicator)
+        grid_layout.addWidget(self.directory_btn, 1, 0)
+        grid_layout.addWidget(self.link_bill_rate_btn, 1, 1)
+        
+        # Row 2: Clear (under Directory)
+        self.clear_btn = QPushButton("Clear")
+        self.clear_btn.clicked.connect(self.clearSubcontractorRequested.emit)
+        grid_layout.addWidget(self.clear_btn, 2, 0)
+        
+        btn_layout.addLayout(grid_layout)
 
         layout.addWidget(self.show_sub_cb)
         layout.addLayout(btn_layout)

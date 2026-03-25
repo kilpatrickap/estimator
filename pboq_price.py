@@ -16,6 +16,7 @@ class PBOQPricePane(QWidget):
     clearSubcontractorRequested = pyqtSignal()
     assignPackageRequested = pyqtSignal(str)
     managePackagesRequested = pyqtSignal()
+    openDirectoryRequested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -75,6 +76,7 @@ class PBOQPricePane(QWidget):
         self.sub_tool.stateChanged.connect(self.stateChanged.emit)
         self.sub_tool.linkBillRateRequested.connect(self.linkBillRateRequested.emit)
         self.sub_tool.openAdjudicatorRequested.connect(self.openAdjudicatorRequested.emit)
+        self.sub_tool.openDirectoryRequested.connect(self.openDirectoryRequested.emit)
         self.sub_tool.clearSubcontractorRequested.connect(self.clearSubcontractorRequested.emit)
         self.sub_tool.assignPackageRequested.connect(self.assignPackageRequested.emit)
         self.sub_tool.managePackagesRequested.connect(self.managePackagesRequested.emit)
