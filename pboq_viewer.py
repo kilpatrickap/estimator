@@ -1601,12 +1601,26 @@ class PBOQDialog(QDialog):
                     bill_rate_item = QTableWidgetItem()
                     table.setItem(r, m['bill_rate'], bill_rate_item)
                 
-                bill_rate_item.setText(val_str)
+                # Default is just the source text
+                final_rate_str = val_str
+                
+                # Apply markup if subcontractor
+                if price_type == "Subcontractor Rate":
+                    try:
+                        raw_r = float(val_str.replace(',', ''))
+                        effective_markup = db_markup_map.get(row_id, 0.0)
+                        if effective_markup != 0:
+                            marked_up_r = raw_r * (1 + (effective_markup / 100.0))
+                            final_rate_str = "{:,.2f}".format(marked_up_r)
+                    except ValueError:
+                        pass
+
+                bill_rate_item.setText(final_rate_str)
                 # Apply source color for visual consistency
                 bill_rate_item.setBackground(source_color)
                 bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
                 
-                link_updates.append((row_id, val_str))
+                link_updates.append((row_id, final_rate_str))
                 
                 # Also update Bill Amount if Quantity exists
                 if m['qty'] >= 0 and m['bill_amount'] >= 0:
@@ -1615,24 +1629,7 @@ class PBOQDialog(QDialog):
                         try:
                             # Parse Qty and Rate (handle commas)
                             q_val = float(qty_item.text().replace(',', ''))
-                            r_val = float(val_str.replace(',', ''))
-                            
-                            # Apply markup if subcontractor
-                            if price_type == "Subcontractor Rate":
-                                # Use DB-stored markup (from Packages window), default to 0.0
-                                effective_markup = db_markup_map.get(row_id, 0.0)
-                                
-                                if effective_markup != 0:
-                                    r_val = r_val * (1 + (effective_markup / 100.0))
-                                
-                                # Update Bill Rate UI with marked up rate
-                                marked_up_str = "{:,.2f}".format(r_val)
-                                bill_rate_item.setText(marked_up_str)
-                                
-                                # Overwrite the link_updates tuple with marked up rate
-                                link_updates.pop() # Remove original raw rate
-                                link_updates.append((row_id, marked_up_str))
-                                
+                            r_val = float(final_rate_str.replace(',', ''))
                             a_val = q_val * r_val
                             a_str = "{:,.2f}".format(a_val)
                             
