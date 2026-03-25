@@ -746,6 +746,7 @@ class PBOQDialog(QDialog):
             'sub_package': 'SubbeePackage',
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
+            'sub_markup': 'SubbeeMarkup',
         }
         for role, logical_col in mirror_map.items():
             if display_col == m.get(role):
@@ -960,6 +961,7 @@ class PBOQDialog(QDialog):
             'sub_package': 'SubbeePackage',
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
+            'sub_markup': 'SubbeeMarkup',
         }
         # Build {role: display_col_idx} for roles that are actually mapped
         active = {role: m.get(role, -1) for role in sync_map if m.get(role, -1) >= 0}
@@ -1589,7 +1591,9 @@ class PBOQDialog(QDialog):
                 cursor.execute("SELECT rowid, SubbeeMarkup FROM pboq_items WHERE SubbeeMarkup IS NOT NULL AND SubbeeMarkup != ''")
                 for rid, m_str in cursor.fetchall():
                     try:
-                        db_markup_map[rid] = float(m_str)
+                        clean_m = str(m_str).replace('%','').replace(',','').strip()
+                        if clean_m:
+                            db_markup_map[rid] = float(clean_m)
                     except: pass
                 conn.close()
              except: pass
@@ -1612,18 +1616,29 @@ class PBOQDialog(QDialog):
                 
                 val_str = source_item.text().strip()
                 
-                # Update Bill Rate UI
+                # Update Bill Rate UI and prepare persistence
                 bill_rate_item = table.item(r, m['bill_rate'])
                 if not bill_rate_item:
                     bill_rate_item = QTableWidgetItem()
                     table.setItem(r, m['bill_rate'], bill_rate_item)
                 
-                bill_rate_item.setText(val_str)
+                # Apply markup if subcontractor pricing is active
+                active_rate_str = val_str
+                if price_type == "Subcontractor Rate":
+                    try:
+                        r_val = float(val_str.replace(',', ''))
+                        effective_markup = db_markup_map.get(row_id, 0.0)
+                        if effective_markup != 0:
+                            r_val = r_val * (1 + (effective_markup / 100.0))
+                            active_rate_str = "{:,.2f}".format(r_val)
+                    except ValueError: pass
+
+                bill_rate_item.setText(active_rate_str)
                 # Apply source color for visual consistency
                 bill_rate_item.setBackground(source_color)
                 bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
                 
-                link_updates.append((row_id, val_str))
+                link_updates.append((row_id, active_rate_str))
                 
                 # Also update Bill Amount if Quantity exists
                 if m['qty'] >= 0 and m['bill_amount'] >= 0:
@@ -1632,24 +1647,8 @@ class PBOQDialog(QDialog):
                         try:
                             # Parse Qty and Rate (handle commas)
                             q_val = float(qty_item.text().replace(',', ''))
-                            r_val = float(val_str.replace(',', ''))
+                            r_val = float(active_rate_str.replace(',', ''))
                             
-                            # Apply markup if subcontractor
-                            if price_type == "Subcontractor Rate":
-                                # Use DB-stored markup (from Packages window), default to 0.0
-                                effective_markup = db_markup_map.get(row_id, 0.0)
-                                
-                                if effective_markup != 0:
-                                    r_val = r_val * (1 + (effective_markup / 100.0))
-                                
-                                # Update Bill Rate UI with marked up rate
-                                marked_up_str = "{:,.2f}".format(r_val)
-                                bill_rate_item.setText(marked_up_str)
-                                
-                                # Overwrite the link_updates tuple with marked up rate
-                                link_updates.pop() # Remove original raw rate
-                                link_updates.append((row_id, marked_up_str))
-                                
                             a_val = q_val * r_val
                             a_str = "{:,.2f}".format(a_val)
                             
