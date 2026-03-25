@@ -14,6 +14,7 @@ from pboq_table import PBOQTable
 from pboq_tools import PBOQToolsPane
 from pboq_price import PBOQPricePane
 from edit_item_dialog import EditItemDialog
+from database import DatabaseManager
 from pboq_plug_builder import PlugRateBuilderDialog
 from subcontractor_adjudicator import PackageAdjudicatorDialog
 from pboq_package_summary import PackageSummaryDialog
@@ -809,11 +810,14 @@ class PBOQDialog(QDialog):
             active_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
         elif price_type == "Subcontractor Rate":
-            active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
+            active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
+                           m.get('sub_markup', -1), m.get('sub_notes', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
-            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), m.get('sub_markup', -1)]
+            inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), 
+                             m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
+                             m.get('sub_markup', -1), m.get('sub_notes', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
 
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -853,8 +857,9 @@ class PBOQDialog(QDialog):
             'bill_rate': "Bill Rate", 'bill_amount': "Bill Amount",
             'rate': "Gross Rate", 'rate_code': "Rate Code",
             'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
-            'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 'sub_rate': "Subbee Rate",
-            'sub_markup': "Subbee Markup (%)"
+            'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 
+            'sub_rate': "Subbee Rate", 'sub_markup': "Subbee Markup (%)",
+            'sub_notes': "Subbee Notes", 'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
         }
         
         map_inv = {v: k for k, v in m.items() if v >= 0}
@@ -869,9 +874,9 @@ class PBOQDialog(QDialog):
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
                 
-                # Automatically hide blank/extra columns beyond the standard 8
+                # Automatically hide blank/extra columns beyond the standard pricing range (17 columns)
                 # but only if they aren't mapped to anything.
-                if i >= 8:
+                if i >= 17:
                     table.setColumnHidden(i, role is None)
                 else:
                     # Ensure standard columns (0-7) are visible so user can map them
@@ -1820,110 +1825,160 @@ class PBOQDialog(QDialog):
         return items
 
     def apply_winning_subcontractor(self, pkg, winner_name, winning_rates):
-        """Called by PackageAdjudicatorDialog to apply chosen rates to PBOQ."""
+        """Called by PackageAdjudicatorDialog to apply chosen rates and generate SR- codes."""
         m = self.tools_pane.get_mappings()
-        pkg_col = m.get('sub_package', -1)
-        name_col = m.get('sub_name', -1)
-        rate_col = m.get('sub_rate', -1)
-        markup_col = m.get('sub_markup', -1)
-        
-        if pkg_col < 0 or name_col < 0 or rate_col < 0:
-            QMessageBox.warning(self, "Missing Columns", "Please map Subbee Package, Name, and Rate columns first.")
-            return
-            
-        rate_dict = dict(winning_rates) # rowid -> rate
-        
-        # Look up existing markup for this package from DB
-        markup_str = ""
         file_path = self.pboq_file_selector.currentData()
+        
+        roles = ['sub_package', 'sub_name', 'sub_rate', 'sub_markup', 'sub_notes', 'sub_category', 'sub_code']
+        cols = {role: m.get(role, -1) for role in roles}
+        
+        if cols['sub_package'] < 0 or cols['sub_name'] < 0 or cols['sub_rate'] < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map Subbee Package, Name, and Rate columns first.")
+            return
+
+        # 1. Fetch Package Meta-Data
+        pkg_settings = PBOQLogic.get_package_settings(file_path).get(pkg, {})
+        category = pkg_settings.get('category', 'Miscellaneous')
+        markup = pkg_settings.get('markup', 0.0)
+        notes = pkg_settings.get('notes', '')
+
+        # 2. Resolve Prefix for the category
+        db_path = "construction_costs.db"
+        project_db_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.lower().endswith('.db'):
+                    db_path = os.path.join(project_db_dir, f)
+                    break
+        db_mgr = DatabaseManager(db_path)
+        prefixes = db_mgr.get_category_prefixes_dict()
+        prefix = prefixes.get(category, "MISC")
+        sr_prefix = f"SR-{prefix}"
+
+        # 3. Code Generation Logic: Find next sequential start point in THIS PBOQ
+        existing_codes = []
         try:
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT SubbeeMarkup FROM pboq_items WHERE SubbeePackage = ? AND SubbeeMarkup IS NOT NULL AND SubbeeMarkup != '' LIMIT 1", (pkg,))
-            res = cursor.fetchone()
-            if res and res[0]:
-                try:
-                    markup_str = "{:,.2f}%".format(float(str(res[0]).replace('%', '').replace(',', '')))
-                except:
-                    markup_str = str(res[0])
+            cursor.execute("SELECT SubbeeCode FROM pboq_items WHERE SubbeeCode LIKE ?", (f"{sr_prefix}%",))
+            existing_codes = [r[0] for r in cursor.fetchall() if r[0]]
             conn.close()
-        except:
-            pass
+        except: pass
         
-        name_updates = []
-        rate_updates = []
-        markup_updates = []
+        import re
+        def _get_next_ver(p, codes):
+            if not codes: return 1, 'A'
+            pattern = re.compile(rf"^{re.escape(p)}(\d+)([A-Z])$")
+            max_num = 0
+            for c in codes:
+                match = pattern.match(c)
+                if match:
+                    num = int(match.group(1))
+                    if num > max_num: max_num = num
+            return max_num + 1, 'A'
+
+        next_num, next_letter = _get_next_ver(sr_prefix, existing_codes)
         
+        # 4. Apply Updates
+        rate_dict = dict(winning_rates) # rowid -> rate
+        db_updates = []
+        
+        # Format markup string
+        markup_str = "{:,.2f}%".format(markup) if markup else ""
+
+        current_item_index = 0
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
             if not isinstance(table, PBOQTable): continue
             
             for r in range(table.rowCount()):
-                pkg_item = table.item(r, pkg_col)
+                pkg_item = table.item(r, cols['sub_package'])
                 if pkg_item and pkg_item.text().strip() == pkg:
                     row_id = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                    
                     if row_id in rate_dict:
-                        name_item = table.item(r, name_col)
-                        if not name_item:
-                            name_item = QTableWidgetItem()
-                            table.setItem(r, name_col, name_item)
-                        name_item.setText(winner_name)
-                        name_updates.append((row_id, winner_name))
-                        
-                        rate_item = table.item(r, rate_col)
-                        if not rate_item:
-                            rate_item = QTableWidgetItem()
-                            table.setItem(r, rate_col, rate_item)
-                        # Format rate
+                        raw_rate = rate_dict[row_id]
                         try:
-                            f_rate = "{:,.2f}".format(float(rate_dict[row_id]))
+                            f_rate = float(str(raw_rate).replace(',', ''))
+                            rate_str = "{:,.2f}".format(f_rate)
                         except:
-                            f_rate = str(rate_dict[row_id])
-                        rate_item.setText(f_rate)
-                        rate_updates.append((row_id, f_rate))
+                            rate_str = str(raw_rate)
                         
-                        # Write markup if available and column mapped
-                        if markup_col >= 0 and markup_str:
-                            mk_item = table.item(r, markup_col)
-                            if not mk_item:
-                                mk_item = QTableWidgetItem()
-                                table.setItem(r, markup_col, mk_item)
-                            mk_item.setText(markup_str)
-                            markup_updates.append((row_id, markup_str))
+                        # Generate unique SR code for this specific row
+                        sub_code = f"{sr_prefix}{next_num}{chr(ord(next_letter) + current_item_index)}"
                         
-        if name_updates:
-            self._persist_updates(name_col, name_updates)
-            self._persist_updates(rate_col, rate_updates)
-            if markup_updates:
-                self._persist_updates(markup_col, markup_updates)
-            self._update_column_headers()
-            self._update_stats()
-            QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.")
+                        # Update UI
+                        for text, col in [
+                            (winner_name, cols['sub_name']),
+                            (rate_str, cols['sub_rate']),
+                            (markup_str, cols['sub_markup']),
+                            (notes, cols['sub_notes']),
+                            (category, cols['sub_category']),
+                            (sub_code, cols['sub_code'])
+                        ]:
+                            if col >= 0:
+                                itm = table.item(r, col)
+                                if not itm:
+                                    itm = QTableWidgetItem()
+                                    table.setItem(r, col, itm)
+                                itm.setText(text)
+
+                        # Highlight
+                        for c in range(table.columnCount()):
+                            table.item(r, c).setBackground(QColor("#fff9c4")) # Light yellow for awarded
+
+                        db_updates.append((winner_name, rate_str, markup_str, notes, category, sub_code, row_id))
+                        current_item_index += 1
+
+        # 5. Persist to Database
+        if db_updates:
+            try:
+                conn = sqlite3.connect(file_path)
+                cursor = conn.cursor()
+                cursor.executemany("""
+                    UPDATE pboq_items 
+                    SET SubbeeName = ?, SubbeeRate = ?, SubbeeMarkup = ?, 
+                        SubbeeNotes = ?, SubbeeCategory = ?, SubbeeCode = ?
+                    WHERE rowid = ?
+                """, db_updates)
+                conn.commit()
+                conn.close()
+                self._update_stats()
+                QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.\nGenerated {len(db_updates)} SR- codes.")
+            except Exception as e:
+                QMessageBox.critical(self, "DB Error", f"Failed to persist awards: {e}")
 
     def _open_packages_summary(self):
-        file_path = self.pboq_file_selector.currentData()
-        if not file_path: return
-        
+        """Open a project-wide summary of subcontractor packages and markups."""
         m = self.tools_pane.get_mappings()
         pkg_display_col = m.get('sub_package', -1)
         markup_display_col = m.get('sub_markup', -1)
         
         if pkg_display_col < 0:
-             QMessageBox.warning(self, "Mapping Error", "Please map the 'Subbee Package' column in the tools pane first.")
-             return
+            QMessageBox.warning(self, "Mapping Required", "Please map 'Subbee Package' column first.")
+            return
+
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
              
         # Resolve actual DB column names
-        # self.db_columns contains [Sheet, Column 0, Column 1, ...]
         pkg_db_col = self.db_columns[pkg_display_col + 1]
         
-        # For markup, if not mapped, use the dedicated 'SubbeeMarkup' column we created in ensure_schema
         if markup_display_col >= 0:
             markup_db_col = self.db_columns[markup_display_col + 1]
         else:
             markup_db_col = "SubbeeMarkup"
 
-        dialog = PackageSummaryDialog(file_path, self.project_dir, pkg_db_col, markup_db_col, self)
-        # Use _load_pboq_db to refresh everything after changes
+        # Resolve Project Categories for the summary dialog
+        db_path = "construction_costs.db"
+        project_db_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.lower().endswith('.db'):
+                    db_path = os.path.join(project_db_dir, f)
+                    break
+        db_mgr = DatabaseManager(db_path)
+        categories_dict = db_mgr.get_category_prefixes_dict()
+
+        dialog = PackageSummaryDialog(file_path, self.project_dir, pkg_db_col, markup_db_col, categories_dict, self)
         dialog.dataChanged.connect(lambda: self._load_pboq_db(self.pboq_file_selector.currentIndex()))
         dialog.exec()

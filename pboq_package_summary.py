@@ -1,7 +1,7 @@
 import os
 import sqlite3
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem, 
-                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit, QTextEdit)
+                             QPushButton, QHBoxLayout, QMessageBox, QHeaderView, QLineEdit, QTextEdit, QComboBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_logic import PBOQLogic
 
@@ -9,15 +9,17 @@ from pboq_logic import PBOQLogic
 class PackageSummaryDialog(QDialog):
     dataChanged = pyqtSignal()
 
-    def __init__(self, db_path, project_dir, pkg_col, markup_col, parent=None):
+    def __init__(self, db_path, project_dir, pkg_col, markup_col, categories_dict, parent=None):
         super().__init__(parent)
         self.db_path = db_path
         self.project_dir = project_dir
         self.pkg_col = pkg_col
         self.markup_col = markup_col
+        self.categories_dict = categories_dict # Mapping of Category Name -> Code Prefix
         self.setWindowTitle("Work Packages Management")
-        self.setMinimumWidth(700) # Increased by ~55% for better visibility
+        self.setMinimumWidth(850) # Increased for 4th column
         self.setMinimumHeight(450)
+        self.category_names = sorted(list(self.categories_dict.keys()))
         self._init_ui()
         self._load_data()
 
@@ -28,16 +30,16 @@ class PackageSummaryDialog(QDialog):
         layout = QVBoxLayout(self)
         
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["Package Name", "Markup (%)", "Notes"])
+        self.table.setColumnCount(4)
+        self.table.setHorizontalHeaderLabels(["Package Name", "Project Category", "Markup (%)", "Notes"])
         
         # Set all columns to Interactive (Adjustable)
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         
-        # Doubled default width for Package Name (was ~100-150, now 250)
-        self.table.setColumnWidth(0, 250)
-        self.table.setColumnWidth(1, 100)
+        self.table.setColumnWidth(0, 220) # Package Name
+        self.table.setColumnWidth(1, 180) # Category Dropdown
+        self.table.setColumnWidth(2, 90)  # Markup
         self.table.horizontalHeader().setStretchLastSection(True) # Notes column takes remaining space
         
         self.table.setAlternatingRowColors(True)
@@ -82,8 +84,11 @@ class PackageSummaryDialog(QDialog):
         try:
             # Ensure schema is up to date with new fields
             PBOQLogic.ensure_schema(conn)
+            
+            # Load metadata (Categories, etc.)
+            pkg_settings = PBOQLogic.get_package_settings(self.db_path)
+
             # Group by package name and find the most common markup (or max)
-            # This handles cases where items in a package might have drifted during manual edits
             cursor.execute(f"""
                 SELECT "{self.pkg_col}", MAX("{self.markup_col}"), MAX("SubbeeNotes") 
                 FROM pboq_items 
@@ -94,38 +99,43 @@ class PackageSummaryDialog(QDialog):
             rows = cursor.fetchall()
             self.table.setRowCount(len(rows))
             for i, (pkg, markup, notes) in enumerate(rows):
+                # Col 0: Package Name (Read-only)
                 name_item = QTableWidgetItem(pkg)
                 name_item.setFlags(name_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                # Align Top-Left as requested
                 name_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 self.table.setItem(i, 0, name_item)
                 
-                # Format markup as 2-decimal string
+                # Col 1: Category Dropdown (NEW)
+                cat_combo = QComboBox()
+                cat_combo.addItems(["-- Select Category --"] + self.category_names)
+                # Apply current mapping if exists
+                current_cat = pkg_settings.get(pkg, {}).get('category')
+                if current_cat in self.category_names:
+                    cat_combo.setCurrentText(current_cat)
+                
+                cat_combo.setStyleSheet("QComboBox { border: none; background: transparent; }")
+                self.table.setCellWidget(i, 1, cat_combo)
+
+                # Col 2: Markup (%)
                 try:
                     m_val = float(markup) if markup else 10.0
                 except:
                     m_val = 10.0
                 
                 markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
-                # Align Top-Center (Center horizontally, Top vertically)
                 markup_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
-                self.table.setItem(i, 1, markup_item)
+                self.table.setItem(i, 2, markup_item)
                 
-                # Use QTextEdit for wrapping notes
+                # Col 3: Notes (QTextEdit)
                 notes_edit = QTextEdit(notes if notes else "")
                 notes_edit.setPlaceholderText("Markup composition ...")
                 notes_edit.setAcceptRichText(False)
-                # No internal scrollbars as requested
                 notes_edit.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
                 notes_edit.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-                
-                # Ensure Top-Left alignment and clean look for 24px rows
                 notes_edit.setStyleSheet("QTextEdit { border: none; padding-top: 0px; padding-left: 2px; background: transparent; }")
-                self.table.setCellWidget(i, 2, notes_edit)
+                self.table.setCellWidget(i, 3, notes_edit)
                 
-                # Dynamic row height adjustment based on content
                 notes_edit.textChanged.connect(lambda row=i, widget=notes_edit: self._adjust_row_height(row, widget))
-                # Initial adjustment for loaded data
                 self._adjust_row_height(i, notes_edit)
         except sqlite3.Error as e:
             print(f"Error loading packages summary: {e}")
@@ -167,30 +177,51 @@ class PackageSummaryDialog(QDialog):
     def _save_changes(self):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        settings_to_save = {}
         try:
             for i in range(self.table.rowCount()):
                 pkg = self.table.item(i, 0).text()
-                raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
+                
+                # Fetch Category from dropdown
+                cat_combo = self.table.cellWidget(i, 1)
+                selected_cat = cat_combo.currentText() if cat_combo and cat_combo.currentIndex() > 0 else ""
+
+                # Fetch Markup
+                raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
                 try:
                     markup_val = float(raw_m)
                 except ValueError:
-                    markup_val = 10.0 # fallback
+                    markup_val = 10.0
                 
-                notes_widget = self.table.cellWidget(i, 2)
+                # Fetch Notes
+                notes_widget = self.table.cellWidget(i, 3)
                 notes_val = notes_widget.toPlainText() if notes_widget else ""
                 
-                # Apply this markup to all items in this package
-                cursor.execute(f'UPDATE pboq_items SET "{self.markup_col}" = ?, "SubbeeNotes" = ? WHERE "{self.pkg_col}" = ?', (str(markup_val), notes_val, pkg))
+                # Apply this markup/category to all items in this package in the CURRENT PBOQ
+                cursor.execute(f"""
+                    UPDATE pboq_items 
+                    SET "{self.markup_col}" = ?, "SubbeeNotes" = ?, "SubbeeCategory" = ? 
+                    WHERE "{self.pkg_col}" = ?
+                """, (str(markup_val), notes_val, selected_cat, pkg))
+                
+                # Prepare metadata for separate table
+                settings_to_save[pkg] = {
+                    'category': selected_cat,
+                    'markup': markup_val,
+                    'notes': notes_val
+                }
             
             conn.commit()
-            
+            conn.close()
 
+            # Persist Package Meta-Data
+            PBOQLogic.save_package_settings(self.db_path, settings_to_save)
             
             self.dataChanged.emit()
+            QMessageBox.information(self, "Success", "Changes saved successfully.")
         except sqlite3.Error as e:
+            if conn: conn.close()
             QMessageBox.critical(self, "Save Error", f"Failed to save changes: {e}")
-        finally:
-            conn.close()
 
 
 
@@ -212,65 +243,68 @@ class PackageSummaryDialog(QDialog):
             QMessageBox.warning(self, "Sync Error", f"Could not find 'Priced BOQs' folder starting from:\n{self.project_dir}")
             return
         
-        # Gather markups from table
-        markups = {}
+        # Gather settings from table
+        package_settings = {}
         for i in range(self.table.rowCount()):
             pkg = self.table.item(i, 0).text().strip()
             if not pkg: continue
-            raw_m = self.table.item(i, 1).text().replace(',', '').replace('%', '')
+            
+            # Fetch Category from dropdown
+            cat_combo = self.table.cellWidget(i, 1)
+            selected_cat = cat_combo.currentText() if cat_combo and cat_combo.currentIndex() > 0 else ""
+
+            # Fetch Markup
+            raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
             try:
                 m_val = float(raw_m)
             except: 
                 m_val = 10.0
                 
-            notes_widget = self.table.cellWidget(i, 2)
+            # Fetch Notes
+            notes_widget = self.table.cellWidget(i, 3)
             n_val = notes_widget.toPlainText() if notes_widget else ""
             
-            markups[pkg] = (m_val, n_val)
+            package_settings[pkg] = {'markup': m_val, 'notes': n_val, 'category': selected_cat}
 
-        
-        if not markups: return
+        if not package_settings: return
 
-        
         db_files = [f for f in os.listdir(pboq_folder) if f.lower().endswith('.db')]
         updated_count = 0
-        
-        # Mapping state folder
-        state_dir = os.path.join(self.project_dir, "PBOQ States")
-        
-        # Step 4: Apply updates based on Standardized Schema (Col 10 = Pkg, Col 13 = Markup)
         total_rows_updated = 0
         
         for db_name in db_files:
             target_path = os.path.join(pboq_folder, db_name)
             try:
                 conn = sqlite3.connect(target_path)
-                
-                # IMPORTANT: Resolve schema to handle varying column counts/orders
                 success, db_cols = PBOQLogic.ensure_schema(conn)
                 if not success:
                     conn.close()
                     continue
                 
                 cursor = conn.cursor()
-                
-                # Target the column currently mapped to UI index 13 (Markup)
-                # and fallback to 'Column 13' if for some reason schema is small.
-                target_markup_col = db_cols[14] if len(db_cols) > 14 else "Column 13"
+                target_markup_col = db_cols[14] if len(db_cols) > 14 else "Column 13" # Standardized Markup col
                 
                 rows_in_file = 0
-                for pkg, (markup, notes) in markups.items():
-                    # Search across ALL physical columns and logical SubbeePackage
-                    # Using LIKE with wildcards and COLLATE NOCASE for maximum robustness
+                for pkg, data in package_settings.items():
+                    # Update data rows
                     cols_to_search = [f'"{c}"' for c in db_cols if c != 'Sheet']
                     where_clause = " OR ".join([f"{c} LIKE ? COLLATE NOCASE" for c in cols_to_search])
                     
-                    # Update both the mapped physical column and the named logical column
-                    sql = f'UPDATE pboq_items SET "{target_markup_col}" = ?, SubbeeMarkup = ?, "SubbeeNotes" = ? WHERE {where_clause}'
-                    params = [str(markup), str(markup), notes] + [pkg] * len(cols_to_search)
+                    sql = f"""
+                        UPDATE pboq_items 
+                        SET "{target_markup_col}" = ?, SubbeeMarkup = ?, "SubbeeNotes" = ?, "SubbeeCategory" = ?
+                        WHERE {where_clause}
+                    """
+                    params = [str(data['markup']), str(data['markup']), data['notes'], data['category']] + [pkg] * len(cols_to_search)
                     
                     cursor.execute(sql, tuple(params))
                     rows_in_file += cursor.rowcount
+
+                    # Update Package Settings Table
+                    cursor.execute("""
+                        INSERT OR REPLACE INTO subcontractor_package_settings (package_name, category_name, markup_default, notes)
+                        VALUES (?, ?, ?, ?)
+                    """, (pkg, data['category'], data['markup'], data['notes']))
                     
                 conn.commit()
                 conn.close()

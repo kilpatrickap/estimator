@@ -29,7 +29,8 @@ class PBOQLogic:
         standard_cols = [f"Column {i}" for i in range(14)]
         named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
-                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes"]
+                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup",
+                      "SubbeeCategory", "SubbeeCode"]
         
         for col_name in standard_cols + named_cols:
             if col_name not in db_columns:
@@ -56,6 +57,16 @@ class PBOQLogic:
                 subcontractor_name TEXT,
                 rate REAL,
                 FOREIGN KEY(row_idx) REFERENCES pboq_items(rowid)
+            )
+        """)
+        
+        # Ensure Subcontractor Package Metadata Table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_package_settings (
+                package_name TEXT PRIMARY KEY,
+                category_name TEXT,
+                markup_default REAL,
+                notes TEXT
             )
         """)
         
@@ -181,3 +192,34 @@ class PBOQLogic:
             pass
 
 
+    @staticmethod
+    def get_package_settings(db_path):
+        """Loads all package-specific settings (categories/markups) from the DB."""
+        if not db_path or not os.path.exists(db_path): return {}
+        settings = {}
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT package_name, category_name, markup_default, notes FROM subcontractor_package_settings")
+            for pkg, cat, mk, notes in cursor.fetchall():
+                settings[pkg] = {'category': cat, 'markup': mk, 'notes': notes}
+            conn.close()
+        except: pass
+        return settings
+
+    @staticmethod
+    def save_package_settings(db_path, settings_dict):
+        """Bulk saves package meta-data like category mappings."""
+        if not db_path or not os.path.exists(db_path): return
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            for pkg, data in settings_dict.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO subcontractor_package_settings (package_name, category_name, markup_default, notes)
+                    VALUES (?, ?, ?, ?)
+                """, (pkg, data.get('category', ''), data.get('markup', 0.0), data.get('notes', '')))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error saving package settings: {e}")
