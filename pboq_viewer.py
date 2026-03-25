@@ -1776,17 +1776,77 @@ class PBOQDialog(QDialog):
     def _handle_context_menu(self, table, pos, row, col, rowid):
         """Displays context-sensitive actions for PBOQ table cells."""
         m = self.tools_pane.get_mappings()
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
         
-        # Check if we clicked on Subbee Category or Subbee Code
+        is_name = (col == m.get('sub_name', -1))
         is_cat = (col == m.get('sub_category', -1))
         is_code = (col == m.get('sub_code', -1))
         
-        if is_cat or is_code:
+        if is_name:
+            # Right click on Subbee Name - allow choosing from available quotes
+            try:
+                conn = sqlite3.connect(file_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT SubbeePackage FROM pboq_items WHERE rowid=?", (rowid,))
+                pkg_res = cursor.fetchone()
+                pkg_name = pkg_res[0] if pkg_res else ""
+                
+                if pkg_name:
+                    cursor.execute("SELECT subcontractor_name, rate FROM subcontractor_quotes WHERE package_name=? AND row_idx=?", (pkg_name, rowid))
+                    quotes = cursor.fetchall()
+                    conn.close()
+                    
+                    if quotes:
+                        menu = QMenu(self)
+                        assign_menu = menu.addMenu("Assign Quote to Item")
+                        for sub_name, rate in quotes:
+                            label = f"{sub_name}: {rate:,.2f}"
+                            act = QAction(label, self)
+                            act.triggered.connect(lambda checked, s=sub_name, r=rate: self._apply_individual_subbee_quote(table, row, rowid, s, r, pkg_name))
+                            assign_menu.addAction(act)
+                        menu.exec(table.viewport().mapToGlobal(pos))
+                else:
+                    conn.close()
+            except Exception as e:
+                print(f"Error building subbee context menu: {e}")
+
+        elif is_cat or is_code:
             menu = QMenu(self)
             edit_act = QAction("Change Category & Regenerate Code", self)
             edit_act.triggered.connect(lambda: self._recategorize_item(table, row, rowid))
             menu.addAction(edit_act)
             menu.exec(table.viewport().mapToGlobal(pos))
+
+    def _apply_individual_subbee_quote(self, table, row, rowid, sub_name, rate, pkg_name):
+        """Applies a specific subcontractor quote to a single row."""
+        file_path = self.pboq_file_selector.currentData()
+        m = self.tools_pane.get_mappings()
+        
+        mapping = {
+            'sub_name': sub_name,
+            'sub_rate': f"{rate:,.2f}",
+        }
+        
+        # 1. Logical Persistence
+        self.logic.persist_batch_named_updates(file_path, "SubbeeName", [(rowid, sub_name)])
+        self.logic.persist_batch_named_updates(file_path, "SubbeeRate", [(rowid, str(rate))])
+        
+        # 2. UI and Physical Persistence
+        for role, val in mapping.items():
+            col_idx = m.get(role, -1)
+            if col_idx >= 0:
+                # UI
+                item = table.item(row, col_idx)
+                if not item:
+                    item = QTableWidgetItem()
+                    table.setItem(row, col_idx, item)
+                item.setText(val)
+                # Physical
+                self.logic.persist_batch_updates(file_path, self.db_columns, col_idx, [(rowid, val)])
+        
+        self._update_stats()
+        self.main_window.statusBar().showMessage(f"Assigned {sub_name} to item {rowid}", 3000)
 
     def _recategorize_item(self, table, row, rowid):
         """Prompts user for a new category and regenerates the SR- code for that item."""
