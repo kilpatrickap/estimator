@@ -734,6 +734,12 @@ class RateBuildUpDialog(QDialog):
     def refresh_view(self):
         self.is_loading = True
         
+        # Ensure child widgets are using the latest estimate reference (critical for window reuse)
+        if hasattr(self, 'header_widget'): self.header_widget.estimate = self.estimate
+        if hasattr(self, 'tree_widget'): self.tree_widget.estimate = self.estimate
+        if hasattr(self, 'composite_widget'): self.composite_widget.estimate = self.estimate
+        if hasattr(self, 'summary_widget'): self.summary_widget.estimate = self.estimate
+
         # Update currency symbol
         match = re.search(r'\((.*?)\)', self.estimate.currency)
         self.currency_symbol = match.group(1) if match else "$"

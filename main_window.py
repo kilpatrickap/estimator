@@ -411,7 +411,16 @@ class MainWindow(QMainWindow):
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if isinstance(widget, RateBuildUpDialog) and widget.estimate.id == estimate_obj.id:
-                sub.showNormal(); sub.show(); sub.raise_(); self.mdi_area.setActiveSubWindow(sub); return
+                # Update with fresh data and refresh the UI state
+                widget.estimate = estimate_obj
+                if hasattr(widget, 'refresh_view'):
+                    widget.refresh_view()
+                
+                sub.showNormal()
+                sub.show()
+                sub.raise_()
+                self.mdi_area.setActiveSubWindow(sub)
+                return
 
         def refresh_manager():
             for s in self.mdi_area.subWindowList():
@@ -421,6 +430,8 @@ class MainWindow(QMainWindow):
                     if hasattr(w, 'load_project_rates'): w.load_project_rates()
 
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self, db_path=db_path)
+        # Ensure the window is destroyed on close to prevent stale reused windows (the "blank" bug)
+        buildup_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(buildup_win)
         
         # Color code border
@@ -501,6 +512,8 @@ class MainWindow(QMainWindow):
         sub.show()
 
     def _add_estimate_window(self, est_window):
+        # Ensure fresh state on next open
+        est_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(est_window)
         est_window.stateChanged.connect(self._update_toolbar_state)
         sub.resize(1100, 700)
@@ -518,6 +531,7 @@ class MainWindow(QMainWindow):
                 return
         
         dialog = DatabaseManagerDialog(self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(dialog)
         dialog.stateChanged.connect(self._update_toolbar_state)
         dialog.resourceUpdated.connect(self._broadcast_library_update)
@@ -604,6 +618,7 @@ class MainWindow(QMainWindow):
         
         # Pass self (MainWindow) to RateManagerDialog so it can open RateBuildUpDialog in MDI
         dialog = RateManagerDialog(self) 
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(dialog)
         sub.resize(900, 550)
         self._apply_zoom_to_subwindow(sub)
