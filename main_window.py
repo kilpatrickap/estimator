@@ -129,6 +129,8 @@ class MainWindow(QMainWindow):
         self.project_tree.setHeaderHidden(True)
         
         self.project_dock.setWidget(self.project_tree)
+        # Fixed width at 290px to match other tool panes
+        self.project_dock.setFixedWidth(290)
         # Reduced height by 65% to make room for other tools (like PBOQ tools)
         self.project_dock.setMaximumHeight(250)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)

@@ -19,8 +19,7 @@ class PBOQToolsPane(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setMinimumWidth(250)
-        self.setMaximumWidth(280)
+        self.setFixedWidth(290)
         self._init_ui()
 
     def _init_ui(self):
