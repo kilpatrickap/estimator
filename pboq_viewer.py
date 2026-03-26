@@ -346,9 +346,12 @@ class PBOQDialog(QDialog):
         if 'bg_color' in fmt: item.setBackground(QColor(fmt['bg_color']))
 
     def _handle_context_menu(self, table, pos, row, col, rowid):
+        """Displays context-sensitive actions for PBOQ table cells."""
         m = self.tools_pane.get_mappings()
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
         
-        if col == m['bill_amount']:
+        if col == m.get('bill_amount', -1):
             menu = QMenu(self)
             clear_act = menu.addAction("Clear")
             
@@ -362,12 +365,12 @@ class PBOQDialog(QDialog):
                     self._persist_updates(col, [(rowid, "")])
                     self._update_stats()
         
-        elif col == m.get('rate', -1):
-            # Gross Rate context menu (not on Rate Code column)
+        elif col in [m.get('rate', -1), m.get('rate_code', -1)]:
+            # Gross Rate context menu (applied to Rate or Rate Code column)
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False)
             
-        elif col == m.get('plug_rate', -1):
-            # Plug Rate context menu (not on Plug Code column)
+        elif col in [m.get('plug_rate', -1), m.get('plug_code', -1)]:
+            # Plug Rate context menu (applied to Plug Rate or Plug Code column)
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=True)
 
         elif col == m.get('sub_package', -1) and col >= 0:
@@ -394,6 +397,14 @@ class PBOQDialog(QDialog):
 
         elif col == m.get('sub_name', -1) and col >= 0:
             self._handle_subbee_assign_menu(table, pos, row, col, rowid)
+
+        elif col in [m.get('sub_category', -1), m.get('sub_code', -1)] and col >= 0:
+            # Subbee Category/Code - allow recategorization and SR- code regeneration
+            menu = QMenu(self)
+            edit_act = menu.addAction("Change Category & Regenerate Code")
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            if action == edit_act:
+                self._recategorize_item(table, row, rowid)
 
     def _handle_subbee_assign_menu(self, table, pos, row, col, rowid):
         m = self.tools_pane.get_mappings()
@@ -1775,50 +1786,7 @@ class PBOQDialog(QDialog):
 
 
 
-    def _handle_context_menu(self, table, pos, row, col, rowid):
-        """Displays context-sensitive actions for PBOQ table cells."""
-        m = self.tools_pane.get_mappings()
-        file_path = self.pboq_file_selector.currentData()
-        if not file_path: return
-        
-        is_name = (col == m.get('sub_name', -1))
-        is_cat = (col == m.get('sub_category', -1))
-        is_code = (col == m.get('sub_code', -1))
-        
-        if is_name:
-            # Right click on Subbee Name - allow choosing from available quotes
-            try:
-                conn = sqlite3.connect(file_path)
-                cursor = conn.cursor()
-                cursor.execute("SELECT SubbeePackage FROM pboq_items WHERE rowid=?", (rowid,))
-                pkg_res = cursor.fetchone()
-                pkg_name = pkg_res[0] if pkg_res else ""
-                
-                if pkg_name:
-                    cursor.execute("SELECT subcontractor_name, rate FROM subcontractor_quotes WHERE package_name=? AND row_idx=?", (pkg_name, rowid))
-                    quotes = cursor.fetchall()
-                    conn.close()
-                    
-                    if quotes:
-                        menu = QMenu(self)
-                        assign_menu = menu.addMenu("Assign Quote to Item")
-                        for sub_name, rate in quotes:
-                            label = f"{sub_name}: {rate:,.2f}"
-                            act = QAction(label, self)
-                            act.triggered.connect(lambda checked, s=sub_name, r=rate: self._apply_individual_subbee_quote(table, row, rowid, s, r, pkg_name))
-                            assign_menu.addAction(act)
-                        menu.exec(table.viewport().mapToGlobal(pos))
-                else:
-                    conn.close()
-            except Exception as e:
-                print(f"Error building subbee context menu: {e}")
-
-        elif is_cat or is_code:
-            menu = QMenu(self)
-            edit_act = QAction("Change Category & Regenerate Code", self)
-            edit_act.triggered.connect(lambda: self._recategorize_item(table, row, rowid))
-            menu.addAction(edit_act)
-            menu.exec(table.viewport().mapToGlobal(pos))
+    # Note: Redundant _handle_context_menu removed (consolidated at top)
 
     def _apply_individual_subbee_quote(self, table, row, rowid, sub_name, rate, pkg_name):
         """Applies a specific subcontractor quote to a single row."""
