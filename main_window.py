@@ -96,6 +96,9 @@ class MainWindow(QMainWindow):
         self.project_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetFloatable | QDockWidget.DockWidgetFeature.DockWidgetMovable)
         
         self.project_tree = QTreeView()
+        self.project_tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.project_tree.customContextMenuRequested.connect(self._on_project_tree_context_menu)
+        
         self.project_model = QFileSystemModel()
         # Enable editing? Maybe later. For now just view.
         self.project_model.setReadOnly(True)
@@ -136,6 +139,38 @@ class MainWindow(QMainWindow):
         self.project_tree.setRootIndex(self.project_model.index(project_dir))
         self.db_manager.set_setting('last_project_dir', project_dir)
         self.project_dock.setWindowTitle(f"Project: {os.path.basename(project_dir)}")
+
+    def _on_project_tree_context_menu(self, pos):
+        from PyQt6.QtWidgets import QMenu
+        from PyQt6.QtGui import QAction
+        
+        index = self.project_tree.indexAt(pos)
+        if not index.isValid():
+            return
+            
+        file_path = self.project_model.filePath(index)
+        if not file_path:
+            return
+            
+        menu = QMenu(self)
+        reveal_action = QAction("Reveal in File Explorer", self)
+        reveal_action.triggered.connect(lambda: self._reveal_in_explorer(file_path))
+        menu.addAction(reveal_action)
+        menu.exec(self.project_tree.viewport().mapToGlobal(pos))
+
+    def _reveal_in_explorer(self, file_path):
+        import os
+        import subprocess
+        
+        # Standardize for Windows
+        file_path = os.path.normpath(file_path)
+        if os.path.exists(file_path):
+            if os.path.isdir(file_path):
+                # Open directory directly
+                subprocess.run(['explorer', file_path], check=False)
+            else:
+                # Open parent directory and select the file
+                subprocess.run(['explorer', '/select,', file_path], check=False)
 
     def _setup_menubar(self):
         """Creates the standard top application menu bar."""
