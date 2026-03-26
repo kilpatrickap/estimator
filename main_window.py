@@ -91,25 +91,33 @@ class MainWindow(QMainWindow):
         from PyQt6.QtCore import Qt, QDir
         import os
         
-        self.project_dock = QDockWidget("Project", self)
+        self.project_dock = QDockWidget("ProjectExplorer", self)
         self.project_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
         self.project_dock.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | QDockWidget.DockWidgetFeature.DockWidgetFloatable | QDockWidget.DockWidgetFeature.DockWidgetMovable)
         
         self.project_tree = QTreeView()
         self.project_model = QFileSystemModel()
+        # Enable editing? Maybe later. For now just view.
+        self.project_model.setReadOnly(True)
         self.project_model.setFilter(QDir.Filter.AllDirs | QDir.Filter.Files | QDir.Filter.NoDotAndDotDot)
         
+        # Identify the root directory to show
         last_dir = self.db_manager.get_setting('last_project_dir', '')
-        if last_dir and os.path.exists(last_dir):
-            self.project_model.setRootPath(last_dir)
-            self.project_dock.setWindowTitle(f"Project: {os.path.basename(last_dir)}")
-        else:
-            self.project_model.setRootPath("")
+        if not last_dir or not os.path.exists(last_dir):
+            # Fallback to current directory where the app is running
+            last_dir = os.getcwd()
             
+        self.project_model.setRootPath(last_dir)
         self.project_tree.setModel(self.project_model)
+        self.project_tree.setRootIndex(self.project_model.index(last_dir))
         
-        if last_dir and os.path.exists(last_dir):
-            self.project_tree.setRootIndex(self.project_model.index(last_dir))
+        # Style the tree a bit
+        self.project_tree.setAnimated(True)
+        self.project_tree.setIndentation(20)
+        self.project_tree.setSortingEnabled(True)
+        self.project_tree.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        
+        self.project_dock.setWindowTitle(f"Project: {os.path.basename(last_dir)}")
         
         # Hide unneeded columns (Size, Type, Date Modified)
         self.project_tree.setColumnHidden(1, True)
@@ -118,7 +126,8 @@ class MainWindow(QMainWindow):
         self.project_tree.setHeaderHidden(True)
         
         self.project_dock.setWidget(self.project_tree)
-        self.project_dock.setMaximumHeight(180)
+        # Reduced height by 65% to make room for other tools (like PBOQ tools)
+        self.project_dock.setMaximumHeight(250)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
 
     def _update_project_pane_directory(self, project_dir):
