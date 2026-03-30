@@ -493,6 +493,11 @@ class PBOQDialog(QDialog):
         
         # 1. Build/Edit Rate
         action_text = "Edit Rate" if rate_code else "Build Rate"
+        
+        link_bill_amt_act = None
+        if is_plug:
+            link_bill_amt_act = menu.addAction("Link Item to Bill Amount")
+
         build_act = menu.addAction(action_text)
         
         # 2. Clear Rate
@@ -520,6 +525,8 @@ class PBOQDialog(QDialog):
         
         if action == build_act:
             self._build_rate(table, row, rowid, is_plug)
+        elif link_bill_amt_act and action == link_bill_amt_act:
+            self._link_item_to_bill_amount(table, row, rowid)
         elif action == clear_act:
             self._clear_rate_at_row(table, row, rowid, is_plug)
         elif action == copy_act:
@@ -529,6 +536,51 @@ class PBOQDialog(QDialog):
         elif action == goto_act:
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
+
+    def _link_item_to_bill_amount(self, table, row, rowid):
+        """Copies the Plug Rate to the Bill Amount column for a single row."""
+        m = self.tools_pane.get_mappings()
+        plug_rate_col = m.get('plug_rate', -1)
+        bill_amt_col = m.get('bill_amount', -1)
+        
+        if plug_rate_col < 0 or bill_amt_col < 0:
+            QMessageBox.warning(self, "Mapping Error", "Please ensure 'Plug Rate' and 'Bill Amount' columns are mapped first.")
+            return
+
+        plug_item = table.item(row, plug_rate_col)
+        if not plug_item or not plug_item.text().strip():
+            QMessageBox.warning(self, "Missing Rate", "There is no Plug Rate to link.")
+            return
+
+        rate_str = plug_item.text().strip()
+        
+        # Apply to UI
+        amt_item = table.item(row, bill_amt_col)
+        if not amt_item:
+            amt_item = QTableWidgetItem()
+            table.setItem(row, bill_amt_col, amt_item)
+        
+        amt_item.setText(rate_str)
+        
+        # Styling: Get plug rate color and apply to Bill Amount
+        dummy_table = PBOQTable()
+        plug_color = dummy_table.get_role_color('plug_rate') or const.COLOR_LINK_CYAN
+        
+        amt_item.setBackground(plug_color)
+        amt_item.setForeground(const.COLOR_GRAY_TEXT)
+        
+        # Persist Value
+        db_path = self.pboq_file_selector.currentData()
+        self._persist_updates(bill_amt_col, [(rowid, rate_str)])
+        
+        # Persist Formatting
+        item0 = self.rowid_to_item0.get(rowid)
+        if item0:
+            g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+            fmt_updates = [(g_idx, {'bg_color': plug_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()})]
+            self.logic.persist_batch_cell_formatting(db_path, bill_amt_col, fmt_updates)
+        
+        self._update_stats()
 
     def _copy_rate_info(self, table, row, is_plug):
         m = self.tools_pane.get_mappings()
