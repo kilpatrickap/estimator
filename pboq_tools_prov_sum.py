@@ -29,7 +29,7 @@ class ProvSumTool(QWidget):
         self.clear_btn.clicked.connect(self.clearProvRequested.emit)
         btn_layout.addWidget(self.clear_btn)
 
-        self.link_bill_rate_btn = QPushButton("Link to Bill Rate")
+        self.link_bill_rate_btn = QPushButton("Link Item to Bill Amount")
         self.link_bill_rate_btn.clicked.connect(lambda: self.linkBillProvRequested.emit())
         btn_layout.addWidget(self.link_bill_rate_btn)
         

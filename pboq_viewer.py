@@ -1697,56 +1697,53 @@ class PBOQDialog(QDialog):
         self._update_stats()
 
     def _run_link_bill_to_rate_logic(self):
-        """Batch copies current Rate (Gross or Plug) to Bill Rates and recalculates Bill Amounts."""
+        """Batch copies current Rate (Gross or Plug) or Prov Sum to Bill columns."""
         m = self.tools_pane.get_mappings()
-        
-        # Determine source rate column based on current Price Type
         price_type = self.price_pane.price_type_combo.currentText()
-        markup_pct = 0.0
         
         if price_type == "Plug Rate":
             source_col_key = 'plug_rate'
             source_label = "Plug Rate"
+            target_role = 'bill_rate'
         elif price_type == "Prov Sum":
             source_col_key = 'prov_sum'
             source_label = "Prov Sum"
+            target_role = 'bill_amount'
         elif price_type == "Subcontractor Rate":
             source_col_key = 'sub_rate'
             source_label = "Subcontractor Rate"
+            target_role = 'bill_rate'
         else:
-            source_col_key = 'rate' # Default to Gross Rate
+            source_col_key = 'rate'
             source_label = "Gross Rate"
+            target_role = 'bill_rate'
 
-        if m['bill_rate'] < 0 or m[source_col_key] < 0:
-            QMessageBox.warning(self, "Mapping Error", f"Please ensure 'Bill Rate' and '{source_label}' columns are mapped first.")
+        target_col = m.get(target_role, -1)
+        if target_col < 0 or m[source_col_key] < 0:
+            QMessageBox.warning(self, "Mapping Error", f"Please ensure '{target_role.replace('_',' ')}' and '{source_label}' columns are mapped first.")
             return
 
-        # Determine source color for visual consistency (same color as source columns)
-        # We can fetch this from PBOQTable defaults
         dummy_table = PBOQTable()
         source_color = dummy_table.get_role_color(source_col_key) or const.COLOR_LINK_CYAN
 
-        # Determine source markup for Subcontractor
+        # Fetch subbee markup map if needed
         db_markup_map = {}
+        db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         if price_type == "Subcontractor Rate":
-             db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
              try:
-                import sqlite3
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
                 cursor.execute("SELECT rowid, SubbeeMarkup FROM pboq_items WHERE SubbeeMarkup IS NOT NULL AND SubbeeMarkup != ''")
                 for rid, m_str in cursor.fetchall():
                     try:
                         clean_m = str(m_str).replace('%','').replace(',','').strip()
-                        if clean_m:
-                            db_markup_map[rid] = float(clean_m)
+                        if clean_m: db_markup_map[rid] = float(clean_m)
                     except: pass
                 conn.close()
              except: pass
 
-        db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
-        link_updates = []
-        amt_updates = []
+        updates = []
+        fmt_updates = []
         
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
@@ -1761,81 +1758,64 @@ class PBOQDialog(QDialog):
                 if not source_item or not source_item.text().strip(): continue
                 
                 val_str = source_item.text().strip()
-                
-                # Update Bill Rate UI and prepare persistence
-                bill_rate_item = table.item(r, m['bill_rate'])
-                if not bill_rate_item:
-                    bill_rate_item = QTableWidgetItem()
-                    table.setItem(r, m['bill_rate'], bill_rate_item)
-                
-                # Apply markup if subcontractor pricing is active
-                active_rate_str = val_str
+                active_val_str = val_str
+
                 if price_type == "Subcontractor Rate":
                     try:
                         r_val = float(val_str.replace(',', ''))
                         effective_markup = db_markup_map.get(row_id, 0.0)
                         if effective_markup != 0:
                             r_val = r_val * (1 + (effective_markup / 100.0))
-                            active_rate_str = "{:,.2f}".format(r_val)
-                    except ValueError: pass
+                            active_val_str = "{:,.2f}".format(r_val)
+                    except: pass
 
-                bill_rate_item.setText(active_rate_str)
-                # Apply source color for visual consistency
-                bill_rate_item.setBackground(source_color)
-                bill_rate_item.setForeground(const.COLOR_GRAY_TEXT)
+                # Update Target
+                item = table.item(r, target_col)
+                if not item:
+                    item = QTableWidgetItem()
+                    table.setItem(r, target_col, item)
+                item.setText(active_val_str)
+                item.setBackground(source_color)
+                item.setForeground(const.COLOR_GRAY_TEXT)
+                updates.append((row_id, active_val_str))
                 
-                link_updates.append((row_id, active_rate_str))
-                
-                # Also update Bill Amount if Quantity exists
-                if m['qty'] >= 0 and m['bill_amount'] >= 0:
+                item0 = self.rowid_to_item0.get(row_id)
+                if item0:
+                    g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                    fmt_updates.append((g_idx, {'bg_color': source_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
+
+                # For rates, handle calculation
+                if target_role == 'bill_rate' and m['qty'] >= 0 and m['bill_amount'] >= 0:
                     qty_item = table.item(r, m['qty'])
                     if qty_item and qty_item.text().strip():
                         try:
-                            # Parse Qty and Rate (handle commas)
                             q_val = float(qty_item.text().replace(',', ''))
-                            r_val = float(active_rate_str.replace(',', ''))
-                            
-                            a_val = q_val * r_val
-                            a_str = "{:,.2f}".format(a_val)
-                            
+                            r_val = float(active_val_str.replace(',', ''))
+                            a_str = "{:,.2f}".format(q_val * r_val)
                             amt_item = table.item(r, m['bill_amount'])
                             if not amt_item:
                                 amt_item = QTableWidgetItem()
                                 table.setItem(r, m['bill_amount'], amt_item)
-                            
                             amt_item.setText(a_str)
                             amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                            amt_updates.append((row_id, a_str))
-                        except ValueError: pass
+                        except: pass
 
-        if link_updates:
-            self._persist_updates(m['bill_rate'], link_updates)
+        if updates:
+            self._persist_updates(target_col, updates)
+            if fmt_updates:
+                self.logic.persist_batch_cell_formatting(db_path, target_col, fmt_updates)
             
-            # Persist formatting (Source Color BG + Gray Text)
-            fmt_updates = []
-            for rid, _ in link_updates:
-                item0 = self.rowid_to_item0.get(rid)
-                if not item0: continue
-                g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
-                fmt_updates.append((g_idx, {'bg_color': source_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
-            self.logic.persist_batch_cell_formatting(db_path, m['bill_rate'], fmt_updates)
+            if target_role == 'bill_rate':
+                self._run_collect_logic(force_collect=True)
             
-            if amt_updates:
-                self._persist_updates(m['bill_amount'], amt_updates)
-                # Persist gray color for amounts
-                fmt_amt_updates = []
-                for rid, _ in amt_updates:
-                    item0 = self.rowid_to_item0.get(rid)
-                    if not item0: continue
-                    g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
-                    fmt_amt_updates.append((g_idx, {'font_color': const.COLOR_GRAY_TEXT.name()}))
-                self.logic.persist_batch_cell_formatting(db_path, m['bill_amount'], fmt_amt_updates)
-
-            QMessageBox.information(self, "Linked", f"Successfully linked {len(link_updates)} Bill Rate cells to {source_label}s.\nBill Amounts have been updated where quantities were available.")
+            msg = f"Successfully linked {len(updates)} cell(s) to {source_label.lower()}s."
+            if target_role == 'bill_rate':
+                msg += "\nBill Amounts have been updated where quantities were available."
+            QMessageBox.information(self, "Success", msg)
             self._update_column_headers()
             self._update_stats()
         else:
-            QMessageBox.information(self, "No Links", f"No items with {source_label}s were found to link in the current view.")
+            QMessageBox.information(self, "No Links", f"No items with {source_label}s found to link.")
 
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed
