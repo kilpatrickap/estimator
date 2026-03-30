@@ -1,6 +1,7 @@
 import os
 import sqlite3
 import json
+import re
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QMessageBox, QComboBox, QTabWidget, QWidget,
                              QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu,
@@ -1820,16 +1821,8 @@ class PBOQDialog(QDialog):
 
     def _recategorize_item(self, table, row, rowid):
         """Prompts user for a new category and regenerates the SR- code for that item."""
-        # 1. Resolve Project Categories
-        import re
-        db_path = "construction_costs.db"
-        project_db_dir = os.path.join(self.project_dir, "Project Database")
-        if os.path.exists(project_db_dir):
-            for f in os.listdir(project_db_dir):
-                if f.lower().endswith('.db'):
-                    db_path = os.path.join(project_db_dir, f)
-                    break
-        db_mgr = DatabaseManager(db_path)
+        # 1. Resolve Project Categories - ALWAYS use the global database for software-wide categories
+        db_mgr = DatabaseManager()
         cat_prefixes = db_mgr.get_category_prefixes_dict()
         categories = sorted(list(cat_prefixes.keys()))
         
@@ -2041,15 +2034,8 @@ class PBOQDialog(QDialog):
         markup = pkg_settings.get('markup', 0.0)
 
         # 2. Resolve Prefix for the category (Strict: All Caps, Alphanumeric only)
-        import re
-        db_path = "construction_costs.db"
-        project_db_dir = os.path.join(self.project_dir, "Project Database")
-        if os.path.exists(project_db_dir):
-            for f in os.listdir(project_db_dir):
-                if f.lower().endswith('.db'):
-                    db_path = os.path.join(project_db_dir, f)
-                    break
-        db_mgr = DatabaseManager(db_path)
+        # ALWAYS use the global database for software-wide categories
+        db_mgr = DatabaseManager()
         prefixes = db_mgr.get_category_prefixes_dict()
         raw_prefix = prefixes.get(category, "MISC")
         # Ensure prefix is clean (Alpha-only) and Upper Case
@@ -2212,15 +2198,8 @@ class PBOQDialog(QDialog):
         else:
             markup_db_col = "SubbeeMarkup"
 
-        # Resolve Project Categories for the summary dialog
-        db_path = "construction_costs.db"
-        project_db_dir = os.path.join(self.project_dir, "Project Database")
-        if os.path.exists(project_db_dir):
-            for f in os.listdir(project_db_dir):
-                if f.lower().endswith('.db'):
-                    db_path = os.path.join(project_db_dir, f)
-                    break
-        db_mgr = DatabaseManager(db_path)
+        # Resolve Project Categories for the summary dialog - ALWAYS use global DB for categories
+        db_mgr = DatabaseManager()
         categories_dict = db_mgr.get_category_prefixes_dict()
 
         dialog = PackageSummaryDialog(file_path, self.project_dir, pkg_db_col, markup_db_col, categories_dict, self)

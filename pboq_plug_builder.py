@@ -22,7 +22,10 @@ class PlugRateBuilderDialog(QDialog):
         self.project_dir = project_dir
         self.pboq_file_path = pboq_file_path
         
-        # Determine the project database for category labels
+        # CATEGORIES: Always pull from the global software database (construction_costs.db)
+        # SETTINGS (Like Currency): Pull from the project-level Database if it exists.
+        self.global_db = DatabaseManager()
+        
         db_path = "construction_costs.db"
         project_db_dir = os.path.join(self.project_dir, "Project Database")
         if os.path.exists(project_db_dir):
@@ -97,7 +100,7 @@ class PlugRateBuilderDialog(QDialog):
         
         meta_row.addWidget(QLabel("Category:"))
         self.cat_combo = QComboBox()
-        self.prefixes = self.db_manager.get_category_prefixes_dict()
+        self.prefixes = self.global_db.get_category_prefixes_dict()
         categories = list(self.prefixes.keys())
         self.cat_combo.addItems(categories)
         initial_cat = self.item_data.get('category') or "Miscellaneous"
