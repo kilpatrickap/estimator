@@ -16,11 +16,12 @@ class PlugRateBuilderDialog(QDialog):
     """
     dataCommitted = pyqtSignal()
     
-    def __init__(self, item_data, project_dir, pboq_file_path, parent=None):
+    def __init__(self, item_data, project_dir, pboq_file_path, parent=None, is_prov=False):
         super().__init__(parent)
         self.item_data = item_data
         self.project_dir = project_dir
         self.pboq_file_path = pboq_file_path
+        self.is_prov = is_prov
         
         # CATEGORIES: Always pull from the global software database (construction_costs.db)
         # SETTINGS (Like Currency): Pull from the project-level Database if it exists.
@@ -35,7 +36,7 @@ class PlugRateBuilderDialog(QDialog):
                     break
         self.db_manager = DatabaseManager(db_path)
         
-        self.setWindowTitle("Plug Rate Builder")
+        self.setWindowTitle("Provisional Sum Builder" if is_prov else "Plug Rate Builder")
         self.setMinimumWidth(550)
         self.setMinimumHeight(350) 
         
@@ -59,9 +60,10 @@ class PlugRateBuilderDialog(QDialog):
         layout.setContentsMargins(5, 5, 5, 5)
         layout.setSpacing(2)
 
-        # --- Row 0: Plug Rate Code Display ---
+        # --- Row 0: Code Display ---
         code_top_row = QHBoxLayout()
-        self.code_label = QLabel("Code: PR-MISC1A")
+        prefix = "PS" if self.is_prov else "PR"
+        self.code_label = QLabel(f"Code: {prefix}-MISC1A")
         self.code_label.setStyleSheet("font-weight: bold; color: #7b1fa2; background-color: #f3e5f5; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
         code_top_row.addWidget(self.code_label)
         code_top_row.addStretch()
@@ -202,23 +204,24 @@ class PlugRateBuilderDialog(QDialog):
         self.update_display()
 
     def _on_category_changed(self, category):
-        """Regenerates the Plug Rate Code when category selection changes."""
+        """Regenerates the Plug Rate/Prov Sum Code when category selection changes."""
         if getattr(self, 'is_loading', False):
             return
         prefix = self.prefixes.get(category, "MISC")
-        plug_prefix = f"PR-{prefix}"
+        code_prefix = f"PS-{prefix}" if self.is_prov else f"PR-{prefix}"
         
         # Fetch current codes from PBOQ DB
+        existing_cols = ["ProvSumCode"] if self.is_prov else ["PlugCode"]
         existing_codes = []
         try:
             conn = sqlite3.connect(self.pboq_file_path)
             cursor = conn.cursor()
-            cursor.execute("SELECT PlugCode FROM pboq_items WHERE PlugCode LIKE ?", (f"{plug_prefix}%",))
+            cursor.execute(f"SELECT {existing_cols[0]} FROM pboq_items WHERE {existing_cols[0]} LIKE ?", (f"{code_prefix}%",))
             existing_codes = [r[0] for r in cursor.fetchall() if r[0]]
             conn.close()
         except: pass
         
-        new_code = self._generate_logic(plug_prefix, existing_codes)
+        new_code = self._generate_logic(code_prefix, existing_codes)
         self.current_plug_code = new_code
         self.code_label.setText(f"Code: {new_code}")
 

@@ -50,6 +50,8 @@ class PBOQToolsPane(QWidget):
         self.cb_rate_code = QComboBox()
         self.cb_plug_rate = QComboBox()
         self.cb_plug_code = QComboBox()
+        self.cb_prov_sum = QComboBox()
+        self.cb_prov_sum_code = QComboBox()
         self.cb_sub_package = QComboBox()
         self.cb_sub_name = QComboBox()
         self.cb_sub_rate = QComboBox()
@@ -64,7 +66,8 @@ class PBOQToolsPane(QWidget):
         
         # Hide standard columns from user mapping
         for cb in [self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
-                   self.cb_plug_rate, self.cb_plug_code, self.cb_sub_package, 
+                   self.cb_plug_rate, self.cb_plug_code, self.cb_prov_sum, self.cb_prov_sum_code,
+                   self.cb_sub_package, 
                    self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
             cb.hide()
@@ -73,6 +76,7 @@ class PBOQToolsPane(QWidget):
         for cb in [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
                    self.cb_bill_rate, self.cb_bill_amount, 
                    self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
+                   self.cb_prov_sum, self.cb_prov_sum_code,
                    self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
@@ -217,6 +221,7 @@ class PBOQToolsPane(QWidget):
         combos = [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
                   self.cb_bill_rate, self.cb_bill_amount, 
                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
+                  self.cb_prov_sum, self.cb_prov_sum_code,
                   self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                   self.cb_sub_category, self.cb_sub_code]
         
@@ -233,12 +238,14 @@ class PBOQToolsPane(QWidget):
         if num_columns > 7: self.cb_rate_code.setCurrentIndex(8)   # Column 7
         if num_columns > 8: self.cb_plug_rate.setCurrentIndex(9)   # Column 8
         if num_columns > 9: self.cb_plug_code.setCurrentIndex(10)  # Column 9
-        if num_columns > 10: self.cb_sub_package.setCurrentIndex(11) # Column 10
-        if num_columns > 11: self.cb_sub_name.setCurrentIndex(12)    # Column 11
-        if num_columns > 12: self.cb_sub_rate.setCurrentIndex(13)    # Column 12
-        if num_columns > 13: self.cb_sub_markup.setCurrentIndex(14)  # Column 13
-        if num_columns > 14: self.cb_sub_category.setCurrentIndex(15) # Column 14
-        if num_columns > 15: self.cb_sub_code.setCurrentIndex(16)     # Column 15
+        if num_columns > 10: self.cb_prov_sum.setCurrentIndex(11)  # Column 10
+        if num_columns > 11: self.cb_prov_sum_code.setCurrentIndex(12)  # Column 11
+        if num_columns > 12: self.cb_sub_package.setCurrentIndex(13) # Column 12
+        if num_columns > 13: self.cb_sub_name.setCurrentIndex(14)    # Column 13
+        if num_columns > 14: self.cb_sub_rate.setCurrentIndex(15)    # Column 14
+        if num_columns > 15: self.cb_sub_markup.setCurrentIndex(16)  # Column 15
+        if num_columns > 16: self.cb_sub_category.setCurrentIndex(17) # Column 16
+        if num_columns > 17: self.cb_sub_code.setCurrentIndex(18)     # Column 17
         
         for cb in combos:
             cb.blockSignals(False)
@@ -259,12 +266,14 @@ class PBOQToolsPane(QWidget):
             'rate_code': 7,
             'plug_rate': 8,
             'plug_code': 9,
-            'sub_package': 10,
-            'sub_name': 11,
-            'sub_rate': 12,
-            'sub_markup': 13,
-            'sub_category': 14,
-            'sub_code': 15
+            'prov_sum': 10,
+            'prov_sum_code': 11,
+            'sub_package': 12,
+            'sub_name': 13,
+            'sub_rate': 14,
+            'sub_markup': 15,
+            'sub_category': 16,
+            'sub_code': 17
         }
         return m
     
@@ -280,6 +289,8 @@ class PBOQToolsPane(QWidget):
             'rate_code': self.cb_rate_code,
             'plug_rate': self.cb_plug_rate,
             'plug_code': self.cb_plug_code,
+            'prov_sum': self.cb_prov_sum,
+            'prov_sum_code': self.cb_prov_sum_code,
             'sub_package': self.cb_sub_package,
             'sub_name': self.cb_sub_name,
             'sub_rate': self.cb_sub_rate,
@@ -372,6 +383,7 @@ class PBOQToolsPane(QWidget):
             self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
             self.cb_bill_rate, self.cb_bill_amount, 
             self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
+            self.cb_prov_sum, self.cb_prov_sum_code,
             self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
             self.wrap_text_btn, self.align_left_btn, self.clear_all_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,

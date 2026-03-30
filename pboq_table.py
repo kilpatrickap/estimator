@@ -54,6 +54,7 @@ class PBOQTable(QTableWidget):
         if role in ['bill_rate', 'bill_amount']: return const.COL_COLOR_YELLOW
         if role in ['rate', 'rate_code']: return const.COL_COLOR_GREEN
         if role in ['plug_rate', 'plug_code']: return const.COL_COLOR_PURPLE
+        if role in ['prov_sum', 'prov_sum_code']: return const.COLOR_PROV_SUM
         if role in ['sub_package', 'sub_name', 'sub_rate', 'sub_markup', 'sub_category', 'sub_code']: return const.COL_COLOR_ORANGE
         return None
 
@@ -80,14 +81,16 @@ class PBOQTable(QTableWidget):
                                                                     const.COL_COLOR_RED.name().lower(),
                                                                     const.COL_COLOR_PURPLE.name().lower(),
                                                                     const.COL_COLOR_GREEN.name().lower(),
-                                                                    const.COL_COLOR_ORANGE.name().lower()]
+                                                                    const.COL_COLOR_ORANGE.name().lower(),
+                                                                    const.COLOR_PROV_SUM.name().lower()]
                         if not is_pastel: continue # Keep feature colors (Orange, Lime, etc.)
                         
                         # Special Case: If this is the Bill Rate or Bill Amount column and it's already Green or Purple, 
                         # it means it's a linked rate. Preserve this color for visual consistency.
                         if role in ['bill_rate', 'bill_amount'] and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
                                                                                const.COL_COLOR_PURPLE.name().lower(),
-                                                                               const.COL_COLOR_ORANGE.name().lower()]:
+                                                                               const.COL_COLOR_ORANGE.name().lower(),
+                                                                               const.COLOR_PROV_SUM.name().lower()]:
                             continue
 
                         
