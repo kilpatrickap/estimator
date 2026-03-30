@@ -521,9 +521,13 @@ class PBOQDialog(QDialog):
         # 1. Build/Edit Rate
         action_text = "Edit Prov Sum" if is_prov and rate_code else ("Build Prov Sum" if is_prov else ("Edit Rate" if rate_code else "Build Rate"))
         
-        link_bill_amt_act = None
-        if is_plug or is_prov:
-            link_bill_amt_act = menu.addAction("Link Item to Bill Amount")
+        link_rate_act = None
+        link_amt_act = None
+        if is_plug:
+            link_rate_act = menu.addAction("Link to Bill Rate")
+            link_amt_act = menu.addAction("Link to Bill Amount")
+        elif is_prov:
+            link_amt_act = menu.addAction("Link to Bill Amount")
 
         build_act = menu.addAction(action_text)
         
@@ -552,8 +556,10 @@ class PBOQDialog(QDialog):
         
         if action == build_act:
             self._build_rate(table, row, rowid, is_plug, is_prov)
-        elif link_bill_amt_act and action == link_bill_amt_act:
-            self._link_item_to_bill_amount(table, row, rowid, is_prov)
+        elif link_rate_act and action == link_rate_act:
+            self._link_item_to_bill(table, row, rowid, is_plug, target_role='bill_rate')
+        elif link_amt_act and action == link_amt_act:
+            self._link_item_to_bill(table, row, rowid, is_prov or is_plug, target_role='bill_amount')
         elif action == clear_act:
             self._clear_rate_at_row(table, row, rowid, is_plug, is_prov)
         elif action == copy_act:
@@ -564,50 +570,70 @@ class PBOQDialog(QDialog):
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
 
-    def _link_item_to_bill_amount(self, table, row, rowid, is_prov=False):
-        """Copies the Plug Rate or Prov Sum to the Bill Amount column for a single row."""
+    def _link_item_to_bill(self, table, row, rowid, is_prov=False, target_role=None):
+        """Copies the Plug Rate (to Bill Rate or Amount) or Prov Sum (to Bill Amount) for a single row."""
         m = self.tools_pane.get_mappings()
-        rate_role = 'prov_sum' if is_prov else 'plug_rate'
-        source_col = m.get(rate_role, -1)
-        bill_amt_col = m.get('bill_amount', -1)
         
-        if source_col < 0 or bill_amt_col < 0:
-            QMessageBox.warning(self, "Mapping Error", f"Ensure '{rate_role.replace('_',' ')}' and 'Bill Amount' are mapped.")
+        if is_prov:
+            source_role = 'prov_sum'
+            if not target_role: target_role = 'bill_amount'
+        else:
+            source_role = 'plug_rate'
+            # SMART DUALITY: If no quantity, link to Amount column (Lumpsum). Otherwise link to Rate.
+            if not target_role:
+                target_role = 'bill_rate'
+                qty_item = table.item(row, m['qty']) if m['qty'] >= 0 else None
+                if not qty_item or not qty_item.text().strip():
+                    target_role = 'bill_amount'
+                else:
+                    try:
+                        if float(qty_item.text().replace(',','')) == 0:
+                            target_role = 'bill_amount'
+                    except: pass
+
+        source_col = m.get(source_role, -1)
+        target_col = m.get(target_role, -1)
+        
+        if source_col < 0 or target_col < 0:
+            QMessageBox.warning(self, "Mapping Error", f"Ensure '{source_role.replace('_',' ')}' and '{target_role.replace('_',' ')}' are mapped.")
             return
 
         source_item = table.item(row, source_col)
         if not source_item or not source_item.text().strip():
-            QMessageBox.warning(self, "Missing Rate", f"There is no {rate_role.replace('_',' ')} to link.")
+            QMessageBox.warning(self, "Missing Rate", f"There is no {source_role.replace('_',' ')} to link.")
             return
 
         rate_str = source_item.text().strip()
         
         # Apply to UI
-        amt_item = table.item(row, bill_amt_col)
-        if not amt_item:
-            amt_item = QTableWidgetItem()
-            table.setItem(row, bill_amt_col, amt_item)
+        target_item = table.item(row, target_col)
+        if not target_item:
+            target_item = QTableWidgetItem()
+            table.setItem(row, target_col, target_item)
         
-        amt_item.setText(rate_str)
+        target_item.setText(rate_str)
         
-        # Styling: Get source color and apply to Bill Amount
-        dummy_table = PBOQTable()
-        color = dummy_table.get_role_color(rate_role) or const.COLOR_LINK_CYAN
+        # Styling: Get source color (get_role_color handles this)
+        color = table.get_role_color(source_role) or const.COLOR_LINK_CYAN
         
         from PyQt6.QtGui import QBrush
-        amt_item.setBackground(QBrush(color))
-        amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
+        target_item.setBackground(QBrush(color))
+        target_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
         
         # Persist Value
         db_path = self.pboq_file_selector.currentData()
-        self._persist_updates(bill_amt_col, [(rowid, rate_str)])
+        self._persist_updates(target_col, [(rowid, rate_str)])
         
         # Persist Formatting
         item0 = self.rowid_to_item0.get(rowid)
         if item0:
             g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
             fmt_updates = [(g_idx, {'bg_color': color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()})]
-            self.logic.persist_batch_cell_formatting(db_path, bill_amt_col, fmt_updates)
+            self.logic.persist_batch_cell_formatting(db_path, target_col, fmt_updates)
+
+            # --- Recalculation logic ---
+            # Now that we've updated the target cell and its color, trigger the recalc engine
+            self._recalculate_row_extension(table, row, rowid)
             
         self._update_stats()
 
@@ -853,7 +879,7 @@ class PBOQDialog(QDialog):
 
 
 
-    def _persist_updates(self, display_col, updates):
+    def _persist_updates(self, display_col, updates, trigger_recalc=True):
         if display_col < 0: return
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
@@ -872,6 +898,59 @@ class PBOQDialog(QDialog):
                 self.logic.persist_batch_named_updates(file_path, logical_col, updates)
                 break
 
+        # --- LIVE RECALCULATION ENGINE ---
+        if trigger_recalc and not self.is_updating_logic:
+            # We must be careful not to create infinite recursion, so we only trigger this for non-recursive calls
+            for rowid, new_val in updates:
+                # Resolve the row in UI
+                item0 = self.rowid_to_item0.get(rowid)
+                if not item0: continue
+                table = item0.tableWidget()
+                row = item0.row()
+
+                # Rule 1: If Qty or Bill Rate changes, recalculate Extension (if applicable)
+                if display_col == m.get('qty') or display_col == m.get('bill_rate'):
+                    self._recalculate_row_extension(table, row, rowid)
+
+                # Rule 2: If a Pricing Source changes, check for "Smart Links" (Propagation)
+                # Gross Rate Edit
+                elif display_col == m.get('rate') and m.get('bill_rate') >= 0:
+                    bill_rate_item = table.item(row, m['bill_rate'])
+                    # If Bill Rate is GREEN, propagate Gross Rate
+                    if bill_rate_item and bill_rate_item.background().color().name().lower() == const.COL_COLOR_GREEN.name().lower():
+                        bill_rate_item.setText(new_val)
+                        self._persist_updates(m['bill_rate'], [(rowid, new_val)])
+
+                # Plug Rate Edit
+                elif display_col == m.get('plug_rate'):
+                    # Plug can target Rate OR Amount
+                    bill_rate_item = table.item(row, m.get('bill_rate', -1))
+                    bill_amt_item = table.item(row, m.get('bill_amount', -1))
+                    
+                    p_color = const.COL_COLOR_PURPLE.name().lower()
+                    if bill_rate_item and bill_rate_item.background().color().name().lower() == p_color:
+                        bill_rate_item.setText(new_val)
+                        self._persist_updates(m['bill_rate'], [(rowid, new_val)])
+                    elif bill_amt_item and bill_amt_item.background().color().name().lower() == p_color:
+                        bill_amt_item.setText(new_val)
+                        self._persist_updates(m['bill_amount'], [(rowid, new_val)])
+
+                # Subcontractor Rate Edit
+                elif display_col == m.get('sub_rate') and m.get('bill_rate') >= 0:
+                    bill_rate_item = table.item(row, m['bill_rate'])
+                    # If Bill Rate is ORANGE, propagate Sub Rate
+                    if bill_rate_item and bill_rate_item.background().color().name().lower() == const.COL_COLOR_ORANGE.name().lower():
+                        bill_rate_item.setText(new_val)
+                        self._persist_updates(m['bill_rate'], [(rowid, new_val)])
+
+                # Prov Sum Edit
+                elif display_col == m.get('prov_sum') and m.get('bill_amount') >= 0:
+                    bill_amt_item = table.item(row, m['bill_amount'])
+                    # If Bill Amt is LIGHT CYAN (Tangerine-like role), propagate Prov Sum
+                    if bill_amt_item and bill_amt_item.background().color().name().lower() == const.COLOR_PROV_SUM.name().lower():
+                        bill_amt_item.setText(new_val)
+                        self._persist_updates(m['bill_amount'], [(rowid, new_val)])
+
         # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
         # AND we are not already in a logic update.
         if display_col == m['bill_amount'] and not self.is_updating_logic:
@@ -880,6 +959,64 @@ class PBOQDialog(QDialog):
         
         # Stats update is fast enough to keep live
         self._update_stats()
+
+    def _recalculate_row_extension(self, table, row, rowid):
+        """Intelligently recalculates Bill Amount based on item dynamics (Rate vs LumpSum)."""
+        m = self.tools_pane.get_mappings()
+        bill_rate_col = m.get('bill_rate', -1)
+        bill_amount_col = m.get('bill_amount', -1)
+        qty_col = m.get('qty', -1)
+
+        if bill_amount_col < 0: return
+        
+        qty_item = table.item(row, qty_col) if qty_col >= 0 else None
+        rate_item = table.item(row, bill_rate_col) if bill_rate_col >= 0 else None
+        amt_item = table.item(row, bill_amount_col)
+        
+        if not amt_item: 
+            amt_item = QTableWidgetItem()
+            table.setItem(row, bill_amount_col, amt_item)
+
+        # Check Price Type Logic (using colors as markers)
+        bg_color = amt_item.background().color().name().lower()
+        bill_rate_bg = rate_item.background().color().name().lower() if rate_item else ""
+        
+        # Lumpsum markers: Purple (if in Amount col) or Light Cyan (Prov Sum)
+        is_lumpsum_plug = (bg_color == const.COL_COLOR_PURPLE.name().lower())
+        is_prov_sum = (bg_color == const.COLOR_PROV_SUM.name().lower())
+        
+        # Rate-based markers: Purple (if in Rate col), Green (Gross), Orange (Subbee), or Default (Yellow)
+        is_rate_based = (bill_rate_bg in [const.COL_COLOR_PURPLE.name().lower(),
+                                           const.COL_COLOR_GREEN.name().lower(),
+                                           const.COL_COLOR_ORANGE.name().lower(),
+                                           const.COL_COLOR_YELLOW.name().lower()])
+        # Fallback: if it's default (Yellow/No Color), assume extension unless already marked as lump sum
+        if not is_rate_based and not (is_lumpsum_plug or is_prov_sum):
+            if bill_rate_bg == "" or bill_rate_bg == const.COL_COLOR_YELLOW.name().lower():
+                is_rate_based = True
+
+        if is_rate_based:
+            # Multiplier Dynamics: Qty * Rate = Amount
+            if qty_item and rate_item:
+                try:
+                    q_str = qty_item.text().replace(',', '').strip()
+                    r_str = rate_item.text().replace(',', '').strip()
+                    if not q_str or not r_str: return
+                    
+                    q_val = float(q_str)
+                    r_val = float(r_str)
+                    amt_val = q_val * r_val
+                    amt_str = "{:,.2f}".format(amt_val)
+                    
+                    if amt_item.text() != amt_str:
+                        amt_item.setText(amt_str)
+                        # Avoid infinite recalc loops by passing trigger_recalc=False
+                        self._persist_updates(bill_amount_col, [(rowid, amt_str)], trigger_recalc=False)
+                except ValueError: pass
+        else:
+            # Lumpsum Dynamics: Amount is needed, ignore Quantity changes
+            # (Logic handled by simply doing nothing here)
+            pass
 
 
 
@@ -1701,34 +1838,29 @@ class PBOQDialog(QDialog):
         m = self.tools_pane.get_mappings()
         price_type = self.price_pane.price_type_combo.currentText()
         
-        if price_type == "Plug Rate":
-            source_col_key = 'plug_rate'
-            source_label = "Plug Rate"
-            target_role = 'bill_rate'
-        elif price_type == "Prov Sum":
+        # We handle dynamic targeting for Plug Rate inside the loop
+        static_target_role = None
+        if price_type == "Prov Sum":
+            static_target_role = 'bill_amount'
             source_col_key = 'prov_sum'
-            source_label = "Prov Sum"
-            target_role = 'bill_amount'
         elif price_type == "Subcontractor Rate":
+            static_target_role = 'bill_rate'
             source_col_key = 'sub_rate'
-            source_label = "Subcontractor Rate"
-            target_role = 'bill_rate'
-        else:
+        elif price_type == "Plug Rate":
+            source_col_key = 'plug_rate'
+        else: # Gross Rate
+            static_target_role = 'bill_rate'
             source_col_key = 'rate'
-            source_label = "Gross Rate"
-            target_role = 'bill_rate'
 
-        target_col = m.get(target_role, -1)
-        if target_col < 0 or m[source_col_key] < 0:
-            QMessageBox.warning(self, "Mapping Error", f"Please ensure '{target_role.replace('_',' ')}' and '{source_label}' columns are mapped first.")
+        if m[source_col_key] < 0:
+            QMessageBox.warning(self, "Mapping Error", f"Please map the '{price_type}' source column first.")
             return
 
-        dummy_table = PBOQTable()
-        source_color = dummy_table.get_role_color(source_col_key) or const.COLOR_LINK_CYAN
+        db_path = self.pboq_file_selector.currentData()
+        source_color = PBOQTable().get_role_color(source_col_key) or const.COLOR_LINK_CYAN
 
         # Fetch subbee markup map if needed
         db_markup_map = {}
-        db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
         if price_type == "Subcontractor Rate":
              try:
                 conn = sqlite3.connect(db_path)
@@ -1742,9 +1874,12 @@ class PBOQDialog(QDialog):
                 conn.close()
              except: pass
 
-        updates = []
-        fmt_updates = []
+        # We'll use two sets of updates since targets can vary by row for Plug Rate
+        rate_updates, rate_fmt = [], []
+        amt_updates, amt_fmt = [], []
         
+        processed_count = 0
+
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
             if not isinstance(table, PBOQTable): continue
@@ -1757,6 +1892,23 @@ class PBOQDialog(QDialog):
                 source_item = table.item(r, m[source_col_key])
                 if not source_item or not source_item.text().strip(): continue
                 
+                # Determine Target Role for this row
+                target_role = static_target_role
+                if price_type == "Plug Rate":
+                    qty_item = table.item(r, m['qty']) if m['qty'] >= 0 else None
+                    if not qty_item or not qty_item.text().strip():
+                        target_role = 'bill_amount'
+                    else:
+                        try:
+                            if float(qty_item.text().replace(',','')) == 0:
+                                target_role = 'bill_amount'
+                            else:
+                                target_role = 'bill_rate'
+                        except: target_role = 'bill_rate'
+
+                target_col = m.get(target_role, -1)
+                if target_col < 0: continue
+
                 val_str = source_item.text().strip()
                 active_val_str = val_str
 
@@ -1769,7 +1921,7 @@ class PBOQDialog(QDialog):
                             active_val_str = "{:,.2f}".format(r_val)
                     except: pass
 
-                # Update Target
+                # Update UI
                 item = table.item(r, target_col)
                 if not item:
                     item = QTableWidgetItem()
@@ -1777,46 +1929,33 @@ class PBOQDialog(QDialog):
                 item.setText(active_val_str)
                 item.setBackground(source_color)
                 item.setForeground(const.COLOR_GRAY_TEXT)
-                updates.append((row_id, active_val_str))
                 
-                item0 = self.rowid_to_item0.get(row_id)
-                if item0:
-                    g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
-                    fmt_updates.append((g_idx, {'bg_color': source_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
+                # Buffer for Persistence
+                fmt_info = (row_id_item.data(Qt.ItemDataRole.UserRole + 1), {'bg_color': source_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()})
+                if target_role == 'bill_rate':
+                    rate_updates.append((row_id, active_val_str))
+                    rate_fmt.append(fmt_info)
+                else:
+                    amt_updates.append((row_id, active_val_str))
+                    amt_fmt.append(fmt_info)
+                
+                # RECALCULATE after individual item update to handle the math chain
+                # (We do this row-by-row to ensure the UI stays in sync)
+                self._recalculate_row_extension(table, r, row_id)
+                processed_count += 1
 
-                # For rates, handle calculation
-                if target_role == 'bill_rate' and m['qty'] >= 0 and m['bill_amount'] >= 0:
-                    qty_item = table.item(r, m['qty'])
-                    if qty_item and qty_item.text().strip():
-                        try:
-                            q_val = float(qty_item.text().replace(',', ''))
-                            r_val = float(active_val_str.replace(',', ''))
-                            a_str = "{:,.2f}".format(q_val * r_val)
-                            amt_item = table.item(r, m['bill_amount'])
-                            if not amt_item:
-                                amt_item = QTableWidgetItem()
-                                table.setItem(r, m['bill_amount'], amt_item)
-                            amt_item.setText(a_str)
-                            amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                        except: pass
-
-        if updates:
-            self._persist_updates(target_col, updates)
-            if fmt_updates:
-                self.logic.persist_batch_cell_formatting(db_path, target_col, fmt_updates)
-            
-            if target_role == 'bill_rate':
-                self._run_collect_logic(force_collect=True)
-            
-            msg = f"Successfully linked {len(updates)} cell(s) to {source_label.lower()}s."
-            if target_role == 'bill_rate':
-                msg += "\nBill Amounts have been updated where quantities were available."
-            QMessageBox.information(self, "Success", msg)
-            self._update_column_headers()
-            self._update_stats()
-        else:
-            QMessageBox.information(self, "No Links", f"No items with {source_label}s found to link.")
-
+        # Persistence
+        if rate_updates:
+            self._persist_updates(m['bill_rate'], rate_updates)
+            self.logic.persist_batch_cell_formatting(db_path, m['bill_rate'], rate_fmt)
+        if amt_updates:
+            self._persist_updates(m['bill_amount'], amt_updates)
+            self.logic.persist_batch_cell_formatting(db_path, m['bill_amount'], amt_fmt)
+        
+        if processed_count > 0:
+            QMessageBox.information(self, "Success", f"Linked {processed_count} items from {price_type} to Bill.")
+        
+        self._update_stats()
     def closeEvent(self, event):
         # Ensure the tools dock is hidden when the window is closed
         try:
