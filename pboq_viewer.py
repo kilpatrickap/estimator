@@ -194,7 +194,8 @@ class PBOQDialog(QDialog):
         # We fetch physical columns PLUS logical subbee columns for fallback/sync
         logical_cols = [
             "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeCategory", "SubbeeCode",
-            "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates"
+            "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
+            "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates"
         ]
         query = f"SELECT rowid, {', '.join(quoted_cols)}, {', '.join(logical_cols)} FROM pboq_items"
         cursor.execute(query)
@@ -219,10 +220,11 @@ class PBOQDialog(QDialog):
             sub_roles = {
                 'sub_package': 0, 'sub_name': 1, 'sub_rate': 2, 
                 'sub_markup': 3, 'sub_category': 4, 'sub_code': 5,
-                'prov_sum': 6, 'prov_sum_code': 7
+                'prov_sum': 6, 'prov_sum_code': 7,
+                'plug_rate': 12, 'plug_code': 13
             }
             # Roles where the logical store is always authoritative
-            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code'}
+            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'plug_code', 'plug_rate', 'prov_sum'}
             for role, l_idx in sub_roles.items():
                 p_idx = m.get(role, -1)
                 if p_idx >= 0 and p_idx < len(physical_data) - 1:
@@ -557,9 +559,9 @@ class PBOQDialog(QDialog):
         if action == build_act:
             self._build_rate(table, row, rowid, is_plug, is_prov)
         elif link_rate_act and action == link_rate_act:
-            self._link_item_to_bill(table, row, rowid, is_plug, target_role='bill_rate')
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
-            self._link_item_to_bill(table, row, rowid, is_prov or is_plug, target_role='bill_amount')
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, target_role='bill_amount')
         elif action == clear_act:
             self._clear_rate_at_row(table, row, rowid, is_plug, is_prov)
         elif action == copy_act:
@@ -570,14 +572,14 @@ class PBOQDialog(QDialog):
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
 
-    def _link_item_to_bill(self, table, row, rowid, is_prov=False, target_role=None):
+    def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, target_role=None):
         """Copies the Plug Rate (to Bill Rate or Amount) or Prov Sum (to Bill Amount) for a single row."""
         m = self.tools_pane.get_mappings()
         
         if is_prov:
             source_role = 'prov_sum'
             if not target_role: target_role = 'bill_amount'
-        else:
+        elif is_plug:
             source_role = 'plug_rate'
             # SMART DUALITY: If no quantity, link to Amount column (Lumpsum). Otherwise link to Rate.
             if not target_role:
@@ -590,6 +592,8 @@ class PBOQDialog(QDialog):
                         if float(qty_item.text().replace(',','')) == 0:
                             target_role = 'bill_amount'
                     except: pass
+        else:
+            return # Only plug rates and prov sums are supported for this linking mechanism
 
         source_col = m.get(source_role, -1)
         target_col = m.get(target_role, -1)
@@ -632,7 +636,8 @@ class PBOQDialog(QDialog):
             self.logic.persist_batch_cell_formatting(db_path, target_col, fmt_updates)
 
             # --- Recalculation logic ---
-            # Now that we've updated the target cell and its color, trigger the recalc engine
+            # Now that we've updated the target cell and its color, trigger the sync and recalc engine
+            self._sync_logical_assignment_columns()
             self._recalculate_row_extension(table, row, rowid)
             
         self._update_stats()
@@ -741,7 +746,8 @@ class PBOQDialog(QDialog):
             ex_rates_json = "{}"
             
             prefix = "ProvSum" if is_prov else "Plug"
-            query = f"SELECT {prefix}Formula, {prefix}Category, {prefix}Currency, {prefix}ExchangeRates, {prefix}Code, {prefix} FROM pboq_items WHERE rowid = ?"
+            rate_col_name = "ProvSum" if is_prov else "PlugRate"
+            query = f"SELECT {prefix}Formula, {prefix}Category, {prefix}Currency, {prefix}ExchangeRates, {prefix}Code, {rate_col_name} FROM pboq_items WHERE rowid = ?"
             
             try:
                 conn = sqlite3.connect(file_path)
@@ -810,7 +816,7 @@ class PBOQDialog(QDialog):
                     cursor = conn.cursor()
                     cursor.execute(f"""
                         UPDATE pboq_items 
-                        SET {prefix} = ?, {prefix}Formula = ?, {prefix}Code = ?, {prefix}Category = ?, {prefix}Currency = ?, {prefix}ExchangeRates = ?
+                        SET {rate_col_name} = ?, {prefix}Formula = ?, {prefix}Code = ?, {prefix}Category = ?, {prefix}Currency = ?, {prefix}ExchangeRates = ?
                         WHERE rowid = ?
                     """, (new_rate_str, new_formula, new_code, new_cat, new_curr, new_ex_rates, rowid))
                     conn.commit()
@@ -892,6 +898,10 @@ class PBOQDialog(QDialog):
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
             'sub_markup': 'SubbeeMarkup',
+            'plug_rate': 'PlugRate',
+            'plug_code': 'PlugCode',
+            'prov_sum': 'ProvSum',
+            'prov_sum_code': 'ProvSumCode'
         }
         for role, logical_col in mirror_map.items():
             if display_col == m.get(role):
@@ -982,14 +992,14 @@ class PBOQDialog(QDialog):
         bill_rate_bg = rate_item.background().color().name().lower() if rate_item else ""
         
         # Lumpsum markers: Purple (if in Amount col) or Light Cyan (Prov Sum)
-        is_lumpsum_plug = (bg_color == const.COL_COLOR_PURPLE.name().lower())
+        is_lumpsum_plug = (bg_color in [const.COL_COLOR_PURPLE.name().lower(), const.COLOR_LINK_CYAN.name().lower()])
         is_prov_sum = (bg_color == const.COLOR_PROV_SUM.name().lower())
         
-        # Rate-based markers: Purple (if in Rate col), Green (Gross), Orange (Subbee), or Default (Yellow)
+        # Rate-based markers: Purple (if in Rate col), Green (Gross), Orange (Subbee), Cyan (Linked) or Default (Yellow)
         is_rate_based = (bill_rate_bg in [const.COL_COLOR_PURPLE.name().lower(),
                                            const.COL_COLOR_GREEN.name().lower(),
                                            const.COL_COLOR_ORANGE.name().lower(),
-                                           const.COL_COLOR_YELLOW.name().lower()])
+                                           const.COLOR_LINK_CYAN.name().lower()])
         # Fallback: if it's default (Yellow/No Color), assume extension unless already marked as lump sum
         if not is_rate_based and not (is_lumpsum_plug or is_prov_sum):
             if bill_rate_bg == "" or bill_rate_bg == const.COL_COLOR_YELLOW.name().lower():
@@ -1236,6 +1246,10 @@ class PBOQDialog(QDialog):
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
             'sub_markup': 'SubbeeMarkup',
+            'plug_rate': 'PlugRate',
+            'plug_code': 'PlugCode',
+            'prov_sum': 'ProvSum',
+            'prov_sum_code': 'ProvSumCode'
         }
         # Build {role: display_col_idx} for roles that are actually mapped
         active = {role: m.get(role, -1) for role in sync_map if m.get(role, -1) >= 0}
