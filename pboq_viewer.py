@@ -363,7 +363,19 @@ class PBOQDialog(QDialog):
                 item = table.item(row, col)
                 if item:
                     item.setText("")
+                    # Reset Color
+                    def_color = table.get_column_default_color(col)
+                    item.setBackground(def_color if def_color else QBrush(Qt.BrushStyle.NoBrush))
+                    item.setForeground(Qt.GlobalColor.black)
+                    
                     self._persist_updates(col, [(rowid, "")])
+                    
+                    # Clear Persisted Formatting
+                    item0 = self.rowid_to_item0.get(rowid)
+                    if item0:
+                        g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                        self.logic.clear_cell_formatting(file_path, g_idx, col)
+                    
                     self._update_stats()
         
         elif col in [m.get('rate', -1), m.get('rate_code', -1)]:
@@ -566,8 +578,9 @@ class PBOQDialog(QDialog):
         dummy_table = PBOQTable()
         plug_color = dummy_table.get_role_color('plug_rate') or const.COLOR_LINK_CYAN
         
-        amt_item.setBackground(plug_color)
-        amt_item.setForeground(const.COLOR_GRAY_TEXT)
+        from PyQt6.QtGui import QBrush
+        amt_item.setBackground(QBrush(plug_color))
+        amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
         
         # Persist Value
         db_path = self.pboq_file_selector.currentData()

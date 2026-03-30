@@ -83,12 +83,13 @@ class PBOQTable(QTableWidget):
                                                                     const.COL_COLOR_ORANGE.name().lower()]
                         if not is_pastel: continue # Keep feature colors (Orange, Lime, etc.)
                         
-                        # Special Case: If this is the Bill Rate column and it's already Green or Purple, 
+                        # Special Case: If this is the Bill Rate or Bill Amount column and it's already Green or Purple, 
                         # it means it's a linked rate. Preserve this color for visual consistency.
-                        if role == 'bill_rate' and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
+                        if role in ['bill_rate', 'bill_amount'] and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
                                                                                const.COL_COLOR_PURPLE.name().lower(),
                                                                                const.COL_COLOR_ORANGE.name().lower()]:
                             continue
+
                         
                     item.setBackground(color)
 
