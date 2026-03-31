@@ -609,6 +609,12 @@ class PBOQDialog(QDialog):
 
         rate_str = source_item.text().strip()
         
+        # Consistent Rounding: Ensure the linked rates match the 2-decimal standard
+        try:
+            r_val = float(rate_str.replace(',', ''))
+            rate_str = "{:,.2f}".format(r_val)
+        except: pass
+
         # Apply to UI
         target_item = table.item(row, target_col)
         if not target_item:
@@ -1013,15 +1019,17 @@ class PBOQDialog(QDialog):
                     r_str = rate_item.text().replace(',', '').strip()
                     if not q_str or not r_str: return
                     
-                    q_val = float(q_str)
-                    r_val = float(r_str)
-                    amt_val = q_val * r_val
+                    # Rounding values to standard construction precision (Qty:4, Rate:2)
+                    # to match Excel's "Precision as Displayed" math.
+                    q_val = round(float(q_str), 4)
+                    r_val = round(float(r_str), 2)
+                    amt_val = round(q_val * r_val, 2)
                     amt_str = "{:,.2f}".format(amt_val)
                     
                     if amt_item.text() != amt_str:
                         amt_item.setText(amt_str)
-                        # Avoid infinite recalc loops by passing trigger_recalc=False
-                        self._persist_updates(bill_amount_col, [(rowid, amt_str)], trigger_recalc=False)
+                    # Avoid infinite recalc loops by passing trigger_recalc=False
+                    self._persist_updates(bill_amount_col, [(rowid, amt_str)], trigger_recalc=False)
                 except ValueError: pass
         else:
             # Lumpsum Dynamics: Amount is needed, ignore Quantity changes
@@ -1926,14 +1934,18 @@ class PBOQDialog(QDialog):
                 val_str = source_item.text().strip()
                 active_val_str = val_str
 
-                if price_type == "Subcontractor Rate":
-                    try:
-                        r_val = float(val_str.replace(',', ''))
+                try:
+                    # Always treat linked rates as 2-decimal rounded figures to ensure 
+                    # software math matches Excel physical math.
+                    r_val = float(val_str.replace(',', ''))
+                    
+                    if price_type == "Subcontractor Rate":
                         effective_markup = db_markup_map.get(row_id, 0.0)
                         if effective_markup != 0:
                             r_val = r_val * (1 + (effective_markup / 100.0))
-                            active_val_str = "{:,.2f}".format(r_val)
-                    except: pass
+                    
+                    active_val_str = "{:,.2f}".format(r_val)
+                except: pass
 
                 # Update UI
                 item = table.item(r, target_col)
