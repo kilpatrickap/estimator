@@ -8,6 +8,7 @@ class PCSumTool(QWidget):
     stateChanged = pyqtSignal()
     clearPCRequested = pyqtSignal()
     linkBillPCRequested = pyqtSignal()
+    updateCalculationsRequested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -56,6 +57,10 @@ class PCSumTool(QWidget):
         self.spec_attendance_input.setPlaceholderText("1.00%")
         self.spec_attendance_input.editingFinished.connect(self._format_percentage_input)
         pa_layout.addRow("Special Attendance (%): ", self.spec_attendance_input)
+
+        self.update_btn = QPushButton("Update and Calculate")
+        self.update_btn.clicked.connect(self.updateCalculationsRequested.emit)
+        pa_layout.addRow(self.update_btn)
 
         layout.addWidget(pa_group)
         

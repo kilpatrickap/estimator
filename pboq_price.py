@@ -23,6 +23,7 @@ class PBOQPricePane(QWidget):
     assignPackageRequested = pyqtSignal(str)
     managePackagesRequested = pyqtSignal()
     openDirectoryRequested = pyqtSignal()
+    updatePCCalcRequested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -90,6 +91,7 @@ class PBOQPricePane(QWidget):
         self.pc_sum_tool.stateChanged.connect(self.stateChanged.emit)
         self.pc_sum_tool.clearPCRequested.connect(self.clearPCRequested.emit)
         self.pc_sum_tool.linkBillPCRequested.connect(self.linkBillPCRequested.emit)
+        self.pc_sum_tool.updateCalculationsRequested.connect(self.updatePCCalcRequested.emit)
         self.stack_layout.addWidget(self.pc_sum_tool)
         
         self.sub_tool = SubcontractorTool()

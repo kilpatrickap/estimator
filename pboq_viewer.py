@@ -35,6 +35,10 @@ class PBOQDialog(QDialog):
         self.is_updating_logic = False
         self.clipboard_data = None  # Store copied rate data for Plug pricing
         
+        # PC Selection Mode State
+        self._pc_selection_mode = False
+        self._pc_selection_data = {} # target_rowid, target_row, field_type, etc.
+        
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
         
@@ -98,6 +102,7 @@ class PBOQDialog(QDialog):
         self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
         self.price_pane.managePackagesRequested.connect(self._open_packages_summary)
         self.price_pane.openDirectoryRequested.connect(self._open_subcontractor_directory)
+        self.price_pane.updatePCCalcRequested.connect(self._run_update_pc_calculations)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -262,6 +267,7 @@ class PBOQDialog(QDialog):
                 table.setColumnCount(num_display_cols)
                 table.setHorizontalHeaderLabels([f"Column {i}" for i in range(num_display_cols)])
                 table.cellUpdated.connect(self._handle_cell_updated)
+                table.cellClicked.connect(self._on_table_cell_clicked)
                 
                 for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
@@ -554,6 +560,12 @@ class PBOQDialog(QDialog):
         
         menu.addSeparator()
         
+        insert_profit_act = menu.addAction("Insert Profit")
+        insert_gen_att_act = menu.addAction("Insert General Attendance")
+        insert_spec_att_act = menu.addAction("Insert Special Attendance")
+
+        menu.addSeparator()
+        
         # 3. Copy Rate
         copy_act = menu.addAction("Copy Rate")
         
@@ -578,6 +590,12 @@ class PBOQDialog(QDialog):
             self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
             self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_amount')
+        elif action == insert_profit_act:
+            self._insert_attendance_value(table, row, col, rowid, 'profit')
+        elif action == insert_gen_att_act:
+            self._insert_attendance_value(table, row, col, rowid, 'gen_attendance')
+        elif action == insert_spec_att_act:
+            self._insert_attendance_value(table, row, col, rowid, 'spec_attendance')
         elif action == clear_act:
             self._clear_rate_at_row(table, row, rowid, is_plug, is_prov, is_pc)
         elif action == copy_act:
@@ -587,6 +605,155 @@ class PBOQDialog(QDialog):
         elif action == goto_act:
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
+
+    def _insert_attendance_value(self, table, row, col, rowid, field_type):
+        """Starts PC Selection Mode to link this value to a parent PC Sum."""
+        self._pc_selection_mode = True
+        self._pc_selection_data = {
+            'target_rowid': rowid,
+            'target_row': row,
+            'target_col': col,
+            'field_type': field_type,
+            'table': table
+        }
+        QApplication.setOverrideCursor(Qt.CursorShape.CrossCursor)
+        if self.main_window:
+            # Use a dedicated label for the blue notification to avoid styling other status bar items
+            if not hasattr(self, '_pc_notif_label'):
+                self._pc_notif_label = QLabel()
+                self._pc_notif_label.setStyleSheet("color: #0000FF; font-weight: bold; margin-left: 10px;")
+            
+            self._pc_notif_label.setText("SELECT PARENT PC SUM: Click on the parent PC Sum row in the table (or press ESC to cancel)...")
+            self.main_window.statusBar().addWidget(self._pc_notif_label)
+            self._pc_notif_label.show()
+            self.main_window.statusBar().showMessage("") # Clear standard message area
+
+    def _on_table_cell_clicked(self, row, col):
+        """Handles the selection of a parent PC Sum row while in PC selection mode."""
+        if not self._pc_selection_mode:
+            return
+            
+        # Exit mode
+        self._pc_selection_mode = False
+        QApplication.restoreOverrideCursor()
+        if self.main_window:
+            if hasattr(self, '_pc_notif_label'):
+                self.main_window.statusBar().removeWidget(self._pc_notif_label)
+            self.main_window.statusBar().showMessage("Ready")
+            
+        # Determine the code of the row that was just clicked
+        table = self.tabs.currentWidget()
+        if not isinstance(table, PBOQTable): return
+        
+        m = self.tools_pane.get_mappings()
+        pc_code_col = m.get('pc_sum_code', -1)
+        if pc_code_col < 0:
+            QMessageBox.warning(self, "Linking Error", "PC Code column is not mapped!")
+            return
+            
+        code_item = table.item(row, pc_code_col)
+        raw_code = code_item.text().strip() if code_item else ""
+        
+        if not raw_code:
+            QMessageBox.warning(self, "Linking Error", "The selected row has no PC Code to link from.")
+            return
+
+        # Transformation logic: (PC-ELEC1A) -> (P-ELEC1A)
+        # Suffix is everything after PC- (if present)
+        if raw_code.upper().startswith("PC-"):
+            suffix = raw_code[3:].strip()
+        else:
+            suffix = raw_code.strip()
+        
+        prefix_map = {
+            'profit': 'P',
+            'gen_attendance': 'GA',
+            'spec_attendance': 'SA'
+        }
+        new_prefix = prefix_map.get(self._pc_selection_data['field_type'], 'X')
+        new_code = f"{new_prefix}-{suffix}"
+        
+        # Apply to the original target row
+        target_table = self._pc_selection_data['table']
+        target_row = self._pc_selection_data['target_row']
+        target_rowid = self._pc_selection_data['target_rowid']
+        
+        # 1. Update PC Sum Column (the percentage)
+        val = ""
+        tool = self.price_pane.pc_sum_tool
+        if self._pc_selection_data['field_type'] == 'profit': val = tool.profit_input.text()
+        elif self._pc_selection_data['field_type'] == 'gen_attendance': val = tool.gen_attendance_input.text()
+        elif self._pc_selection_data['field_type'] == 'spec_attendance': val = tool.spec_attendance_input.text()
+        
+        pc_sum_col = m.get('pc_sum', -1)
+        if pc_sum_col >= 0:
+            item = target_table.item(target_row, pc_sum_col)
+            if not item:
+                item = QTableWidgetItem(val)
+                target_table.setItem(target_row, pc_sum_col, item)
+            else:
+                item.setText(val)
+            self._persist_updates(pc_sum_col, [(target_rowid, val)])
+
+        # 2. Update PC Code Column (the generated code)
+        if pc_code_col >= 0:
+            item = target_table.item(target_row, pc_code_col)
+            if not item:
+                item = QTableWidgetItem(new_code)
+                target_table.setItem(target_row, pc_code_col, item)
+            else:
+                item.setText(new_code)
+            self._persist_updates(pc_code_col, [(target_rowid, new_code)])
+
+        # 3. Calculate and Update Bill Amount
+        # Extract the PC Sum value from the parent row we just clicked
+        parent_pc_sum_col = m.get('pc_sum', -1)
+        parent_pc_sum_val = 0.0
+        if parent_pc_sum_col >= 0:
+            parent_item = table.item(row, parent_pc_sum_col)
+            if parent_item:
+                try:
+                    parent_pc_sum_val = float(parent_item.text().replace(',', ''))
+                except: pass
+        
+        # Convert tool percentage text (e.g. "1.00%") to float
+        try:
+            pct_val = float(val.replace('%', '').strip()) / 100.0
+        except:
+            pct_val = 0.0
+            
+        calculated_amount = parent_pc_sum_val * pct_val
+        amount_str = "{:,.2f}".format(calculated_amount)
+        
+        bill_amt_col = m.get('bill_amount', -1)
+        if bill_amt_col >= 0:
+            amt_item = target_table.item(target_row, bill_amt_col)
+            if not amt_item:
+                amt_item = QTableWidgetItem(amount_str)
+                target_table.setItem(target_row, bill_amt_col, amt_item)
+            else:
+                amt_item.setText(amount_str)
+            
+            # Apply Styling: Lime Background with Gray text (Linked Style)
+            link_color = const.COLOR_PC_SUM # Lime
+            amt_item.setBackground(QBrush(link_color))
+            amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
+
+            # Persist Value to main table
+            self._persist_updates(bill_amt_col, [(target_rowid, amount_str)])
+            
+            # Persist Formatting (to allow it to stay after refresh)
+            item0 = self.rowid_to_item0.get(target_rowid)
+            if item0:
+                g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                file_path = self.pboq_file_selector.currentData()
+                fmt_updates = [(g_idx, {'bg_color': link_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()})]
+                self.logic.persist_batch_cell_formatting(file_path, bill_amt_col, fmt_updates)
+
+            # Trigger a recalculation just in case other extensions depend on it
+            self._recalculate_row_extension(target_table, target_row, target_rowid)
+            
+        self._update_stats()
 
     def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, is_pc=False, target_role=None):
         """Copies the Plug Rate (to Bill Rate or Amount) or Prov/PC Sum (to Bill Amount) for a single row."""
@@ -936,7 +1103,9 @@ class PBOQDialog(QDialog):
             'plug_rate': 'PlugRate',
             'plug_code': 'PlugCode',
             'prov_sum': 'ProvSum',
-            'prov_sum_code': 'ProvSumCode'
+            'prov_sum_code': 'ProvSumCode',
+            'pc_sum': 'PCSum',
+            'pc_sum_code': 'PCSumCode'
         }
         for role, logical_col in mirror_map.items():
             if display_col == m.get(role):
@@ -2533,3 +2702,126 @@ class PBOQDialog(QDialog):
         dialog = PackageSummaryDialog(file_path, self.project_dir, pkg_db_col, markup_db_col, categories_dict, self)
         dialog.dataChanged.connect(lambda: self._load_pboq_db(self.pboq_file_selector.currentIndex()))
         dialog.exec()
+
+    def keyPressEvent(self, event):
+        """Allows ESC key to cancel specific modes like PC Selection."""
+        if event.key() == Qt.Key.Key_Escape and self._pc_selection_mode:
+            self._pc_selection_mode = False
+            QApplication.restoreOverrideCursor()
+            if self.main_window:
+                if hasattr(self, '_pc_notif_label'):
+                    self.main_window.statusBar().removeWidget(self._pc_notif_label)
+                self.main_window.statusBar().showMessage("Selection cancelled.", 2000)
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+    def _run_update_pc_calculations(self):
+        """Updates all Profit and Attendance items in the project based on current tool percentages."""
+        m = self.tools_pane.get_mappings()
+        pc_sum_col = m.get('pc_sum', -1)
+        pc_code_col = m.get('pc_sum_code', -1)
+        bill_amt_col = m.get('bill_amount', -1)
+        
+        if pc_sum_col < 0 or pc_code_col < 0 or bill_amt_col < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map PC Sum, PC Code, and Bill Amount columns first.")
+            return
+
+        # 1. Get current percentages from tool
+        tool = self.price_pane.pc_sum_tool
+        percents = {
+            'P-': tool.profit_input.text(),
+            'GA-': tool.gen_attendance_input.text(),
+            'SA-': tool.spec_attendance_input.text()
+        }
+        
+        # 2. Build map of Parent Codes to Values across all sheets
+        parent_values = {} # code_suffix -> float_val
+        
+        # Collect parents first
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            for r in range(table.rowCount()):
+                code_item = table.item(r, pc_code_col)
+                code_text = code_item.text().strip().upper() if code_item else ""
+                
+                if code_text.startswith("PC-"):
+                    suffix = code_text[3:].strip()
+                    val_item = table.item(r, pc_sum_col)
+                    if val_item:
+                        try:
+                            parent_values[suffix] = float(val_item.text().replace(',', ''))
+                        except: pass
+
+        # 3. Update children across all sheets
+        updated_count = 0
+        from PyQt6.QtGui import QBrush
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            # Batch collection for this sheet
+            sheet_updates_pct = []
+            sheet_updates_amt = []
+            
+            for r in range(table.rowCount()):
+                code_item = table.item(r, pc_code_col)
+                code_text = code_item.text().strip().upper() if code_item else ""
+                
+                prefix = None
+                if code_text.startswith("P-"): prefix = "P-"
+                elif code_text.startswith("GA-"): prefix = "GA-"
+                elif code_text.startswith("SA-"): prefix = "SA-"
+                
+                if prefix:
+                    suffix = code_text[len(prefix):].strip()
+                    if suffix in parent_values:
+                        new_pct_str = percents[prefix] # e.g. "1.00%"
+                        if not new_pct_str: continue
+                        
+                        parent_val = parent_values[suffix]
+                        
+                        try:
+                            pct_float = float(new_pct_str.replace('%', '').strip()) / 100.0
+                        except: pct_float = 0.0
+                        
+                        new_amt = parent_val * pct_float
+                        amt_str = "{:,.2f}".format(new_amt)
+                        
+                        # Update UI
+                        pct_item = table.item(r, pc_sum_col)
+                        if not pct_item:
+                            pct_item = QTableWidgetItem(new_pct_str)
+                            table.setItem(r, pc_sum_col, pct_item)
+                        else:
+                            pct_item.setText(new_pct_str)
+                            
+                        amt_item = table.item(r, bill_amt_col)
+                        if not amt_item:
+                            amt_item = QTableWidgetItem(amt_str)
+                            table.setItem(r, bill_amt_col, amt_item)
+                        else:
+                            amt_item.setText(amt_str)
+                        
+                        # Apply styling to Bill Amount (Lime Background, Gray Text)
+                        amt_item.setBackground(QBrush(const.COLOR_PC_SUM))
+                        amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
+                        
+                        rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        sheet_updates_pct.append((rowid, new_pct_str))
+                        sheet_updates_amt.append((rowid, amt_str))
+                        
+                        # Recalculate extension locally
+                        self._recalculate_row_extension(table, r, rowid)
+                        updated_count += 1
+            
+            # Persist batch updates for this sheet
+            if sheet_updates_pct:
+                self._persist_updates(pc_sum_col, sheet_updates_pct)
+            if sheet_updates_amt:
+                self._persist_updates(bill_amt_col, sheet_updates_amt)
+                
+        self._update_stats()
+        QMessageBox.information(self, "Update Complete", f"Successfully updated and recalculated {updated_count} Profit and Attendance items across all project sheets.")
