@@ -3,6 +3,7 @@ from PyQt6.QtCore import Qt, pyqtSignal
 from pboq_tools_gross_rate import GrossRateTool
 from pboq_tools_plug_rate import PlugRateTool
 from pboq_tools_prov_sum import ProvSumTool
+from pboq_tools_pc_sum import PCSumTool
 from pboq_tools_subbee import SubcontractorTool
 
 class PBOQPricePane(QWidget):
@@ -15,6 +16,8 @@ class PBOQPricePane(QWidget):
     clearPlugRequested = pyqtSignal()
     clearProvRequested = pyqtSignal()
     linkBillProvRequested = pyqtSignal()
+    clearPCRequested = pyqtSignal()
+    linkBillPCRequested = pyqtSignal()
     openAdjudicatorRequested = pyqtSignal()
     clearSubcontractorRequested = pyqtSignal()
     assignPackageRequested = pyqtSignal(str)
@@ -82,6 +85,13 @@ class PBOQPricePane(QWidget):
         self.prov_sum_tool.linkBillProvRequested.connect(self.linkBillProvRequested.emit)
         self.stack_layout.addWidget(self.prov_sum_tool)
         
+        self.pc_sum_tool = PCSumTool()
+        self.pc_sum_tool.visibilityChanged.connect(self.rateVisibilityChanged.emit)
+        self.pc_sum_tool.stateChanged.connect(self.stateChanged.emit)
+        self.pc_sum_tool.clearPCRequested.connect(self.clearPCRequested.emit)
+        self.pc_sum_tool.linkBillPCRequested.connect(self.linkBillPCRequested.emit)
+        self.stack_layout.addWidget(self.pc_sum_tool)
+        
         self.sub_tool = SubcontractorTool()
         self.sub_tool.visibilityChanged.connect(self.rateVisibilityChanged.emit)
         self.sub_tool.stateChanged.connect(self.stateChanged.emit)
@@ -131,6 +141,7 @@ class PBOQPricePane(QWidget):
         self.gross_rate_tool.setVisible(text == "Gross Rate")
         self.plug_rate_tool.setVisible(text == "Plug Rate")
         self.prov_sum_tool.setVisible(text == "Prov Sum")
+        self.pc_sum_tool.setVisible(text == "PC Sum")
         self.sub_tool.setVisible(text == "Subcontractor Rate")
         
         # Emit visibility of current selection
@@ -144,6 +155,8 @@ class PBOQPricePane(QWidget):
             return self.plug_rate_tool.show_plug_cb.isChecked()
         elif text == "Prov Sum":
             return self.prov_sum_tool.show_prov_cb.isChecked()
+        elif text == "PC Sum":
+            return self.pc_sum_tool.show_pc_cb.isChecked()
         elif text == "Subcontractor Rate":
             return self.sub_tool.show_sub_cb.isChecked()
         return False
@@ -154,6 +167,7 @@ class PBOQPricePane(QWidget):
             "gross_tool": self.gross_rate_tool.get_state(),
             "plug_tool": self.plug_rate_tool.get_state(),
             "prov_tool": self.prov_sum_tool.get_state(),
+            "pc_tool": self.pc_sum_tool.get_state(),
             "sub_tool": self.sub_tool.get_state()
         }
 
@@ -173,6 +187,9 @@ class PBOQPricePane(QWidget):
             
             if "prov_tool" in state:
                 self.prov_sum_tool.set_state(state["prov_tool"])
+            
+            if "pc_tool" in state:
+                self.pc_sum_tool.set_state(state["pc_tool"])
             
             if "sub_tool" in state:
                 self.sub_tool.set_state(state["sub_tool"])

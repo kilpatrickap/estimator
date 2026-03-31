@@ -26,10 +26,11 @@ class PBOQLogic:
         db_columns = [info[1] for info in cursor.fetchall()]
         
         # Standard Columns and Named Columns in a fixed preferred order
-        standard_cols = [f"Column {i}" for i in range(14)]
+        standard_cols = [f"Column {i}" for i in range(20)]
         named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
+                      "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
                       "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes",
                       "SubbeeCategory", "SubbeeCode"]
         

@@ -91,6 +91,8 @@ class PBOQDialog(QDialog):
         self.price_pane.clearPlugRequested.connect(self._clear_plug_and_code)
         self.price_pane.clearProvRequested.connect(self._clear_prov_and_code)
         self.price_pane.linkBillProvRequested.connect(self._run_link_bill_to_rate_logic) # Reusing generic logic
+        self.price_pane.clearPCRequested.connect(self._clear_pc_and_code)
+        self.price_pane.linkBillPCRequested.connect(self._run_link_bill_to_rate_logic) # Reusing generic logic
         self.price_pane.openAdjudicatorRequested.connect(self._open_package_adjudicator)
         self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
         self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
@@ -195,6 +197,7 @@ class PBOQDialog(QDialog):
         logical_cols = [
             "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeCategory", "SubbeeCode",
             "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
+            "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
             "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates"
         ]
         query = f"SELECT rowid, {', '.join(quoted_cols)}, {', '.join(logical_cols)} FROM pboq_items"
@@ -221,10 +224,11 @@ class PBOQDialog(QDialog):
                 'sub_package': 0, 'sub_name': 1, 'sub_rate': 2, 
                 'sub_markup': 3, 'sub_category': 4, 'sub_code': 5,
                 'prov_sum': 6, 'prov_sum_code': 7,
-                'plug_rate': 12, 'plug_code': 13
+                'pc_sum': 12, 'pc_sum_code': 13,
+                'plug_rate': 18, 'plug_code': 19
             }
             # Roles where the logical store is always authoritative
-            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'plug_code', 'plug_rate', 'prov_sum'}
+            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'pc_sum_code', 'plug_code', 'plug_rate', 'prov_sum', 'pc_sum'}
             for role, l_idx in sub_roles.items():
                 p_idx = m.get(role, -1)
                 if p_idx >= 0 and p_idx < len(physical_data) - 1:
@@ -398,6 +402,10 @@ class PBOQDialog(QDialog):
             # Prov Sum context menu
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False, is_prov=True)
 
+        elif col in [m.get('pc_sum', -1), m.get('pc_sum_code', -1)]:
+            # PC Sum context menu
+            self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False, is_prov=False, is_pc=True)
+
         elif col == m.get('sub_package', -1) and col >= 0:
             # Subcontractor Package context menu
             menu = QMenu(self)
@@ -499,11 +507,14 @@ class PBOQDialog(QDialog):
             
         self._update_stats()
 
-    def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True, is_prov=False):
+    def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True, is_prov=False, is_pc=False):
         """Standardized rate context menu based on the SOR Table design."""
         m = self.tools_pane.get_mappings()
         
-        if is_prov:
+        if is_pc:
+            rate_role = 'pc_sum'
+            code_role = 'pc_sum_code'
+        elif is_prov:
             rate_role = 'prov_sum'
             code_role = 'prov_sum_code'
         else:
@@ -521,14 +532,19 @@ class PBOQDialog(QDialog):
         menu = QMenu(self)
         
         # 1. Build/Edit Rate
-        action_text = "Edit Prov Sum" if is_prov and rate_code else ("Build Prov Sum" if is_prov else ("Edit Rate" if rate_code else "Build Rate"))
+        if is_pc:
+            action_text = "Edit PC Sum" if rate_code else "Build PC Sum"
+        elif is_prov:
+            action_text = "Edit Prov Sum" if rate_code else "Build Prov Sum"
+        else:
+            action_text = "Edit Rate" if rate_code else "Build Rate"
         
         link_rate_act = None
         link_amt_act = None
         if is_plug:
             link_rate_act = menu.addAction("Link to Bill Rate")
             link_amt_act = menu.addAction("Link to Bill Amount")
-        elif is_prov:
+        elif is_prov or is_pc:
             link_amt_act = menu.addAction("Link to Bill Amount")
 
         build_act = menu.addAction(action_text)
@@ -557,27 +573,30 @@ class PBOQDialog(QDialog):
         if not action: return
         
         if action == build_act:
-            self._build_rate(table, row, rowid, is_plug, is_prov)
+            self._build_rate(table, row, rowid, is_plug, is_prov, is_pc)
         elif link_rate_act and action == link_rate_act:
-            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, target_role='bill_rate')
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
-            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, target_role='bill_amount')
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_amount')
         elif action == clear_act:
-            self._clear_rate_at_row(table, row, rowid, is_plug, is_prov)
+            self._clear_rate_at_row(table, row, rowid, is_plug, is_prov, is_pc)
         elif action == copy_act:
-            self._copy_rate_info(table, row, is_plug, is_prov)
+            self._copy_rate_info(table, row, is_plug, is_prov, is_pc)
         elif action == paste_act:
-            self._paste_rate_info(table, row, rowid, is_plug, is_prov)
+            self._paste_rate_info(table, row, rowid, is_plug, is_prov, is_pc)
         elif action == goto_act:
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
 
-    def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, target_role=None):
-        """Copies the Plug Rate (to Bill Rate or Amount) or Prov Sum (to Bill Amount) for a single row."""
+    def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, is_pc=False, target_role=None):
+        """Copies the Plug Rate (to Bill Rate or Amount) or Prov/PC Sum (to Bill Amount) for a single row."""
         m = self.tools_pane.get_mappings()
         
         if is_prov:
             source_role = 'prov_sum'
+            if not target_role: target_role = 'bill_amount'
+        elif is_pc:
+            source_role = 'pc_sum'
             if not target_role: target_role = 'bill_amount'
         elif is_plug:
             source_role = 'plug_rate'
@@ -593,7 +612,7 @@ class PBOQDialog(QDialog):
                             target_role = 'bill_amount'
                     except: pass
         else:
-            return # Only plug rates and prov sums are supported for this linking mechanism
+            return # Only plug rates, prov sums, and pc sums are supported for this linking mechanism
 
         source_col = m.get(source_role, -1)
         target_col = m.get(target_role, -1)
@@ -625,6 +644,7 @@ class PBOQDialog(QDialog):
         
         # Styling: Get source color (get_role_color handles this)
         color = table.get_role_color(source_role) or const.COLOR_LINK_CYAN
+        if is_pc: color = const.COLOR_PC_SUM
         
         from PyQt6.QtGui import QBrush
         target_item.setBackground(QBrush(color))
@@ -648,15 +668,15 @@ class PBOQDialog(QDialog):
             
         self._update_stats()
 
-    def _copy_rate_info(self, table, row, is_plug, is_prov=False):
+    def _copy_rate_info(self, table, row, is_plug, is_prov=False, is_pc=False):
         m = self.tools_pane.get_mappings()
-        if is_prov:
+        if is_pc:
+            rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
             rate_role = 'plug_rate' if is_plug else 'rate'
             code_role = 'plug_code' if is_plug else 'rate_code'
-        
-        rate_col = m.get(rate_role, -1)
         code_col = m.get(code_role, -1)
         unit_col = m.get('unit', -1)
         
@@ -670,7 +690,7 @@ class PBOQDialog(QDialog):
         if self.main_window:
             self.main_window.statusBar().showMessage(f"Rate {self.clipboard_data['code']} copied.", 2000)
 
-    def _paste_rate_info(self, table, row, rowid, is_plug, is_prov=False):
+    def _paste_rate_info(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
         if not self.clipboard_data: return
         m = self.tools_pane.get_mappings()
         unit_col = m.get('unit', -1)
@@ -681,7 +701,9 @@ class PBOQDialog(QDialog):
                               f"Cannot paste. Units do not match!\nSource: {self.clipboard_data['unit']} vs Target: {target_unit}")
             return
             
-        if is_prov:
+        if is_pc:
+            rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
             rate_role = 'plug_rate' if is_plug else 'rate'
@@ -704,9 +726,11 @@ class PBOQDialog(QDialog):
         
         self._update_stats()
 
-    def _clear_rate_at_row(self, table, row, rowid, is_plug, is_prov=False):
+    def _clear_rate_at_row(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
         m = self.tools_pane.get_mappings()
-        if is_prov:
+        if is_pc:
+            rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
             rate_role = 'plug_rate' if is_plug else 'rate'
@@ -723,16 +747,21 @@ class PBOQDialog(QDialog):
                     self._persist_updates(c, [(rowid, "")])
         self._update_stats()
 
-    def _build_rate(self, table, row, rowid, is_plug, is_prov=False):
+    def _build_rate(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
         m = self.tools_pane.get_mappings()
         desc_col = m.get('desc', -1)
         unit_col = m.get('unit', -1)
         
-        if is_prov:
+        if is_pc:
+            rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
+        elif is_plug:
+            rate_role = 'plug_rate'
+            code_role = 'plug_code'
         else:
-            rate_role = 'plug_rate' if is_plug else 'rate'
-            code_role = 'plug_code' if is_plug else 'rate_code'
+            rate_role = 'rate'
+            code_role = 'rate_code'
             
         code_col = m.get(code_role, -1)
         rate_col = m.get(rate_role, -1)
@@ -742,7 +771,7 @@ class PBOQDialog(QDialog):
         rate_code = table.item(row, code_col).text().strip() if code_col >= 0 and table.item(row, code_col) else ""
         file_path = self.pboq_file_selector.currentData()
         
-        if is_plug or is_prov:
+        if is_plug or is_prov or is_pc:
             # Fetch existing data from DB
             formula_val = ""
             category_val = ""
@@ -751,8 +780,8 @@ class PBOQDialog(QDialog):
             rate_val = 0.0
             ex_rates_json = "{}"
             
-            prefix = "ProvSum" if is_prov else "Plug"
-            rate_col_name = "ProvSum" if is_prov else "PlugRate"
+            prefix = "PCSum" if is_pc else ("ProvSum" if is_prov else "Plug")
+            rate_col_name = "PCSum" if is_pc else ("ProvSum" if is_prov else "PlugRate")
             query = f"SELECT {prefix}Formula, {prefix}Category, {prefix}Currency, {prefix}ExchangeRates, {prefix}Code, {rate_col_name} FROM pboq_items WHERE rowid = ?"
             
             try:
@@ -792,8 +821,8 @@ class PBOQDialog(QDialog):
                 'exchange_rates': ex_rates
             }
             
-            # Open specialized Builder Dialog (PlugRateBuilderDialog handles Prov specifically via is_prov)
-            dialog = PlugRateBuilderDialog(item_data, self.project_dir, file_path, parent=self, is_prov=is_prov)
+            # Open specialized Builder Dialog (PlugRateBuilderDialog handles Prov/PC specifically via is_prov/is_pc)
+            dialog = PlugRateBuilderDialog(item_data, self.project_dir, file_path, parent=self, is_prov=is_prov, is_pc=is_pc)
             if dialog.exec():
                 new_rate_val = item_data.get('rate', 0.0)
                 new_rate_str = f"{new_rate_val:,.2f}"
@@ -1130,19 +1159,29 @@ class PBOQDialog(QDialog):
             active_cols = [m.get('plug_rate', -1), m.get('plug_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         elif price_type == "Prov Sum":
             active_cols = [m.get('prov_sum', -1), m.get('prov_sum_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
                              m.get('plug_rate', -1), m.get('plug_code', -1),
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
+                             m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
+        elif price_type == "PC Sum":
+            active_cols = [m.get('pc_sum', -1), m.get('pc_sum_code', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
+                             m.get('plug_rate', -1), m.get('plug_code', -1),
+                             m.get('prov_sum', -1), m.get('prov_sum_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         elif price_type == "Subcontractor Rate":
             active_cols = [m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                            m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1),
-                             m.get('prov_sum', -1), m.get('prov_sum_code', -1)]
+                             m.get('prov_sum', -1), m.get('prov_sum_code', -1),
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
             inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), 
@@ -1189,6 +1228,7 @@ class PBOQDialog(QDialog):
             'rate': "Gross Rate", 'rate_code': "Rate Code",
             'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
             'prov_sum': "Prov Sum", 'prov_sum_code': "Prov Code",
+            'pc_sum': "PC Sum", 'pc_sum_code': "PC Code",
             'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 
             'sub_rate': "Subbee Rate", 'sub_markup': "Subbee Markup (%)",
             'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
@@ -1206,9 +1246,9 @@ class PBOQDialog(QDialog):
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
                 
-                # Automatically hide blank/extra columns beyond the standard pricing range (16 columns)
+                # Automatically hide blank/extra columns beyond the standard pricing range (20 columns)
                 # but only if they aren't mapped to anything.
-                if i >= 16:
+                if i >= 20:
                     table.setColumnHidden(i, role is None)
                 else:
                     # Ensure standard columns (0-7) are visible so user can map them
@@ -1257,7 +1297,9 @@ class PBOQDialog(QDialog):
             'plug_rate': 'PlugRate',
             'plug_code': 'PlugCode',
             'prov_sum': 'ProvSum',
-            'prov_sum_code': 'ProvSumCode'
+            'prov_sum_code': 'ProvSumCode',
+            'pc_sum': 'PCSum',
+            'pc_sum_code': 'PCSumCode'
         }
         # Build {role: display_col_idx} for roles that are actually mapped
         active = {role: m.get(role, -1) for role in sync_map if m.get(role, -1) >= 0}
@@ -1502,6 +1544,12 @@ class PBOQDialog(QDialog):
         rate_col = m.get('prov_sum', -1)
         code_col = m.get('prov_sum_code', -1)
         self._clear_columns([rate_col, code_col], "Prov Sum & Code")
+
+    def _clear_pc_and_code(self):
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('pc_sum', -1)
+        code_col = m.get('pc_sum_code', -1)
+        self._clear_columns([rate_col, code_col], "PC Sum & Code")
 
     def _clear_sub_and_code(self):
         m = self.tools_pane.get_mappings()
@@ -1865,6 +1913,9 @@ class PBOQDialog(QDialog):
         if price_type == "Prov Sum":
             static_target_role = 'bill_amount'
             source_col_key = 'prov_sum'
+        elif price_type == "PC Sum":
+            static_target_role = 'bill_amount'
+            source_col_key = 'pc_sum'
         elif price_type == "Subcontractor Rate":
             static_target_role = 'bill_rate'
             source_col_key = 'sub_rate'

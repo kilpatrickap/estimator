@@ -52,6 +52,8 @@ class PBOQToolsPane(QWidget):
         self.cb_plug_code = QComboBox()
         self.cb_prov_sum = QComboBox()
         self.cb_prov_sum_code = QComboBox()
+        self.cb_pc_sum = QComboBox()
+        self.cb_pc_sum_code = QComboBox()
         self.cb_sub_package = QComboBox()
         self.cb_sub_name = QComboBox()
         self.cb_sub_rate = QComboBox()
@@ -67,6 +69,7 @@ class PBOQToolsPane(QWidget):
         # Hide standard columns from user mapping
         for cb in [self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
                    self.cb_plug_rate, self.cb_plug_code, self.cb_prov_sum, self.cb_prov_sum_code,
+                   self.cb_pc_sum, self.cb_pc_sum_code,
                    self.cb_sub_package, 
                    self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
@@ -77,6 +80,7 @@ class PBOQToolsPane(QWidget):
                    self.cb_bill_rate, self.cb_bill_amount, 
                    self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                    self.cb_prov_sum, self.cb_prov_sum_code,
+                   self.cb_pc_sum, self.cb_pc_sum_code,
                    self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
@@ -222,6 +226,7 @@ class PBOQToolsPane(QWidget):
                   self.cb_bill_rate, self.cb_bill_amount, 
                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                   self.cb_prov_sum, self.cb_prov_sum_code,
+                  self.cb_pc_sum, self.cb_pc_sum_code,
                   self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                   self.cb_sub_category, self.cb_sub_code]
         
@@ -240,12 +245,14 @@ class PBOQToolsPane(QWidget):
         if num_columns > 9: self.cb_plug_code.setCurrentIndex(10)  # Column 9
         if num_columns > 10: self.cb_prov_sum.setCurrentIndex(11)  # Column 10
         if num_columns > 11: self.cb_prov_sum_code.setCurrentIndex(12)  # Column 11
-        if num_columns > 12: self.cb_sub_package.setCurrentIndex(13) # Column 12
-        if num_columns > 13: self.cb_sub_name.setCurrentIndex(14)    # Column 13
-        if num_columns > 14: self.cb_sub_rate.setCurrentIndex(15)    # Column 14
-        if num_columns > 15: self.cb_sub_markup.setCurrentIndex(16)  # Column 15
-        if num_columns > 16: self.cb_sub_category.setCurrentIndex(17) # Column 16
-        if num_columns > 17: self.cb_sub_code.setCurrentIndex(18)     # Column 17
+        if num_columns > 12: self.cb_pc_sum.setCurrentIndex(13)  # Column 12
+        if num_columns > 13: self.cb_pc_sum_code.setCurrentIndex(14)  # Column 13
+        if num_columns > 14: self.cb_sub_package.setCurrentIndex(15) # Column 14
+        if num_columns > 15: self.cb_sub_name.setCurrentIndex(16)    # Column 15
+        if num_columns > 16: self.cb_sub_rate.setCurrentIndex(17)    # Column 16
+        if num_columns > 17: self.cb_sub_markup.setCurrentIndex(18)  # Column 17
+        if num_columns > 18: self.cb_sub_category.setCurrentIndex(19) # Column 18
+        if num_columns > 19: self.cb_sub_code.setCurrentIndex(20)     # Column 19
         
         for cb in combos:
             cb.blockSignals(False)
@@ -268,12 +275,14 @@ class PBOQToolsPane(QWidget):
             'plug_code': 9,
             'prov_sum': 10,
             'prov_sum_code': 11,
-            'sub_package': 12,
-            'sub_name': 13,
-            'sub_rate': 14,
-            'sub_markup': 15,
-            'sub_category': 16,
-            'sub_code': 17
+            'pc_sum': 12,
+            'pc_sum_code': 13,
+            'sub_package': 14,
+            'sub_name': 15,
+            'sub_rate': 16,
+            'sub_markup': 17,
+            'sub_category': 18,
+            'sub_code': 19
         }
         return m
     
@@ -291,6 +300,8 @@ class PBOQToolsPane(QWidget):
             'plug_code': self.cb_plug_code,
             'prov_sum': self.cb_prov_sum,
             'prov_sum_code': self.cb_prov_sum_code,
+            'pc_sum': self.cb_pc_sum,
+            'pc_sum_code': self.cb_pc_sum_code,
             'sub_package': self.cb_sub_package,
             'sub_name': self.cb_sub_name,
             'sub_rate': self.cb_sub_rate,

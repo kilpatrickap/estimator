@@ -19,6 +19,8 @@ COLOR_COLLECT = QColor("orange")
 COLOR_GRAY_TEXT = QColor("#777777")
 COLOR_LINK_CYAN = QColor("#00FFFF")
 COLOR_PROV_SUM = QColor("#E0FFFF") # Light Cyan for Prov Sums
+COLOR_PC_SUM = QColor("#D4FF99")    # Lime for PC Sums
+COL_COLOR_LIME = QColor("#D4FF99")
 
 
 # Stats Colors

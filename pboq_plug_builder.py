@@ -16,12 +16,13 @@ class PlugRateBuilderDialog(QDialog):
     """
     dataCommitted = pyqtSignal()
     
-    def __init__(self, item_data, project_dir, pboq_file_path, parent=None, is_prov=False):
+    def __init__(self, item_data, project_dir, pboq_file_path, parent=None, is_prov=False, is_pc=False):
         super().__init__(parent)
         self.item_data = item_data
         self.project_dir = project_dir
         self.pboq_file_path = pboq_file_path
         self.is_prov = is_prov
+        self.is_pc = is_pc
         
         # CATEGORIES: Always pull from the global software database (construction_costs.db)
         # SETTINGS (Like Currency): Pull from the project-level Database if it exists.
@@ -36,7 +37,13 @@ class PlugRateBuilderDialog(QDialog):
                     break
         self.db_manager = DatabaseManager(db_path)
         
-        self.setWindowTitle("Provisional Sum Builder" if is_prov else "Plug Rate Builder")
+        if is_pc:
+            self.setWindowTitle("PC Sum Builder")
+        elif is_prov:
+            self.setWindowTitle("Provisional Sum Builder")
+        else:
+            self.setWindowTitle("Plug Rate Builder")
+        
         self.setMinimumWidth(550)
         self.setMinimumHeight(350) 
         
@@ -62,9 +69,21 @@ class PlugRateBuilderDialog(QDialog):
 
         # --- Row 0: Code Display ---
         code_top_row = QHBoxLayout()
-        prefix = "PS" if self.is_prov else "PR"
+        if self.is_pc:
+            prefix = "PC"
+            color_bg = "#D4FF99" # Lime
+            color_fg = "#388E3C" # Darker green
+        elif self.is_prov:
+            prefix = "PS"
+            color_bg = "#f3e5f5"
+            color_fg = "#7b1fa2"
+        else:
+            prefix = "PR"
+            color_bg = "#f3e5f5"
+            color_fg = "#7b1fa2"
+            
         self.code_label = QLabel(f"Code: {prefix}-MISC1A")
-        self.code_label.setStyleSheet("font-weight: bold; color: #7b1fa2; background-color: #f3e5f5; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
+        self.code_label.setStyleSheet(f"font-weight: bold; color: {color_fg}; background-color: {color_bg}; border-radius: 4px; padding: 2px 6px; font-size: 11px;")
         code_top_row.addWidget(self.code_label)
         code_top_row.addStretch()
         layout.addLayout(code_top_row)
@@ -208,10 +227,21 @@ class PlugRateBuilderDialog(QDialog):
         if getattr(self, 'is_loading', False):
             return
         prefix = self.prefixes.get(category, "MISC")
-        code_prefix = f"PS-{prefix}" if self.is_prov else f"PR-{prefix}"
+        if self.is_pc:
+            code_prefix = f"PC-{prefix}"
+        elif self.is_prov:
+            code_prefix = f"PS-{prefix}"
+        else:
+            code_prefix = f"PR-{prefix}"
         
         # Fetch current codes from PBOQ DB
-        existing_cols = ["ProvSumCode"] if self.is_prov else ["PlugCode"]
+        if self.is_pc:
+            existing_cols = ["PCSumCode"]
+        elif self.is_prov:
+            existing_cols = ["ProvSumCode"]
+        else:
+            existing_cols = ["PlugCode"]
+            
         existing_codes = []
         try:
             conn = sqlite3.connect(self.pboq_file_path)
