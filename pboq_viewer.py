@@ -1186,6 +1186,7 @@ class PBOQDialog(QDialog):
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
             inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), 
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
 
