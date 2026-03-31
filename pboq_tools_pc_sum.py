@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QCheckBox, QPushButton, QGroupBox, QFormLayout, QLineEdit
 from PyQt6.QtCore import pyqtSignal
 
 class PCSumTool(QWidget):
@@ -35,13 +35,47 @@ class PCSumTool(QWidget):
         
         layout.addWidget(self.show_pc_cb)
         layout.addLayout(btn_layout)
+
+        # Profit and Attendances Group
+        pa_group = QGroupBox("Profit and Attendances")
+        pa_layout = QFormLayout(pa_group)
+        pa_layout.setContentsMargins(5, 5, 5, 5)
+        pa_layout.setSpacing(5)
+
+        self.profit_input = QLineEdit()
+        self.profit_input.setPlaceholderText("1.00%")
+        pa_layout.addRow("Profit (%): ", self.profit_input)
+
+        self.gen_attendance_input = QLineEdit()
+        self.gen_attendance_input.setPlaceholderText("1.00%")
+        pa_layout.addRow("General Attendance (%): ", self.gen_attendance_input)
+
+        self.spec_attendance_input = QLineEdit()
+        self.spec_attendance_input.setPlaceholderText("1.00%")
+        pa_layout.addRow("Special Attendance (%): ", self.spec_attendance_input)
+
+        layout.addWidget(pa_group)
+        
         layout.addStretch()
 
     def get_state(self):
-        return {"show_pc": self.show_pc_cb.isChecked()}
+        return {
+            "show_pc": self.show_pc_cb.isChecked(),
+            "profit": self.profit_input.text(),
+            "gen_attendance": self.gen_attendance_input.text(),
+            "spec_attendance": self.spec_attendance_input.text()
+        }
 
     def set_state(self, state):
         if "show_pc" in state:
             self.show_pc_cb.blockSignals(True)
             self.show_pc_cb.setChecked(state["show_pc"])
             self.show_pc_cb.blockSignals(False)
+        
+        if "profit" in state:
+            self.profit_input.setText(state["profit"])
+        if "gen_attendance" in state:
+            self.gen_attendance_input.setText(state["gen_attendance"])
+        if "spec_attendance" in state:
+            self.spec_attendance_input.setText(state["spec_attendance"])
+
