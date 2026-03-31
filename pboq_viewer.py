@@ -765,6 +765,18 @@ class PBOQDialog(QDialog):
         elif is_pc:
             source_role = 'pc_sum'
             if not target_role: target_role = 'bill_amount'
+            
+            # Limit PC Sum linking only to Prime Cost Items (PC- prefix)
+            code_col = m.get('pc_sum_code', -1)
+            if code_col < 0:
+                QMessageBox.warning(self, "Mapping Error", "PC Code column must be mapped to link PC Sum items.")
+                return
+                
+            code_item = table.item(row, code_col)
+            code_text = code_item.text().strip().upper() if code_item else ""
+            if not code_text.startswith("PC-"):
+                QMessageBox.warning(self, "Invalid Selection", "Only Prime Cost Items (with code prefix 'PC-') can be linked to Bill Amount.\n\nProfit (P-) and Attendances (GA-/SA-) are linked automatically during the 'Insert...' process.")
+                return
         elif is_plug:
             source_role = 'plug_rate'
             # SMART DUALITY: If no quantity, link to Amount column (Lumpsum). Otherwise link to Rate.
@@ -2134,6 +2146,16 @@ class PBOQDialog(QDialog):
                 
                 source_item = table.item(r, m[source_col_key])
                 if not source_item or not source_item.text().strip(): continue
+                
+                # If PC Sum, only link if it has the PC- prefix
+                if price_type == "PC Sum":
+                    code_col = m.get('pc_sum_code', -1)
+                    if code_col < 0:
+                        continue # Cannot verify without mapping
+                    code_item = table.item(r, code_col)
+                    code_text = code_item.text().strip().upper() if code_item else ""
+                    if not code_text.startswith("PC-"):
+                        continue
                 
                 # Determine Target Role for this row
                 target_role = static_target_role
