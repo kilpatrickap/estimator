@@ -43,20 +43,41 @@ class PCSumTool(QWidget):
         pa_layout.setSpacing(5)
 
         self.profit_input = QLineEdit()
-        self.profit_input.setPlaceholderText("1.00%")
+        self.profit_input.setPlaceholderText("(1.00%)")
+        self.profit_input.editingFinished.connect(self._format_percentage_input)
         pa_layout.addRow("Profit (%): ", self.profit_input)
 
         self.gen_attendance_input = QLineEdit()
-        self.gen_attendance_input.setPlaceholderText("1.00%")
+        self.gen_attendance_input.setPlaceholderText("(1.00%)")
+        self.gen_attendance_input.editingFinished.connect(self._format_percentage_input)
         pa_layout.addRow("General Attendance (%): ", self.gen_attendance_input)
 
         self.spec_attendance_input = QLineEdit()
-        self.spec_attendance_input.setPlaceholderText("1.00%")
+        self.spec_attendance_input.setPlaceholderText("(1.00%)")
+        self.spec_attendance_input.editingFinished.connect(self._format_percentage_input)
         pa_layout.addRow("Special Attendance (%): ", self.spec_attendance_input)
 
         layout.addWidget(pa_group)
         
         layout.addStretch()
+
+    def _format_percentage_input(self):
+        sender = self.sender()
+        if not isinstance(sender, QLineEdit):
+            return
+        
+        text = sender.text().strip()
+        if not text:
+            return
+            
+        # Extract numeric part
+        clean_text = text.replace('(', '').replace(')', '').replace('%', '').strip()
+        try:
+            val = float(clean_text)
+            sender.setText(f"({val:.2f}%)")
+            self.stateChanged.emit()
+        except ValueError:
+            pass
 
     def get_state(self):
         return {
