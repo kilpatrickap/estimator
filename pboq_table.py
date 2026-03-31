@@ -92,7 +92,8 @@ class PBOQTable(QTableWidget):
                         if role in ['bill_rate', 'bill_amount'] and existing_bg.name().lower() in [const.COL_COLOR_GREEN.name().lower(), 
                                                                                const.COL_COLOR_PURPLE.name().lower(),
                                                                                const.COL_COLOR_ORANGE.name().lower(),
-                                                                               const.COLOR_PROV_SUM.name().lower()]:
+                                                                               const.COLOR_PROV_SUM.name().lower(),
+                                                                               const.COL_COLOR_LIME.name().lower()]:
                             continue
 
                         
