@@ -97,12 +97,15 @@ class PBOQDialog(QDialog):
         self.price_pane.linkBillProvRequested.connect(self._run_link_bill_to_rate_logic) # Reusing generic logic
         self.price_pane.clearPCRequested.connect(self._clear_pc_and_code)
         self.price_pane.linkBillPCRequested.connect(self._run_link_bill_to_rate_logic) # Reusing generic logic
+        self.price_pane.clearDayworkRequested.connect(self._clear_daywork_and_code)
+        self.price_pane.linkBillDayworkRequested.connect(self._run_link_bill_to_rate_logic) # Reusing generic logic
         self.price_pane.openAdjudicatorRequested.connect(self._open_package_adjudicator)
         self.price_pane.clearSubcontractorRequested.connect(self._clear_sub_and_code)
         self.price_pane.assignPackageRequested.connect(self._assign_package_to_selected)
         self.price_pane.managePackagesRequested.connect(self._open_packages_summary)
         self.price_pane.openDirectoryRequested.connect(self._open_subcontractor_directory)
         self.price_pane.updatePCCalcRequested.connect(self._run_update_pc_calculations)
+        self.price_pane.updateDayworkCalcRequested.connect(self._run_update_daywork_calculations)
 
     def _setup_top_bar(self):
         top_bar = QHBoxLayout()
@@ -412,6 +415,10 @@ class PBOQDialog(QDialog):
             # PC Sum context menu
             self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False, is_prov=False, is_pc=True)
 
+        elif col in [m.get('daywork', -1), m.get('daywork_code', -1)]:
+            # Daywork context menu
+            self._handle_rate_context_menu(table, pos, row, col, rowid, is_plug=False, is_prov=False, is_pc=False, is_dw=True)
+
         elif col == m.get('sub_package', -1) and col >= 0:
             # Subcontractor Package context menu
             menu = QMenu(self)
@@ -513,13 +520,16 @@ class PBOQDialog(QDialog):
             
         self._update_stats()
 
-    def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True, is_prov=False, is_pc=False):
+    def _handle_rate_context_menu(self, table, pos, row, col, rowid, is_plug=True, is_prov=False, is_pc=False, is_dw=False):
         """Standardized rate context menu based on the SOR Table design."""
         m = self.tools_pane.get_mappings()
         
         if is_pc:
             rate_role = 'pc_sum'
             code_role = 'pc_sum_code'
+        elif is_dw:
+            rate_role = 'daywork'
+            code_role = 'daywork_code'
         elif is_prov:
             rate_role = 'prov_sum'
             code_role = 'prov_sum_code'
@@ -540,6 +550,8 @@ class PBOQDialog(QDialog):
         # 1. Build/Edit Rate
         if is_pc:
             action_text = "Edit PC Sum" if rate_code else "Build PC Sum"
+        elif is_dw:
+            action_text = "Edit Daywork" if rate_code else "Build Daywork"
         elif is_prov:
             action_text = "Edit Prov Sum" if rate_code else "Build Prov Sum"
         else:
@@ -550,7 +562,7 @@ class PBOQDialog(QDialog):
         if is_plug:
             link_rate_act = menu.addAction("Link to Bill Rate")
             link_amt_act = menu.addAction("Link to Bill Amount")
-        elif is_prov or is_pc:
+        elif is_prov or is_pc or is_dw:
             link_amt_act = menu.addAction("Link to Bill Amount")
 
         build_act = menu.addAction(action_text)
@@ -560,9 +572,14 @@ class PBOQDialog(QDialog):
         
         menu.addSeparator()
         
-        insert_profit_act = menu.addAction("Insert Profit")
-        insert_gen_att_act = menu.addAction("Insert General Attendance")
-        insert_spec_att_act = menu.addAction("Insert Special Attendance")
+        if is_dw:
+            insert_mat_act = menu.addAction("Insert Material Daywork")
+            insert_lab_act = menu.addAction("Insert Labour Daywork")
+            insert_plt_act = menu.addAction("Insert Plant Daywork")
+        else:
+            insert_profit_act = menu.addAction("Insert Profit")
+            insert_gen_att_act = menu.addAction("Insert General Attendance")
+            insert_spec_att_act = menu.addAction("Insert Special Attendance")
 
         menu.addSeparator()
         
@@ -578,30 +595,36 @@ class PBOQDialog(QDialog):
         
         # 5. Go-To Rate
         goto_act = menu.addAction("Go-To Rate")
-        if not rate_code:
+        if not rate_code or is_dw: # Daywork doesn't have a library rate usually
             goto_act.setEnabled(False)
             
         action = menu.exec(table.viewport().mapToGlobal(pos))
         if not action: return
         
         if action == build_act:
-            self._build_rate(table, row, rowid, is_plug, is_prov, is_pc)
+            self._build_rate(table, row, rowid, is_plug, is_prov, is_pc, is_dw)
         elif link_rate_act and action == link_rate_act:
-            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_rate')
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
-            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, target_role='bill_amount')
-        elif action == insert_profit_act:
+            self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw, target_role='bill_amount')
+        elif not is_dw and action == insert_profit_act:
             self._insert_attendance_value(table, row, col, rowid, 'profit')
-        elif action == insert_gen_att_act:
+        elif not is_dw and action == insert_gen_att_act:
             self._insert_attendance_value(table, row, col, rowid, 'gen_attendance')
-        elif action == insert_spec_att_act:
+        elif not is_dw and action == insert_spec_att_act:
             self._insert_attendance_value(table, row, col, rowid, 'spec_attendance')
+        elif is_dw and action == insert_mat_act:
+            self._insert_daywork_value(table, row, col, rowid, 'mat')
+        elif is_dw and action == insert_lab_act:
+            self._insert_daywork_value(table, row, col, rowid, 'lab')
+        elif is_dw and action == insert_plt_act:
+            self._insert_daywork_value(table, row, col, rowid, 'plt')
         elif action == clear_act:
-            self._clear_rate_at_row(table, row, rowid, is_plug, is_prov, is_pc)
+            self._clear_rate_at_row(table, row, rowid, is_plug, is_prov, is_pc, is_dw)
         elif action == copy_act:
-            self._copy_rate_info(table, row, is_plug, is_prov, is_pc)
+            self._copy_rate_info(table, row, is_plug, is_prov, is_pc, is_dw)
         elif action == paste_act:
-            self._paste_rate_info(table, row, rowid, is_plug, is_prov, is_pc)
+            self._paste_rate_info(table, row, rowid, is_plug, is_prov, is_pc, is_dw)
         elif action == goto_act:
             if self.main_window and hasattr(self.main_window, 'show_rate_in_database'):
                 self.main_window.show_rate_in_database(rate_code)
@@ -628,8 +651,28 @@ class PBOQDialog(QDialog):
             self._pc_notif_label.show()
             self.main_window.statusBar().showMessage("") # Clear standard message area
 
+    def _insert_daywork_value(self, table, row, col, rowid, field_type):
+        """Starts Daywork Selection Mode to link this value to a parent row."""
+        self._pc_selection_mode = True
+        self._pc_selection_data = {
+            'target_rowid': rowid,
+            'target_row': row,
+            'target_col': col,
+            'field_type': field_type,
+            'table': table
+        }
+        QApplication.setOverrideCursor(Qt.CursorShape.CrossCursor)
+        if self.main_window:
+            if not hasattr(self, '_pc_notif_label'):
+                self._pc_notif_label = QLabel()
+                self._pc_notif_label.setStyleSheet("color: #0000FF; font-weight: bold; margin-left: 10px;")
+            self._pc_notif_label.setText("SELECT PARENT ROW: Click on the parent row in the table (or press ESC to cancel)...")
+            self.main_window.statusBar().addWidget(self._pc_notif_label)
+            self._pc_notif_label.show()
+            self.main_window.statusBar().showMessage("")
+
     def _on_table_cell_clicked(self, row, col):
-        """Handles the selection of a parent PC Sum row while in PC selection mode."""
+        """Handles the selection of a parent PC Sum or Daywork row while in selection mode."""
         if not self._pc_selection_mode:
             return
             
@@ -646,75 +689,124 @@ class PBOQDialog(QDialog):
         if not isinstance(table, PBOQTable): return
         
         m = self.tools_pane.get_mappings()
-        pc_code_col = m.get('pc_sum_code', -1)
-        if pc_code_col < 0:
-            QMessageBox.warning(self, "Linking Error", "PC Code column is not mapped!")
-            return
-            
-        code_item = table.item(row, pc_code_col)
-        raw_code = code_item.text().strip() if code_item else ""
         
-        if not raw_code:
-            QMessageBox.warning(self, "Linking Error", "The selected row has no PC Code to link from.")
+        # Determine current mode
+        field_type = self._pc_selection_data['field_type']
+        is_dw_mode = field_type in ['mat', 'lab', 'plt']
+        
+        # Parent Code Column
+        # For PC mode, parent must have a PC Code. 
+        # For DW mode, parent can be any row with a code (RateCode, PlugCode, etc.)
+        # If the parent row is a PC item, we still look at its pc_sum_code.
+        parent_code = ""
+        
+        if is_dw_mode:
+            # Look for ANY code in the parent row
+            for code_key in ['rate_code', 'plug_code', 'pc_sum_code', 'prov_sum_code', 'daywork_code']:
+                c_idx = m.get(code_key, -1)
+                if c_idx >= 0:
+                    it = table.item(row, c_idx)
+                    if it and it.text().strip():
+                        parent_code = it.text().strip()
+                        break
+        else:
+            # Standard PC Selection Mode
+            pc_code_col = m.get('pc_sum_code', -1)
+            if pc_code_col >= 0:
+                code_item = table.item(row, pc_code_col)
+                parent_code = code_item.text().strip() if code_item else ""
+
+        if not parent_code:
+            QMessageBox.warning(self, "Linking Error", "The selected row has no code to link from.")
             return
 
-        # Transformation logic: (PC-ELEC1A) -> (P-ELEC1A)
-        # Suffix is everything after PC- (if present)
-        if raw_code.upper().startswith("PC-"):
-            suffix = raw_code[3:].strip()
+        # Transformation logic
+        if is_dw_mode:
+            # DW-[Cat][ParentCode]
+            # No prefix stripping needed as per user request
+            prefix_map = {'mat': 'DW-MAT', 'lab': 'DW-LAB', 'plt': 'DW-PLT'}
+            new_code = f"{prefix_map[field_type]}{parent_code}"
+            target_role = 'daywork'
+            target_code_role = 'daywork_code'
+            link_color = const.COLOR_DAYWORK
         else:
-            suffix = raw_code.strip()
-        
-        prefix_map = {
-            'profit': 'P',
-            'gen_attendance': 'GA',
-            'spec_attendance': 'SA'
-        }
-        new_prefix = prefix_map.get(self._pc_selection_data['field_type'], 'X')
-        new_code = f"{new_prefix}-{suffix}"
+            # Standard PC Transformation: (PC-ELEC1A) -> (P-ELEC1A)
+            if parent_code.upper().startswith("PC-"):
+                suffix = parent_code[3:].strip()
+            else:
+                suffix = parent_code.strip()
+            
+            prefix_map = {'profit': 'P', 'gen_attendance': 'GA', 'spec_attendance': 'SA'}
+            new_prefix = prefix_map.get(field_type, 'X')
+            new_code = f"{new_prefix}-{suffix}"
+            target_role = 'pc_sum'
+            target_code_role = 'pc_sum_code'
+            link_color = const.COLOR_PC_SUM
         
         # Apply to the original target row
         target_table = self._pc_selection_data['table']
         target_row = self._pc_selection_data['target_row']
         target_rowid = self._pc_selection_data['target_rowid']
         
-        # 1. Update PC Sum Column (the percentage)
+        # 1. Update Value Column (the percentage)
         val = ""
-        tool = self.price_pane.pc_sum_tool
-        if self._pc_selection_data['field_type'] == 'profit': val = tool.profit_input.text()
-        elif self._pc_selection_data['field_type'] == 'gen_attendance': val = tool.gen_attendance_input.text()
-        elif self._pc_selection_data['field_type'] == 'spec_attendance': val = tool.spec_attendance_input.text()
+        if is_dw_mode:
+            tool = self.price_pane.dw_tool
+            if field_type == 'mat': val = tool.mat_input.text()
+            elif field_type == 'lab': val = tool.lab_input.text()
+            elif field_type == 'plt': val = tool.plt_input.text()
+        else:
+            tool = self.price_pane.pc_sum_tool
+            if field_type == 'profit': val = tool.profit_input.text()
+            elif field_type == 'gen_attendance': val = tool.gen_attendance_input.text()
+            elif field_type == 'spec_attendance': val = tool.spec_attendance_input.text()
         
-        pc_sum_col = m.get('pc_sum', -1)
-        if pc_sum_col >= 0:
-            item = target_table.item(target_row, pc_sum_col)
+        val_col = m.get(target_role, -1)
+        if val_col >= 0:
+            item = target_table.item(target_row, val_col)
             if not item:
                 item = QTableWidgetItem(val)
-                target_table.setItem(target_row, pc_sum_col, item)
+                target_table.setItem(target_row, val_col, item)
             else:
                 item.setText(val)
-            self._persist_updates(pc_sum_col, [(target_rowid, val)])
+            self._persist_updates(val_col, [(target_rowid, val)])
 
-        # 2. Update PC Code Column (the generated code)
-        if pc_code_col >= 0:
-            item = target_table.item(target_row, pc_code_col)
+        # 2. Update Code Column
+        cod_col = m.get(target_code_role, -1)
+        if cod_col >= 0:
+            item = target_table.item(target_row, cod_col)
             if not item:
                 item = QTableWidgetItem(new_code)
-                target_table.setItem(target_row, pc_code_col, item)
+                target_table.setItem(target_row, cod_col, item)
             else:
                 item.setText(new_code)
-            self._persist_updates(pc_code_col, [(target_rowid, new_code)])
+            self._persist_updates(cod_col, [(target_rowid, new_code)])
 
         # 3. Calculate and Update Bill Amount
-        # Extract the PC Sum value from the parent row we just clicked
-        parent_pc_sum_col = m.get('pc_sum', -1)
-        parent_pc_sum_val = 0.0
-        if parent_pc_sum_col >= 0:
-            parent_item = table.item(row, parent_pc_sum_col)
-            if parent_item:
-                try:
-                    parent_pc_sum_val = float(parent_item.text().replace(',', ''))
-                except: pass
+        # For Daywork, the parent value is the Bill Amount or Extension of the parent.
+        # But wait, PC Sum logic uses the PC Sum column of the parent.
+        # USER said "Just like the PC Sum". PC Sum parent holds the "Cost" in its pc_sum column.
+        # So we look for the parent's value in its respective column.
+        
+        parent_val = 0.0
+        # For PC, look in 'pc_sum'. For DW, look in 'bill_amount'?
+        # Actually, if DW is just like PC, maybe there's a parent DW item? 
+        # No, user said link to ANY row. So its Bill Amount is likely the cost.
+        if is_dw_mode:
+            amt_col = m.get('bill_amount', -1)
+            if amt_col >= 0:
+                p_item = table.item(row, amt_col)
+                if p_item:
+                    try: parent_val = float(p_item.text().replace(',', ''))
+                    except: pass
+        else:
+            # PC Mode
+            p_pc_col = m.get('pc_sum', -1)
+            if p_pc_col >= 0:
+                p_item = table.item(row, p_pc_col)
+                if p_item:
+                    try: parent_val = float(p_item.text().replace(',', ''))
+                    except: pass
         
         # Convert tool percentage text (e.g. "1.00%") to float
         try:
@@ -722,7 +814,7 @@ class PBOQDialog(QDialog):
         except:
             pct_val = 0.0
             
-        calculated_amount = parent_pc_sum_val * pct_val
+        calculated_amount = parent_val * pct_val
         amount_str = "{:,.2f}".format(calculated_amount)
         
         bill_amt_col = m.get('bill_amount', -1)
@@ -734,15 +826,13 @@ class PBOQDialog(QDialog):
             else:
                 amt_item.setText(amount_str)
             
-            # Apply Styling: Lime Background with Gray text (Linked Style)
-            link_color = const.COLOR_PC_SUM # Lime
             amt_item.setBackground(QBrush(link_color))
             amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
 
-            # Persist Value to main table
+            # Persist
             self._persist_updates(bill_amt_col, [(target_rowid, amount_str)])
             
-            # Persist Formatting (to allow it to stay after refresh)
+            # Persist Formatting
             item0 = self.rowid_to_item0.get(target_rowid)
             if item0:
                 g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
@@ -750,17 +840,19 @@ class PBOQDialog(QDialog):
                 fmt_updates = [(g_idx, {'bg_color': link_color.name(), 'font_color': const.COLOR_GRAY_TEXT.name()})]
                 self.logic.persist_batch_cell_formatting(file_path, bill_amt_col, fmt_updates)
 
-            # Trigger a recalculation just in case other extensions depend on it
             self._recalculate_row_extension(target_table, target_row, target_rowid)
             
         self._update_stats()
 
-    def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, is_pc=False, target_role=None):
+    def _link_item_to_bill(self, table, row, rowid, is_plug=False, is_prov=False, is_pc=False, is_dw=False, target_role=None):
         """Copies the Plug Rate (to Bill Rate or Amount) or Prov/PC Sum (to Bill Amount) for a single row."""
         m = self.tools_pane.get_mappings()
         
         if is_prov:
             source_role = 'prov_sum'
+            if not target_role: target_role = 'bill_amount'
+        elif is_dw:
+            source_role = 'daywork'
             if not target_role: target_role = 'bill_amount'
         elif is_pc:
             source_role = 'pc_sum'
@@ -791,7 +883,7 @@ class PBOQDialog(QDialog):
                             target_role = 'bill_amount'
                     except: pass
         else:
-            return # Only plug rates, prov sums, and pc sums are supported for this linking mechanism
+            return # Only plug rates, prov sums, pc sums, and dayworks are supported for this linking mechanism
 
         source_col = m.get(source_role, -1)
         target_col = m.get(target_role, -1)
@@ -847,10 +939,12 @@ class PBOQDialog(QDialog):
             
         self._update_stats()
 
-    def _copy_rate_info(self, table, row, is_plug, is_prov=False, is_pc=False):
+    def _copy_rate_info(self, table, row, is_plug, is_prov=False, is_pc=False, is_dw=False):
         m = self.tools_pane.get_mappings()
         if is_pc:
             rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_dw:
+            rate_role, code_role = 'daywork', 'daywork_code'
         elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
@@ -869,7 +963,7 @@ class PBOQDialog(QDialog):
         if self.main_window:
             self.main_window.statusBar().showMessage(f"Rate {self.clipboard_data['code']} copied.", 2000)
 
-    def _paste_rate_info(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
+    def _paste_rate_info(self, table, row, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
         if not self.clipboard_data: return
         m = self.tools_pane.get_mappings()
         unit_col = m.get('unit', -1)
@@ -882,6 +976,8 @@ class PBOQDialog(QDialog):
             
         if is_pc:
             rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_dw:
+            rate_role, code_role = 'daywork', 'daywork_code'
         elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
@@ -905,10 +1001,12 @@ class PBOQDialog(QDialog):
         
         self._update_stats()
 
-    def _clear_rate_at_row(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
+    def _clear_rate_at_row(self, table, row, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
         m = self.tools_pane.get_mappings()
         if is_pc:
             rate_role, code_role = 'pc_sum', 'pc_sum_code'
+        elif is_dw:
+            rate_role, code_role = 'daywork', 'daywork_code'
         elif is_prov:
             rate_role, code_role = 'prov_sum', 'prov_sum_code'
         else:
@@ -926,7 +1024,7 @@ class PBOQDialog(QDialog):
                     self._persist_updates(c, [(rowid, "")])
         self._update_stats()
 
-    def _build_rate(self, table, row, rowid, is_plug, is_prov=False, is_pc=False):
+    def _build_rate(self, table, row, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
         m = self.tools_pane.get_mappings()
         desc_col = m.get('desc', -1)
         unit_col = m.get('unit', -1)
@@ -1341,6 +1439,7 @@ class PBOQDialog(QDialog):
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
                              m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('daywork', -1), m.get('daywork_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         elif price_type == "Prov Sum":
@@ -1348,6 +1447,7 @@ class PBOQDialog(QDialog):
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
                              m.get('plug_rate', -1), m.get('plug_code', -1),
                              m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('daywork', -1), m.get('daywork_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         elif price_type == "PC Sum":
@@ -1355,6 +1455,7 @@ class PBOQDialog(QDialog):
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
                              m.get('plug_rate', -1), m.get('plug_code', -1),
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
+                             m.get('daywork', -1), m.get('daywork_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         elif price_type == "Subcontractor Rate":
@@ -1362,12 +1463,22 @@ class PBOQDialog(QDialog):
                            m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
             inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), m.get('plug_rate', -1), m.get('plug_code', -1),
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
-                             m.get('pc_sum', -1), m.get('pc_sum_code', -1)]
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('daywork', -1), m.get('daywork_code', -1)]
+        elif price_type == "Dayworks":
+            active_cols = [m.get('daywork', -1), m.get('daywork_code', -1)]
+            inactive_cols = [m.get('rate', -1), m.get('rate_code', -1), 
+                             m.get('plug_rate', -1), m.get('plug_code', -1),
+                             m.get('prov_sum', -1), m.get('prov_sum_code', -1),
+                             m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
+                             m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
         else: # Gross Rate or others
             active_cols = [m.get('rate', -1), m.get('rate_code', -1)]
             inactive_cols = [m.get('plug_rate', -1), m.get('plug_code', -1), 
                              m.get('prov_sum', -1), m.get('prov_sum_code', -1),
                              m.get('pc_sum', -1), m.get('pc_sum_code', -1),
+                             m.get('daywork', -1), m.get('daywork_code', -1),
                              m.get('sub_package', -1), m.get('sub_name', -1), m.get('sub_rate', -1), 
                              m.get('sub_markup', -1), m.get('sub_category', -1), m.get('sub_code', -1)]
 
@@ -1411,6 +1522,7 @@ class PBOQDialog(QDialog):
             'plug_rate': "Plug Rate", 'plug_code': "Plug Code",
             'prov_sum': "Prov Sum", 'prov_sum_code': "Prov Code",
             'pc_sum': "PC Sum", 'pc_sum_code': "PC Code",
+            'daywork': "Daywork", 'daywork_code': "Daywork Code",
             'sub_package': "Subbee Package", 'sub_name': "Subbee Name", 
             'sub_rate': "Subbee Rate", 'sub_markup': "Subbee Markup (%)",
             'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
@@ -2847,3 +2959,130 @@ class PBOQDialog(QDialog):
                 
         self._update_stats()
         QMessageBox.information(self, "Update Complete", f"Successfully updated and recalculated {updated_count} Profit and Attendance items across all project sheets.")
+
+    def _insert_daywork_value(self, table, row, col, rowid, field_type):
+        """Starts Daywork Selection Mode to link this value to a parent cost item."""
+        self._pc_selection_mode = True # Reusing same mode flag
+        self._pc_selection_data = {
+            'target_rowid': rowid,
+            'target_row': row,
+            'target_col': col,
+            'field_type': field_type,
+            'table': table
+        }
+        QApplication.setOverrideCursor(Qt.CursorShape.CrossCursor)
+        if self.main_window:
+            if not hasattr(self, '_pc_notif_label'):
+                self._pc_notif_label = QLabel()
+                self._pc_notif_label.setStyleSheet("color: #0000FF; font-weight: bold; margin-left: 10px;")
+            
+            self._pc_notif_label.setText("SELECT PARENT ITEM: Click on the parent row in the table (or press ESC to cancel)...")
+            self.main_window.statusBar().addWidget(self._pc_notif_label)
+            self._pc_notif_label.show()
+            self.main_window.statusBar().showMessage("")
+
+    def _run_update_daywork_calculations(self):
+        """Updates all Daywork items in the project based on current tool percentages."""
+        m = self.tools_pane.get_mappings()
+        dw_sum_col = m.get('daywork', -1)
+        dw_code_col = m.get('daywork_code', -1)
+        bill_amt_col = m.get('bill_amount', -1)
+        
+        if dw_sum_col < 0 or dw_code_col < 0 or bill_amt_col < 0:
+            QMessageBox.warning(self, "Mapping Required", "Please map Daywork, Daywork Code, and Bill Amount columns first.")
+            return
+
+        # 1. Get current percentages from tool
+        tool = self.price_pane.dw_tool
+        percents = {
+            'DW-MAT': tool.mat_input.text(),
+            'DW-LAB': tool.lab_input.text(),
+            'DW-PLT': tool.plt_input.text()
+        }
+        
+        # 2. Build map of ALL item Codes to their Bill Amounts (Potential parents)
+        all_codes_to_values = {} 
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            for r in range(table.rowCount()):
+                # Check all possible code columns
+                row_code = None
+                for code_key in ['rate_code', 'plug_code', 'pc_sum_code', 'prov_sum_code', 'daywork_code']:
+                    c_idx = m.get(code_key, -1)
+                    if c_idx >= 0:
+                        it = table.item(r, c_idx)
+                        if it and it.text().strip():
+                            row_code = it.text().strip()
+                            break
+                
+                if row_code:
+                    amt_item = table.item(r, bill_amt_col)
+                    if amt_item:
+                        try:
+                            all_codes_to_values[row_code] = float(amt_item.text().replace(',', ''))
+                        except: pass
+
+        # 3. Update Daywork children across all sheets
+        updated_count = 0
+        from PyQt6.QtGui import QBrush
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            sheet_updates_pct = []
+            sheet_updates_amt = []
+            
+            for r in range(table.rowCount()):
+                code_item = table.item(r, dw_code_col)
+                code_text = code_item.text().strip().upper() if code_item else ""
+                
+                prefix = None
+                if code_text.startswith("DW-MAT"): prefix = "DW-MAT"
+                elif code_text.startswith("DW-LAB"): prefix = "DW-LAB"
+                elif code_text.startswith("DW-PLT"): prefix = "DW-PLT"
+                
+                if prefix:
+                    suffix = code_text[len(prefix):].strip() # The Parent Code
+                    if suffix in all_codes_to_values:
+                        new_pct_str = percents[prefix]
+                        if not new_pct_str: continue
+                        
+                        parent_val = all_codes_to_values[suffix]
+                        try: pct_float = float(new_pct_str.replace('%', '').strip()) / 100.0
+                        except: pct_float = 0.0
+                        
+                        new_amt = parent_val * pct_float
+                        amt_str = "{:,.2f}".format(new_amt)
+                        
+                        # Update UI
+                        pct_item = table.item(r, dw_sum_col)
+                        if not pct_item:
+                            pct_item = QTableWidgetItem(new_pct_str); table.setItem(r, dw_sum_col, pct_item)
+                        else: pct_item.setText(new_pct_str)
+                            
+                        amt_item = table.item(r, bill_amt_col)
+                        if not amt_item:
+                            amt_item = QTableWidgetItem(amt_str); table.setItem(r, bill_amt_col, amt_item)
+                        else: amt_item.setText(amt_str)
+                        
+                        amt_item.setBackground(QBrush(const.COLOR_DAYWORK))
+                        amt_item.setForeground(QBrush(const.COLOR_GRAY_TEXT))
+                        
+                        rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        sheet_updates_pct.append((rowid, new_pct_str))
+                        sheet_updates_amt.append((rowid, amt_str))
+                        
+                        self._recalculate_row_extension(table, r, rowid)
+                        updated_count += 1
+            
+            if sheet_updates_pct: self._persist_updates(dw_sum_col, sheet_updates_pct)
+            if sheet_updates_amt: self._persist_updates(bill_amt_col, sheet_updates_amt)
+            
+        self._update_stats()
+        QMessageBox.information(self, "Update Complete", f"Successfully updated and recalculated {updated_count} Daywork items.")
+
+    def _clear_daywork_and_code(self):
+        m = self.tools_pane.get_mappings()
+        self._clear_columns([m.get('daywork', -1), m.get('daywork_code', -1)], "Daywork & Code")

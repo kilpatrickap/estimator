@@ -31,6 +31,7 @@ class PBOQLogic:
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
+                      "Daywork", "DayworkCode", "DayworkFormula", "DayworkCategory", "DayworkCurrency", "DayworkExchangeRates",
                       "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes",
                       "SubbeeCategory", "SubbeeCode"]
         

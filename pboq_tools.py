@@ -54,6 +54,8 @@ class PBOQToolsPane(QWidget):
         self.cb_prov_sum_code = QComboBox()
         self.cb_pc_sum = QComboBox()
         self.cb_pc_sum_code = QComboBox()
+        self.cb_daywork = QComboBox()
+        self.cb_daywork_code = QComboBox()
         self.cb_sub_package = QComboBox()
         self.cb_sub_name = QComboBox()
         self.cb_sub_rate = QComboBox()
@@ -70,6 +72,7 @@ class PBOQToolsPane(QWidget):
         for cb in [self.cb_bill_rate, self.cb_bill_amount, self.cb_rate, self.cb_rate_code,
                    self.cb_plug_rate, self.cb_plug_code, self.cb_prov_sum, self.cb_prov_sum_code,
                    self.cb_pc_sum, self.cb_pc_sum_code,
+                   self.cb_daywork, self.cb_daywork_code,
                    self.cb_sub_package, 
                    self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
@@ -81,6 +84,7 @@ class PBOQToolsPane(QWidget):
                    self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                    self.cb_prov_sum, self.cb_prov_sum_code,
                    self.cb_pc_sum, self.cb_pc_sum_code,
+                   self.cb_daywork, self.cb_daywork_code,
                    self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                    self.cb_sub_category, self.cb_sub_code]:
             cb.currentIndexChanged.connect(self.stateChanged)
@@ -227,6 +231,7 @@ class PBOQToolsPane(QWidget):
                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
                   self.cb_prov_sum, self.cb_prov_sum_code,
                   self.cb_pc_sum, self.cb_pc_sum_code,
+                  self.cb_daywork, self.cb_daywork_code,
                   self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                   self.cb_sub_category, self.cb_sub_code]
         
@@ -247,12 +252,14 @@ class PBOQToolsPane(QWidget):
         if num_columns > 11: self.cb_prov_sum_code.setCurrentIndex(12)  # Column 11
         if num_columns > 12: self.cb_pc_sum.setCurrentIndex(13)  # Column 12
         if num_columns > 13: self.cb_pc_sum_code.setCurrentIndex(14)  # Column 13
-        if num_columns > 14: self.cb_sub_package.setCurrentIndex(15) # Column 14
-        if num_columns > 15: self.cb_sub_name.setCurrentIndex(16)    # Column 15
-        if num_columns > 16: self.cb_sub_rate.setCurrentIndex(17)    # Column 16
-        if num_columns > 17: self.cb_sub_markup.setCurrentIndex(18)  # Column 17
-        if num_columns > 18: self.cb_sub_category.setCurrentIndex(19) # Column 18
-        if num_columns > 19: self.cb_sub_code.setCurrentIndex(20)     # Column 19
+        if num_columns > 14: self.cb_daywork.setCurrentIndex(15)       # Column 14
+        if num_columns > 15: self.cb_daywork_code.setCurrentIndex(16)  # Column 15
+        if num_columns > 16: self.cb_sub_package.setCurrentIndex(17) # Column 16
+        if num_columns > 17: self.cb_sub_name.setCurrentIndex(18)    # Column 17
+        if num_columns > 18: self.cb_sub_rate.setCurrentIndex(19)    # Column 18
+        if num_columns > 19: self.cb_sub_markup.setCurrentIndex(20)  # Column 19
+        if num_columns > 20: self.cb_sub_category.setCurrentIndex(21) # Column 20
+        if num_columns > 21: self.cb_sub_code.setCurrentIndex(22)     # Column 21
         
         for cb in combos:
             cb.blockSignals(False)
@@ -277,12 +284,14 @@ class PBOQToolsPane(QWidget):
             'prov_sum_code': 11,
             'pc_sum': 12,
             'pc_sum_code': 13,
-            'sub_package': 14,
-            'sub_name': 15,
-            'sub_rate': 16,
-            'sub_markup': 17,
-            'sub_category': 18,
-            'sub_code': 19
+            'daywork': 14,
+            'daywork_code': 15,
+            'sub_package': 16,
+            'sub_name': 17,
+            'sub_rate': 18,
+            'sub_markup': 19,
+            'sub_category': 20,
+            'sub_code': 21
         }
         return m
     
@@ -302,6 +311,8 @@ class PBOQToolsPane(QWidget):
             'prov_sum_code': self.cb_prov_sum_code,
             'pc_sum': self.cb_pc_sum,
             'pc_sum_code': self.cb_pc_sum_code,
+            'daywork': self.cb_daywork,
+            'daywork_code': self.cb_daywork_code,
             'sub_package': self.cb_sub_package,
             'sub_name': self.cb_sub_name,
             'sub_rate': self.cb_sub_rate,
