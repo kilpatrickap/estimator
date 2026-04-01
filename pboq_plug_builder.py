@@ -16,13 +16,14 @@ class PlugRateBuilderDialog(QDialog):
     """
     dataCommitted = pyqtSignal()
     
-    def __init__(self, item_data, project_dir, pboq_file_path, parent=None, is_prov=False, is_pc=False):
+    def __init__(self, item_data, project_dir, pboq_file_path, parent=None, is_prov=False, is_pc=False, is_dw=False):
         super().__init__(parent)
         self.item_data = item_data
         self.project_dir = project_dir
         self.pboq_file_path = pboq_file_path
         self.is_prov = is_prov
         self.is_pc = is_pc
+        self.is_dw = is_dw
         
         # CATEGORIES: Always pull from the global software database (construction_costs.db)
         # SETTINGS (Like Currency): Pull from the project-level Database if it exists.
@@ -37,10 +38,12 @@ class PlugRateBuilderDialog(QDialog):
                     break
         self.db_manager = DatabaseManager(db_path)
         
-        if is_pc:
+        if self.is_pc:
             self.setWindowTitle("PC Sum Builder")
-        elif is_prov:
+        elif self.is_prov:
             self.setWindowTitle("Provisional Sum Builder")
+        elif self.is_dw:
+            self.setWindowTitle("Daywork Builder")
         else:
             self.setWindowTitle("Plug Rate Builder")
         
@@ -77,6 +80,10 @@ class PlugRateBuilderDialog(QDialog):
             prefix = "PS"
             color_bg = "#f3e5f5"
             color_fg = "#7b1fa2"
+        elif self.is_dw:
+            prefix = "DW"
+            color_bg = "#D7CCC8" # Light Brown
+            color_fg = "#5D4037" # Dark Brown
         else:
             prefix = "PR"
             color_bg = "#f3e5f5"
@@ -231,6 +238,8 @@ class PlugRateBuilderDialog(QDialog):
             code_prefix = f"PC-{prefix}"
         elif self.is_prov:
             code_prefix = f"PS-{prefix}"
+        elif self.is_dw:
+            code_prefix = f"DW-{prefix}"
         else:
             code_prefix = f"PR-{prefix}"
         
@@ -239,6 +248,8 @@ class PlugRateBuilderDialog(QDialog):
             existing_cols = ["PCSumCode"]
         elif self.is_prov:
             existing_cols = ["ProvSumCode"]
+        elif self.is_dw:
+            existing_cols = ["DayworkCode"]
         else:
             existing_cols = ["PlugCode"]
             

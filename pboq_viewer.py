@@ -550,8 +550,6 @@ class PBOQDialog(QDialog):
         # 1. Build/Edit Rate
         if is_pc:
             action_text = "Edit PC Sum" if rate_code else "Build PC Sum"
-        elif is_dw:
-            action_text = "Edit Daywork" if rate_code else "Build Daywork"
         elif is_prov:
             action_text = "Edit Prov Sum" if rate_code else "Build Prov Sum"
         else:
@@ -562,10 +560,12 @@ class PBOQDialog(QDialog):
         if is_plug:
             link_rate_act = menu.addAction("Link to Bill Rate")
             link_amt_act = menu.addAction("Link to Bill Amount")
-        elif is_prov or is_pc or is_dw:
+        elif is_prov or is_pc:
             link_amt_act = menu.addAction("Link to Bill Amount")
 
-        build_act = menu.addAction(action_text)
+        build_act = None
+        if not is_dw:
+            build_act = menu.addAction(action_text)
         
         # 2. Clear Rate
         clear_act = menu.addAction("Clear Rate")
@@ -722,9 +722,8 @@ class PBOQDialog(QDialog):
 
         # Transformation logic
         if is_dw_mode:
-            # DW-[Cat][ParentCode]
-            # No prefix stripping needed as per user request
-            prefix_map = {'mat': 'DW-MAT', 'lab': 'DW-LAB', 'plt': 'DW-PLT'}
+            # P&O-[Cat]-[ParentCode]
+            prefix_map = {'mat': 'P&O-MAT-', 'lab': 'P&O-LAB-', 'plt': 'P&O-PLT-'}
             new_code = f"{prefix_map[field_type]}{parent_code}"
             target_role = 'daywork'
             target_code_role = 'daywork_code'
@@ -1098,8 +1097,8 @@ class PBOQDialog(QDialog):
                 'exchange_rates': ex_rates
             }
             
-            # Open specialized Builder Dialog (PlugRateBuilderDialog handles Prov/PC specifically via is_prov/is_pc)
-            dialog = PlugRateBuilderDialog(item_data, self.project_dir, file_path, parent=self, is_prov=is_prov, is_pc=is_pc)
+            # Open specialized Builder Dialog (PlugRateBuilderDialog handles Prov/PC/DW specifically)
+            dialog = PlugRateBuilderDialog(item_data, self.project_dir, file_path, parent=self, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw)
             if dialog.exec():
                 new_rate_val = item_data.get('rate', 0.0)
                 new_rate_str = f"{new_rate_val:,.2f}"
@@ -2995,9 +2994,9 @@ class PBOQDialog(QDialog):
         # 1. Get current percentages from tool
         tool = self.price_pane.dw_tool
         percents = {
-            'DW-MAT': tool.mat_input.text(),
-            'DW-LAB': tool.lab_input.text(),
-            'DW-PLT': tool.plt_input.text()
+            'P&O-MAT-': tool.mat_input.text(),
+            'P&O-LAB-': tool.lab_input.text(),
+            'P&O-PLT-': tool.plt_input.text()
         }
         
         # 2. Build map of ALL item Codes to their Bill Amounts (Potential parents)
@@ -3039,9 +3038,9 @@ class PBOQDialog(QDialog):
                 code_text = code_item.text().strip().upper() if code_item else ""
                 
                 prefix = None
-                if code_text.startswith("DW-MAT"): prefix = "DW-MAT"
-                elif code_text.startswith("DW-LAB"): prefix = "DW-LAB"
-                elif code_text.startswith("DW-PLT"): prefix = "DW-PLT"
+                if code_text.startswith("P&O-MAT-"): prefix = "P&O-MAT-"
+                elif code_text.startswith("P&O-LAB-"): prefix = "P&O-LAB-"
+                elif code_text.startswith("P&O-PLT-"): prefix = "P&O-PLT-"
                 
                 if prefix:
                     suffix = code_text[len(prefix):].strip() # The Parent Code
