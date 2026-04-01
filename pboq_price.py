@@ -44,8 +44,7 @@ class PBOQPricePane(QWidget):
         self.price_type_combo = QComboBox()
         self.price_type_combo.addItems([
             "Gross Rate", "Plug Rate", "Subcontractor Rate", 
-            "Prov Sum", "PC Sum", "Attendances", 
-            "Dayworks", "Preliminaries"
+            "Prov Sum", "PC Sum", "Dayworks"
         ])
         self.price_type_combo.currentIndexChanged.connect(self._on_type_changed)
         self.price_type_combo.currentIndexChanged.connect(self.stateChanged)
