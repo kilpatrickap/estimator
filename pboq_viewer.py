@@ -722,9 +722,16 @@ class PBOQDialog(QDialog):
 
         # Transformation logic
         if is_dw_mode:
+            # Strip common prefixes from parent_code (e.g., PS-, PC-)
+            clean_parent = parent_code
+            for pfx in ["PS-", "PC-", "PR-", "SR-", "DW-"]:
+                if clean_parent.upper().startswith(pfx):
+                    clean_parent = clean_parent[len(pfx):].strip()
+                    break
+            
             # P&O-[Cat]-[ParentCode]
             prefix_map = {'mat': 'P&O-MAT-', 'lab': 'P&O-LAB-', 'plt': 'P&O-PLT-'}
-            new_code = f"{prefix_map[field_type]}{parent_code}"
+            new_code = f"{prefix_map[field_type]}{clean_parent}"
             target_role = 'daywork'
             target_code_role = 'daywork_code'
             link_color = const.COLOR_DAYWORK
