@@ -185,27 +185,50 @@ class MarginMigrationWorker(QThread):
                 except Exception as ex:
                     self._log(f"  PBOQ scan error on {f}: {ex}")
         self._log(f"PBOQ: {len(native_rates)} native rates loaded")
-        for f in os.listdir(pboq_dir):
-            if not f.endswith('.db'): continue
-            
+        pboq_files = [f for f in os.listdir(pboq_dir) if f.endswith('.db')]
+        self._log(f"PBOQ: found {len(pboq_files)} pboq files: {pboq_files}")
+        for f in pboq_files:
             db_path = os.path.join(pboq_dir, f)
             db_basename = f
             base_name = db_basename.replace("PBOQ_", "").replace(".db", ".xlsx")
             state_file = os.path.join(states_folder, base_name + ".state.json")
             
             # Map default columns (-1 means unmapped)
-            m_rate = -1
-            m_amt = -1
+            # Map default columns (-1 means unmapped)
+            m_rate = 6
+            m_amt = 5
+            m_code = 7
             m_qty = -1
+            m_ref = -1
+            
+            pboq_state_dir = os.path.join(self.project_dir, "PBOQ States")
+            pboq_state_file = os.path.join(pboq_state_dir, db_basename + ".json")
+            
             if os.path.exists(states_folder) and os.path.exists(state_file):
                 try:
                     with open(state_file, 'r') as sf:
                         st = json.load(sf)
-                        m_rate = st.get('cb_rate', 0) - 1
-                        m_amt = st.get('cb_amount', 0) - 1 # If they mapped an amount
+                        # Fallbacks for physical mapped rate / amt columns if no PBOQ state exists
+                        if not os.path.exists(pboq_state_file):
+                            m_rate = st.get('cb_rate', 0) - 1
+                            m_amt = st.get('cb_amount', 0) - 1
                         m_qty = st.get('cb_qty', 0) - 1
+                        m_ref = st.get('cb_ref', 0) - 1
                 except: pass
-
+                
+            if os.path.exists(pboq_state_file):
+                try:
+                    with open(pboq_state_file, 'r') as psf:
+                        pst = json.load(psf)
+                        if 'mappings' in pst:
+                            m_code = pst['mappings'].get('rate_code', 7)
+                            m_rate = pst['mappings'].get('rate', 6)
+                            m_amt = pst['mappings'].get('bill_amount', 5)
+                            m_qty_pst = pst['mappings'].get('qty', -1)
+                            if m_qty_pst >= 0: m_qty = m_qty_pst
+                            m_ref_pst = pst['mappings'].get('ref', -1)
+                            if m_ref_pst >= 0: m_ref = m_ref_pst
+                except: pass
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
@@ -213,62 +236,115 @@ class MarginMigrationWorker(QThread):
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
                 
+                self._log(f"  PBOQ {f}: cols={db_cols}")
                 if "GrossRate" not in db_cols:
+                    self._log(f"  PBOQ {f}: NO GrossRate column, skipping")
                     conn.close()
                     continue
                     
                 # Deterministic List instead of Set
                 target_cols = ['"GrossRate"']
+                if "RateCode" in db_cols: target_cols.append('"RateCode"')
                 if m_rate >= 0 and f'"Column {m_rate}"' not in target_cols: target_cols.append(f'"Column {m_rate}"')
                 if m_amt >= 0 and f'"Column {m_amt}"' not in target_cols: target_cols.append(f'"Column {m_amt}"')
+                if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
                 
                 q_cols = ", ".join(target_cols)
                 has_code = "RateCode" in db_cols
                 query_str = f'SELECT rowid, {q_cols}'
-                if has_code: query_str += ', "RateCode"'
                 
                 if m_qty >= 0:
                     query_str += f', "Column {m_qty}"'
+                if m_ref >= 0:
+                    query_str += f', "Column {m_ref}"'
+                
+                # Fetch ALL applicable rows: rows with existing GrossRate, existing linked RateCode, OR just any mapped Reference (so we can auto-price!)
+                where_clauses = ['("GrossRate" IS NOT NULL AND "GrossRate" != "")']
+                if has_code:
+                    where_clauses.append('("RateCode" IS NOT NULL AND "RateCode" != "")')
+                if m_code >= 0:
+                    where_clauses.append(f'("Column {m_code}" IS NOT NULL AND "Column {m_code}" != "")')
+                if m_ref >= 0:
+                    where_clauses.append(f'("Column {m_ref}" IS NOT NULL AND "Column {m_ref}" != "")')
                     
-                query_str += ' FROM pboq_items WHERE "GrossRate" IS NOT NULL AND "GrossRate" != ""'
+                query_str += ' FROM pboq_items WHERE ' + ' OR '.join(where_clauses)
+                
+                self._log(f"  PBOQ {f}: query={query_str}")
                 cursor.execute(query_str)
                 rows = cursor.fetchall()
+                self._log(f"  PBOQ {f}: {len(rows)} candidate rows found")
                 
                 updates = []
                 cols_to_update = [c.strip('"') for c in target_cols]
                 
                 for row in rows:
                     rowid = row[0]
-                    v_gross = row[1] # GrossRate is at index 1 GUARANTEED by deterministic list target_cols[0]
+                    v_gross = row[1] # GrossRate is at index 1
                     
-                    # Extract variables from dynamic end of row
                     code_val = ""
-                    qty_val = 1.0
+                    # Grab logical code if exists
+                    if 'RateCode' in cols_to_update:
+                        c_idx = cols_to_update.index('RateCode') + 1
+                        code_val = str(row[c_idx] or "").strip().upper()
+                        
+                    # Also check physical rate code column
+                    if m_code >= 0:
+                        phys_name = f'Column {m_code}'
+                        if phys_name in cols_to_update:
+                            p_idx = cols_to_update.index(phys_name) + 1
+                            p_code = str(row[p_idx] or "").strip().upper()
+                            if p_code and not code_val:
+                                code_val = p_code
+                                
+                    # Advanced offset for the trailing columns (qty, ref)
                     idx_offset = 1 + len(target_cols)
-                    if has_code:
-                        code_val = str(row[idx_offset] or "").strip().upper()
-                        idx_offset += 1
+                    
+                    qty_val = 1.0
                     if m_qty >= 0:
                         try:
                             import re
                             q_clean = re.sub(r'[^\d.-]', '', str(row[idx_offset]))
                             qty_val = float(q_clean) if q_clean else 1.0
                         except: pass
+                        idx_offset += 1
+                        
+                    # Check the physical Ref column for auto-pricing
+                    if m_ref >= 0:
+                        ref_physical = str(row[idx_offset] or "").strip().upper()
+                        if ref_physical and not code_val:
+                            # If they have a native rate that precisely matches the BOQ item ref, auto-link it!
+                            if ref_physical in native_rates:
+                                code_val = ref_physical
+                        idx_offset += 1
                     
                     try:
                         import re
-                        clean_str = re.sub(r'[^\d.-]', '', str(v_gross))
-                        if not clean_str: continue
-                        numeric_val = float(clean_str)
                         
-                        sym_match = re.search(r'^([^\d]+)', str(v_gross).strip())
-                        sym = sym_match.group(1).strip() + " " if sym_match else ""
-                        
-                        # IF link exists, pull the PRECISE native rate!
+                        # Determine the new gross rate value
                         if code_val and code_val in native_rates:
+                            # Native rate exists - use it directly (most accurate)
                             scaled_val = native_rates[code_val]
-                        else:
+                        elif v_gross and str(v_gross).strip():
+                            # Existing GrossRate - scale mathematically
+                            clean_str = re.sub(r'[^\d.-]', '', str(v_gross))
+                            if not clean_str: continue
+                            numeric_val = float(clean_str)
                             scaled_val = numeric_val * scale_factor
+                        else:
+                            # No GrossRate and no native rate - skip
+                            continue
+                        
+                        # Determine currency symbol from existing GrossRate or mapped column
+                        sym = ""
+                        if v_gross and str(v_gross).strip():
+                            sym_match = re.search(r'^([^\d]+)', str(v_gross).strip())
+                            sym = sym_match.group(1).strip() + " " if sym_match else ""
+                        elif m_rate >= 0:
+                            # Try mapped rate column for symbol
+                            cv_rate = row[2] if len(target_cols) > 1 else None
+                            if cv_rate:
+                                sym_match = re.search(r'^([^\d]+)', str(cv_rate).strip())
+                                sym = sym_match.group(1).strip() + " " if sym_match else ""
                             
                         new_gross = f"{sym}{scaled_val:,.2f}".strip()
                         
@@ -295,6 +371,14 @@ class MarginMigrationWorker(QThread):
                                 row_update_vals.append(new_gross)
                                 continue
                                 
+                            if col_name == 'RateCode':
+                                row_update_vals.append(code_val)
+                                continue
+                                
+                            if m_code >= 0 and col_name == f'Column {m_code}':
+                                row_update_vals.append(code_val)
+                                continue
+                                
                             # Fallback generic math scale (shouldn't trigger normally)
                             if not cv:
                                 row_update_vals.append(cv)
@@ -316,12 +400,14 @@ class MarginMigrationWorker(QThread):
                         
                     except ValueError:
                         pass
-                
+                self._log(f"  PBOQ {f}: {len(updates)} rows to update, cols={cols_to_update}")
                 if updates:
                     set_clause = ", ".join([f'"{c}" = ?' for c in cols_to_update])
+                    self._log(f"  PBOQ {f}: SQL SET={set_clause}, sample={updates[0]}")
                     cursor.executemany(f'UPDATE pboq_items SET {set_clause} WHERE rowid = ?', updates)
                     
                 conn.commit()
+                self._log(f"  PBOQ {f}: committed successfully")
             except Exception as e:
                 conn.rollback()
                 raise e
