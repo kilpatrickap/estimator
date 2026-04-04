@@ -685,3 +685,26 @@ class DatabaseManager:
                 session.query(DBEstimate).filter(DBEstimate.category == old_category).update({"category": new_category})
                 session.commit()
 
+    def bulk_update_estimate_currency(self, new_currency):
+        """Updates the currency field for all estimate-related tables in this database."""
+        with self.Session() as session:
+            # 1. Update the project setting for currency
+            from orm_models import Setting
+            s = session.query(Setting).get('currency')
+            if s:
+                s.value = str(new_currency)
+            else:
+                session.add(Setting(key='currency', value=str(new_currency)))
+
+            # 2. Update main estimates header
+            session.query(DBEstimate).update({DBEstimate.currency: new_currency})
+            
+            # 3. Update nested estimate items
+            session.query(DBEstimateMaterial).update({DBEstimateMaterial.currency: new_currency})
+            session.query(DBEstimateLabor).update({DBEstimateLabor.currency: new_currency})
+            session.query(DBEstimateEquipment).update({DBEstimateEquipment.currency: new_currency})
+            session.query(DBEstimatePlant).update({DBEstimatePlant.currency: new_currency})
+            session.query(DBEstimateIndirectCost).update({DBEstimateIndirectCost.currency: new_currency})
+            
+            session.commit()
+

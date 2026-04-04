@@ -226,3 +226,27 @@ class PBOQLogic:
             conn.close()
         except Exception as e:
             print(f"Error saving package settings: {e}")
+
+    @staticmethod
+    def bulk_update_currencies(file_path, new_currency):
+        """Updates all logical currency columns in the PBOQ database."""
+        if not file_path or not os.path.exists(file_path): return
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cols = ["PlugCurrency", "ProvSumCurrency", "PCSumCurrency", "DayworkCurrency"]
+            
+            cursor.execute(f"PRAGMA table_info(pboq_items)")
+            db_cols = [info[1] for info in cursor.fetchall()]
+            
+            update_frags = []
+            for col in cols:
+                if col in db_cols:
+                    update_frags.append(f'"{col}" = ?')
+            
+            if update_frags:
+                cursor.execute(f'UPDATE pboq_items SET {", ".join(update_frags)}', [new_currency] * len(update_frags))
+                conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"PBOQ Currency Update Error: {e}")

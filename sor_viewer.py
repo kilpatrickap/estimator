@@ -565,8 +565,28 @@ class SORDialog(QDialog):
                 QMessageBox.warning(self, "Not Found", f"Rate '{rate_code}' could not be found in the Project Database.")
                 return
                 
+        # Fetch project defaults
+        overhead_val = 15.0
+        profit_val = 10.0
+        project_currency = "GHS (₵)"
+        
+        if self.main_window:
+            # First try active estimate window
+            active_est = self.main_window._get_active_estimate_window()
+            if active_est and hasattr(active_est, 'estimate'):
+                project_currency = active_est.estimate.currency
+                overhead_val = active_est.estimate.overhead_percent
+                profit_val = active_est.estimate.profit_margin_percent
+            else:
+                # Fallback: check project database setting
+                project_currency = db.get_setting('currency', 'GHS (₵)')
+                try:
+                    overhead_val = float(db.get_setting('overhead', '15.0'))
+                    profit_val = float(db.get_setting('profit', '10.0'))
+                except: pass
+
         cat = "Miscellaneous"
-        new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
+        new_est = Estimate(project_name=desc, client_name="", overhead=overhead_val, profit=profit_val, currency=project_currency, unit=unit)
         new_est.category = cat
         new_est.rate_code = db.generate_next_rate_code(cat)
         

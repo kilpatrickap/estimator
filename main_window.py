@@ -475,6 +475,15 @@ class MainWindow(QMainWindow):
                     if hasattr(w, 'load_rates'): w.load_rates()
                     if hasattr(w, 'load_project_rates'): w.load_project_rates()
 
+        active_est = self._get_active_estimate_window()
+        if active_est and hasattr(active_est, 'estimate'):
+            estimate_obj.currency = active_est.estimate.currency
+            # Also sync items
+            for task in getattr(estimate_obj, 'tasks', []):
+                for res_type in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:
+                    for item in getattr(task, res_type, []):
+                        item['currency'] = estimate_obj.currency
+
         buildup_win = RateBuildUpDialog(estimate_obj, main_window=self, db_path=db_path)
         # Ensure the window is destroyed on close to prevent stale reused windows (the "blank" bug)
         buildup_win.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -743,34 +752,27 @@ class MainWindow(QMainWindow):
             data = dialog.get_project_data()
             if data:
                 import re
-                if estimate_obj:
-                    estimate_obj.project_name = data['name']
-                    estimate_obj.client_name = data['client']
-                    estimate_obj.date = data['date']
-                    estimate_obj.overhead_percent = data['overhead']
-                    estimate_obj.profit_margin_percent = data['profit']
-                    estimate_obj.currency = data['currency']
-                
-                if active_est and type(active_est).__name__ == "EstimateWindow":
-                    active_est.save_state()
-                    active_est.library_path = data['library_path']
-                    if estimate_obj:
-                        match = re.search(r'\((.*?)\)', estimate_obj.currency)
-                        active_est.currency_symbol = match.group(1) if match else "$"
-                        active_est.db_manager.save_estimate(estimate_obj)
-                    active_est.db_manager.set_setting('library_path', data['library_path'])
-                    active_est.refresh_view()
-                    active_est.setWindowTitle(f"Estimate: {data['name']}")
+                project_dir = os.path.dirname(os.path.dirname(db_path)) if db_path and "Project Database" in db_path else ""
+
+                if project_dir:
+                    self._sync_project_currency(project_dir, data['currency'], data['library_path'])
+                    
+                    # Manual Title/State update for active estimate specifically
+                    if active_est and type(active_est).__name__ == "EstimateWindow":
+                        active_est.save_state()
+                        active_est.setWindowTitle(f"Estimate: {data['name']}")
                 else:
-                    if db_path:
+                    # Fallback for when no project_dir is identified (singleton db or library edit)
+                    if active_est and type(active_est).__name__ == "EstimateWindow":
+                         active_est.save_state()
+                         active_est.estimate.currency = data['currency']
+                         active_est.db_manager.bulk_update_estimate_currency(data['currency'])
+                         active_est.refresh_view()
+                    elif db_path:
                         from database import DatabaseManager
                         temp_db = DatabaseManager(db_path)
-                        if estimate_obj:
-                            temp_db.save_estimate(estimate_obj)
+                        temp_db.bulk_update_estimate_currency(data['currency'])
                         temp_db.set_setting('library_path', data['library_path'])
-                        temp_db.set_setting('overhead', str(data['overhead']))
-                        temp_db.set_setting('profit', str(data['profit']))
-                        temp_db.set_setting('currency', data['currency'])
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()
@@ -905,12 +907,81 @@ class MainWindow(QMainWindow):
     # --- Global Action Handlers ---
     
     def _get_active_estimate_window(self):
-        sub = self.mdi_area.activeSubWindow()
-        if sub:
-            widget = sub.widget()
-            if isinstance(widget, EstimateWindow) or isinstance(widget, RateBuildUpDialog) or isinstance(widget, EditItemDialog) or isinstance(widget, CurrencyConversionDialog):
-                return widget
+        active = self.mdi_area.activeSubWindow()
+        if active:
+            return active.widget()
         return None
+
+    def _sync_project_currency(self, project_dir, new_currency, library_path=None):
+        """Synchronizes the currency across all project files on disk and all open windows."""
+        import re, os
+        from database import DatabaseManager
+        from pboq_logic import PBOQLogic
+
+        # 1. SCAN AND UPDATE DISK FILES
+        # Define directory paths
+        project_db_dir = os.path.join(project_dir, "Project Database")
+        sor_dir = os.path.join(project_dir, "SOR")
+        pboq_dir = os.path.join(project_dir, "Priced BOQs")
+
+        # Update Project Databases (project.db)
+        if os.path.exists(project_db_dir):
+            for f in os.listdir(project_db_dir):
+                if f.lower().endswith('.db'):
+                    db = DatabaseManager(os.path.join(project_db_dir, f))
+                    db.bulk_update_estimate_currency(new_currency)
+
+        # Update SOR / Rates Databases (construction_rates.db)
+        if os.path.exists(sor_dir):
+            for f in os.listdir(sor_dir):
+                if f.lower().endswith('.db'):
+                    db = DatabaseManager(os.path.join(sor_dir, f))
+                    db.bulk_update_estimate_currency(new_currency)
+
+        # Update Priced BOQ Databases
+        if os.path.exists(pboq_dir):
+            for f in os.listdir(pboq_dir):
+                if f.lower().endswith('.db'):
+                    PBOQLogic.bulk_update_currencies(os.path.join(pboq_dir, f), new_currency)
+
+        # 2. UPDATE OPEN WINDOWS IN MEMORY
+        for sub in self.mdi_area.subWindowList():
+            win = sub.widget()
+            win_type = type(win).__name__
+            
+            # Filter by project directory context
+            is_matching = False
+            if hasattr(win, 'db_path') and win.db_path and project_dir in os.path.abspath(win.db_path):
+                is_matching = True
+            elif hasattr(win, 'project_dir') and win.project_dir and os.path.abspath(project_dir) == os.path.abspath(win.project_dir):
+                is_matching = True
+
+            if is_matching:
+                # Update Estimate / Rate Buildup Windows
+                if win_type in ["EstimateWindow", "RateBuildUpDialog"]:
+                    if hasattr(win, 'estimate'):
+                        win.estimate.currency = new_currency
+                        for task in getattr(win.estimate, 'tasks', []):
+                            for res_type in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:
+                                for item in getattr(task, res_type, []):
+                                    item['currency'] = new_currency
+                    
+                    if hasattr(win, 'db_manager') and library_path and win_type == "EstimateWindow":
+                        win.db_manager.set_setting('library_path', library_path)
+
+                    match = re.search(r'\((.*?)\)', new_currency)
+                    sym = match.group(1) if match else "$"
+                    if hasattr(win, 'currency_symbol'):
+                        win.currency_symbol = sym
+                    
+                    if hasattr(win, 'refresh_view'):
+                        win.refresh_view()
+                
+                # Update PBOQ Viewer Windows
+                elif win_type == "PBOQDialog":
+                    if hasattr(win, '_load_pboq_db'):
+                        idx = win.pboq_file_selector.currentIndex()
+                        win._load_pboq_db(idx)
 
     def _apply_zoom_to_subwindow(self, sub):
         """Applies the current global zoom scale to a newly added subwindow."""
