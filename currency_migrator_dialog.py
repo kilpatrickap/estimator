@@ -2,6 +2,7 @@ import os
 import shutil
 import sqlite3
 import json
+from datetime import datetime
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
                              QPushButton, QDialogButtonBox, QMessageBox, QProgressBar, QComboBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
@@ -21,6 +22,7 @@ class MigrationWorker(QThread):
         self.new_currency = new_currency
         self.rate = rate
         self.operator = operator
+        self.timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     def run(self):
         try:
@@ -114,6 +116,27 @@ class MigrationWorker(QThread):
             
             cursor.execute(f"UPDATE estimate_indirect_costs SET amount = amount {op} ? WHERE amount IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_indirect_costs SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
+            
+            # 5. Record History in Settings
+            cursor.execute("SELECT value FROM settings WHERE key = 'currency_conversion_history'")
+            history_row = cursor.fetchone()
+            history = []
+            if history_row:
+                try:
+                    history = json.loads(history_row[0])
+                except:
+                    pass
+            
+            new_record = {
+                'date': self.timestamp,
+                'from': self.old_currency,
+                'to': self.new_currency,
+                'rate': self.rate,
+                'operator': self.operator
+            }
+            history.append(new_record)
+            
+            cursor.execute("REPLACE INTO settings (key, value) VALUES ('currency_conversion_history', ?)", (json.dumps(history),))
             
             conn.commit()
         except Exception as e:

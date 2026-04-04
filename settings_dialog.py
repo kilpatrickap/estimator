@@ -316,6 +316,13 @@ class SettingsDialog(QDialog):
             self.proj_currency = QComboBox()
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
             self.proj_currency.setCurrentText(def_currency)
+            
+            self.history_btn = QPushButton("Conversion History...")
+            self.history_btn.clicked.connect(self._show_conversion_history)
+            
+            curr_layout = QHBoxLayout()
+            curr_layout.addWidget(self.proj_currency)
+            curr_layout.addWidget(self.history_btn)
             # Library (List)
             self.library_list = QListWidget()
             self.library_list.setMaximumHeight(150)
@@ -364,7 +371,7 @@ class SettingsDialog(QDialog):
 
             proj_form.addRow("Overhead (%):", self.proj_overhead)
             proj_form.addRow("Profit (%):", self.proj_profit)
-            proj_form.addRow("Currency:", self.proj_currency)
+            proj_form.addRow("Currency:", curr_layout)
             proj_form.addRow("Library(ies):", lib_main_layout)
             proj_form.addRow("Imported BOQs:", boq_main_layout)
             
@@ -477,6 +484,40 @@ class SettingsDialog(QDialog):
                     self._load_boqs()
                 except Exception as e:
                     QMessageBox.warning(self, "Error", f"Failed to delete file:\n{e}")
+
+    def _show_conversion_history(self):
+        # We need to reach into the project DB
+        import os, json
+        db_path = ""
+        if self.project_dir and os.path.exists(self.project_dir):
+            db_dir = os.path.join(self.project_dir, "Project Database")
+            if os.path.exists(db_dir):
+                dbs = [f for f in os.listdir(db_dir) if f.endswith('.db')]
+                if dbs:
+                    db_path = os.path.join(db_dir, dbs[0])
+
+        if not db_path:
+            # Maybe it's in current dir? 
+            db_path = self.db_manager.db_file
+
+        from database import DatabaseManager
+        temp_db = DatabaseManager(db_path)
+        history_str = temp_db.get_setting('currency_conversion_history', '[]')
+        try:
+            history = json.loads(history_str)
+        except:
+            history = []
+
+        if not history:
+            QMessageBox.information(self, "History", "No global currency conversions have been performed on this project.")
+            return
+
+        msg = "<b>Project Conversion History:</b><br><br>"
+        for h in reversed(history[-10:]): # Show last 10
+            op_sym = h.get('operator', '/')
+            msg += f"• {h['date']}: <b>{h['from']}</b> &rarr; <b>{h['to']}</b> (using {op_sym} {h['rate']})<br>"
+
+        QMessageBox.information(self, "Currency Migration History", msg)
 
     def get_project_data(self):
         if not hasattr(self, 'proj_overhead'):
