@@ -33,24 +33,96 @@ class MarginMigrationWorker(QThread):
             self.progress.emit(30, "Migrating PBOQ files (Gross Rates only)...")
             self._migrate_pboq_gross_rates(scale_factor)
             
+            self.progress.emit(70, "Migrating SOR/Library databases...")
+            self._migrate_sor_gross_rates(scale_factor)
+            
             self.progress.emit(100, "Migration Complete.")
             self.finished_mig.emit(True, "All existing Gross Rates have been mathematically scaled to reflect new Overhead & Profit.")
         except Exception as e:
             self.finished_mig.emit(False, str(e))
 
+    def _migrate_sor_gross_rates(self, scale_factor):
+        sor_dir = os.path.join(self.project_dir, "SOR")
+        lib_dir = os.path.join(self.project_dir, "Imported Library")
+        
+        target_dirs = []
+        if os.path.exists(sor_dir): target_dirs.append(sor_dir)
+        if os.path.exists(lib_dir): target_dirs.append(lib_dir)
+        
+        for d in target_dirs:
+            for f in os.listdir(d):
+                if not f.endswith('.db'): continue
+                db_path = os.path.join(d, f)
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                try:
+                    cursor.execute("PRAGMA table_info(sor_items)")
+                    db_cols = [info[1] for info in cursor.fetchall()]
+                    if "GrossRate" not in db_cols: continue
+                        
+                    cursor.execute('SELECT rowid, GrossRate FROM sor_items WHERE GrossRate IS NOT NULL AND GrossRate != ""')
+                    rows = cursor.fetchall()
+                    
+                    updates = []
+                    for row in rows:
+                        rowid = row[0]
+                        v = row[1]
+                        try:
+                            import re
+                            clean_str = re.sub(r'[^\d.-]', '', str(v))
+                            if not clean_str: continue
+                            numeric_val = float(clean_str)
+                            scaled_val = numeric_val * scale_factor
+                            
+                            sym_match = re.search(r'^([^\d]+)', str(v).strip())
+                            sym = sym_match.group(1).strip() + " " if sym_match else ""
+                            
+                            formatted_val = f"{sym}{scaled_val:,.2f}".strip()
+                            updates.append((formatted_val, rowid))
+                        except ValueError:
+                            pass
+                    
+                    if updates:
+                        cursor.executemany('UPDATE sor_items SET GrossRate = ? WHERE rowid = ?', updates)
+                        
+                    conn.commit()
+                except Exception:
+                    conn.rollback()
+                finally:
+                    conn.close()
+
     def _migrate_pboq_gross_rates(self, scale_factor):
         pboq_dir = os.path.join(self.project_dir, "Priced BOQs")
         if not os.path.exists(pboq_dir): return
+        
+        # Load mappings
+        import json
+        states_folder = os.path.join(self.project_dir, "BOQ-Setup States")
         
         for f in os.listdir(pboq_dir):
             if not f.endswith('.db'): continue
             
             db_path = os.path.join(pboq_dir, f)
+            db_basename = f
+            base_name = db_basename.replace("PBOQ_", "").replace(".db", ".xlsx")
+            state_file = os.path.join(states_folder, base_name + ".state.json")
+            
+            # Map default columns (-1 means unmapped)
+            m_rate = -1
+            m_amt = -1
+            if os.path.exists(states_folder) and os.path.exists(state_file):
+                try:
+                    with open(state_file, 'r') as sf:
+                        st = json.load(sf)
+                        m_rate = st.get('cb_rate', 0) - 1
+                        m_amt = st.get('cb_amount', 0) - 1 # If they mapped an amount
+                except: pass
+
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
             try:
-                # Check if GrossRate exists
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
                 
@@ -58,23 +130,129 @@ class MarginMigrationWorker(QThread):
                     conn.close()
                     continue
                     
-                cursor.execute('SELECT rowid, "GrossRate" FROM pboq_items WHERE "GrossRate" IS NOT NULL AND "GrossRate" != ""')
+                target_cols = ['"GrossRate"']
+                if m_rate >= 0: target_cols.append(f'"Column {m_rate}"')
+                if m_amt >= 0: target_cols.append(f'"Column {m_amt}"')
+                
+                # We need "RateCode" and Qty to do a native extraction if linked
+                q_cols = ", ".join(set(target_cols))
+                has_code = "RateCode" in db_cols
+                query_str = f'SELECT rowid, {q_cols}'
+                if has_code: query_str += ', "RateCode"'
+                # Get the generic Qty column if they mapped it
+                m_qty = -1
+                if os.path.exists(states_folder) and os.path.exists(state_file):
+                    try:
+                        with open(state_file, 'r') as sf:
+                            st = json.load(sf)
+                            m_qty = st.get('cb_qty', 0) - 1
+                    except: pass
+                if m_qty >= 0:
+                    query_str += f', "Column {m_qty}"'
+                    
+                query_str += ' FROM pboq_items WHERE "GrossRate" IS NOT NULL AND "GrossRate" != ""'
+                cursor.execute(query_str)
                 rows = cursor.fetchall()
                 
                 updates = []
+                cols_to_update = list(set([c.strip('"') for c in target_cols]))
+                
+                # Cache Rate Buildups to get fresh mathematically calculated Grand Totals
+                native_rates = {}
+                rates_db_path = os.path.join(self.project_dir, "SOR", "construction_rates.db")
+                if os.path.exists(rates_db_path):
+                    from database import DatabaseManager
+                    rates_db = DatabaseManager(rates_db_path)
+                    for r_data in rates_db.get_rates_data():
+                        cde = r_data.get('rate_code')
+                        if cde:
+                            est_obj = rates_db.load_estimate_details(r_data.get('id'))
+                            if est_obj:
+                                native_rates[cde.strip().upper()] = est_obj.calculate_totals()['grand_total']
+
                 for row in rows:
                     rowid = row[0]
-                    v = row[1]
+                    v_gross = row[1] # GrossRate is at index 1
+                    
+                    # Extract variables from dynamic end of row
+                    code_val = ""
+                    qty_val = 1.0
+                    idx_offset = 1 + len(set(target_cols))
+                    if has_code:
+                        code_val = str(row[idx_offset] or "").strip().upper()
+                        idx_offset += 1
+                    if m_qty >= 0:
+                        try:
+                            import re
+                            q_clean = re.sub(r'[^\d.-]', '', str(row[idx_offset]))
+                            qty_val = float(q_clean) if q_clean else 1.0
+                        except: pass
+                    
                     try:
-                        numeric_val = float(str(v).replace(',', ''))
-                        scaled_val = numeric_val * scale_factor
-                        formatted_val = f"{scaled_val:,.2f}"
-                        updates.append((formatted_val, rowid))
+                        import re
+                        clean_str = re.sub(r'[^\d.-]', '', str(v_gross))
+                        if not clean_str: continue
+                        numeric_val = float(clean_str)
+                        
+                        sym_match = re.search(r'^([^\d]+)', str(v_gross).strip())
+                        sym = sym_match.group(1).strip() + " " if sym_match else ""
+                        
+                        # IF link exists, pull the PRECISE native rate!
+                        if code_val and code_val in native_rates:
+                            scaled_val = native_rates[code_val]
+                        else:
+                            scaled_val = numeric_val * scale_factor
+                            
+                        new_gross = f"{sym}{scaled_val:,.2f}".strip()
+                        
+                        # Apply multiplier to ALL targeted columns in this row independently
+                        row_update_vals = []
+                        for i, col_name in enumerate(cols_to_update):
+                            cv = row[i+1] # +1 because rowid is 0
+                            
+                            if m_amt >= 0 and col_name == f'Column {m_amt}':
+                                # It's an Amount column. Amount = Qty * new Rate
+                                c_scaled = scaled_val * qty_val
+                                c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
+                                row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
+                                continue
+                            
+                            if m_rate >= 0 and col_name == f'Column {m_rate}':
+                                c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
+                                row_update_vals.append(f"{c_sym}{scaled_val:,.2f}".strip())
+                                continue
+                                
+                            if col_name == 'GrossRate':
+                                row_update_vals.append(new_gross)
+                                continue
+                                
+                            # Fallback generic math scale (shouldn't trigger normally)
+                            if not cv:
+                                row_update_vals.append(cv)
+                                continue
+                            
+                            c_clean = re.sub(r'[^\d.-]', '', str(cv))
+                            if not c_clean:
+                                row_update_vals.append(cv)
+                                continue
+                                
+                            c_num = float(c_clean)
+                            c_scaled = c_num * scale_factor
+                            c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                            c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else ""
+                            row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
+                            
+                        # Format the update tuple: (*vals, rowid)
+                        updates.append(tuple(row_update_vals + [rowid]))
+                        
                     except ValueError:
                         pass
                 
                 if updates:
-                    cursor.executemany('UPDATE pboq_items SET "GrossRate" = ? WHERE rowid = ?', updates)
+                    set_clause = ", ".join([f'"{c}" = ?' for c in cols_to_update])
+                    cursor.executemany(f'UPDATE pboq_items SET {set_clause} WHERE rowid = ?', updates)
                     
                 conn.commit()
             except Exception as e:

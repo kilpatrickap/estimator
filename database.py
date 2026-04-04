@@ -708,3 +708,25 @@ class DatabaseManager:
             
             session.commit()
 
+    def bulk_update_estimate_margins(self, new_overhead, new_profit):
+        """Updates the overhead and profit percent for all estimates in this database."""
+        with self.Session() as session:
+            # 1. Update the settings table directly
+            from orm_models import Setting
+            
+            s_oh = session.query(Setting).get('overhead')
+            if s_oh: s_oh.value = str(new_overhead)
+            else: session.add(Setting(key='overhead', value=str(new_overhead)))
+                
+            s_pr = session.query(Setting).get('profit')
+            if s_pr: s_pr.value = str(new_profit)
+            else: session.add(Setting(key='profit', value=str(new_profit)))
+
+            # 2. Update all estimates header
+            session.query(DBEstimate).update({
+                DBEstimate.overhead_percent: new_overhead,
+                DBEstimate.profit_margin_percent: new_profit
+            })
+            
+            session.commit()
+

@@ -773,17 +773,15 @@ class MainWindow(QMainWindow):
                     if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit']:
                         margin_changed = True
                         
-                if should_sync and margin_changed and active_project_dir:
-                    from margin_migrator_dialog import MarginMigrationDialog
-                    from PyQt6.QtWidgets import QDialog
-                    margin_dialog = MarginMigrationDialog(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'], self)
-                    m_result = margin_dialog.exec()
-                    if m_result == -1:
-                        should_sync = False
-                        
                 if should_sync:
                     if active_project_dir:
                         self._sync_project_settings(active_project_dir, data)
+                        
+                        # Now that Settings have populated the new margins to local estimates in the ORM, Run Wizard
+                        if margin_changed:
+                            from margin_migrator_dialog import MarginMigrationDialog
+                            margin_dialog = MarginMigrationDialog(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'], self)
+                            margin_dialog.exec()
                         
                         # Manual Title/State update for active estimate specifically
                         if active_est and type(active_est).__name__ == "EstimateWindow":
@@ -970,8 +968,7 @@ class MainWindow(QMainWindow):
                 if f.lower().endswith('.db'):
                     db = DatabaseManager(os.path.join(project_db_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
-                    db.set_setting('overhead', str(new_overhead))
-                    db.set_setting('profit', str(new_profit))
+                    db.bulk_update_estimate_margins(new_overhead, new_profit)
 
         # Update SOR / Rates Databases
         if os.path.exists(sor_dir):
@@ -979,6 +976,7 @@ class MainWindow(QMainWindow):
                 if f.lower().endswith('.db'):
                     db = DatabaseManager(os.path.join(sor_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
+                    db.bulk_update_estimate_margins(new_overhead, new_profit)
 
         # Update Priced BOQ Databases
         if os.path.exists(pboq_dir):
