@@ -17,9 +17,20 @@ class MarginMigrationWorker(QThread):
         self.new_overhead = new_overhead
         self.new_profit = new_profit
 
+    def _log(self, msg):
+        """Write log to file to avoid cp1252 encoding crashes on Windows terminals."""
+        try:
+            log_path = os.path.join(self.project_dir, "margin_sync.log")
+            with open(log_path, 'a', encoding='utf-8') as f:
+                from datetime import datetime
+                f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
+        except: pass
+
     def run(self):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
+            
+            self._log(f"Old O={self.old_overhead}, Old P={self.old_profit}, New O={self.new_overhead}, New P={self.new_profit}")
             
             # Subtotal * (1 + Overhead%) * (1 + Profit%)
             old_multiplier = (1 + self.old_overhead / 100.0) * (1 + self.old_profit / 100.0)
@@ -29,6 +40,7 @@ class MarginMigrationWorker(QThread):
                 old_multiplier = 1.0
                 
             scale_factor = new_multiplier / old_multiplier
+            self._log(f"old_mult={old_multiplier}, new_mult={new_multiplier}, scale={scale_factor}")
             
             self.progress.emit(30, "Migrating PBOQ files (Gross Rates only)...")
             self._migrate_pboq_gross_rates(scale_factor)
@@ -37,8 +49,11 @@ class MarginMigrationWorker(QThread):
             self._migrate_sor_gross_rates(scale_factor)
             
             self.progress.emit(100, "Migration Complete.")
+            self._log("Migration completed successfully.")
             self.finished_mig.emit(True, "All existing Gross Rates have been mathematically scaled to reflect new Overhead & Profit.")
         except Exception as e:
+            import traceback
+            self._log(f"ERROR: {traceback.format_exc()}")
             self.finished_mig.emit(False, str(e))
 
     def _migrate_sor_gross_rates(self, scale_factor):
@@ -48,6 +63,36 @@ class MarginMigrationWorker(QThread):
         target_dirs = []
         if os.path.exists(sor_dir): target_dirs.append(sor_dir)
         if os.path.exists(lib_dir): target_dirs.append(lib_dir)
+        
+        native_rates = {}
+        # Scan ALL db files in Imported Library, SOR, and Project Database for rate buildups
+        from database import DatabaseManager
+        proj_db_dir = os.path.join(self.project_dir, "Project Database")
+        # Build scan list: Imported Library -> SOR -> Project Database (last = highest priority)
+        scan_dirs = []
+        if os.path.exists(lib_dir) and lib_dir not in [sor_dir]:
+            scan_dirs.append(lib_dir)
+        if os.path.exists(sor_dir):
+            scan_dirs.append(sor_dir)
+        if os.path.exists(proj_db_dir):
+            scan_dirs.append(proj_db_dir)
+        for scan_dir in scan_dirs:
+            for f in os.listdir(scan_dir):
+                if not f.endswith('.db'): continue
+                db_path = os.path.join(scan_dir, f)
+                try:
+                    rdb = DatabaseManager(db_path)
+                    for r_data in rdb.get_rates_data():
+                        cde = r_data.get('rate_code')
+                        if cde:
+                            est_obj = rdb.load_estimate_details(r_data.get('id'))
+                            if est_obj:
+                                gt = est_obj.calculate_totals()['grand_total']
+                                native_rates[cde.strip().upper()] = gt
+                                self._log(f"  SOR native: {cde} -> O={est_obj.overhead_percent}% P={est_obj.profit_margin_percent}% GT={gt} (from {f})")
+                except Exception as ex:
+                    self._log(f"  SOR scan error on {f}: {ex}")
+        self._log(f"SOR: {len(native_rates)} native rates loaded, {len(target_dirs)} target dirs")
         
         for d in target_dirs:
             for f in os.listdir(d):
@@ -61,19 +106,30 @@ class MarginMigrationWorker(QThread):
                     db_cols = [info[1] for info in cursor.fetchall()]
                     if "GrossRate" not in db_cols: continue
                         
-                    cursor.execute('SELECT rowid, GrossRate FROM sor_items WHERE GrossRate IS NOT NULL AND GrossRate != ""')
+                    has_code = "RateCode" in db_cols
+                    query_str = 'SELECT rowid, GrossRate'
+                    if has_code: query_str += ', RateCode'
+                    query_str += ' FROM sor_items WHERE GrossRate IS NOT NULL AND GrossRate != ""'
+                    
+                    cursor.execute(query_str)
                     rows = cursor.fetchall()
                     
                     updates = []
                     for row in rows:
                         rowid = row[0]
                         v = row[1]
+                        code_val = str(row[2] or "").strip().upper() if len(row) > 2 else ""
+                        
                         try:
                             import re
                             clean_str = re.sub(r'[^\d.-]', '', str(v))
                             if not clean_str: continue
                             numeric_val = float(clean_str)
-                            scaled_val = numeric_val * scale_factor
+                            
+                            if code_val and code_val in native_rates:
+                                scaled_val = native_rates[code_val]
+                            else:
+                                scaled_val = numeric_val * scale_factor
                             
                             sym_match = re.search(r'^([^\d]+)', str(v).strip())
                             sym = sym_match.group(1).strip() + " " if sym_match else ""
@@ -100,6 +156,35 @@ class MarginMigrationWorker(QThread):
         import json
         states_folder = os.path.join(self.project_dir, "BOQ-Setup States")
         
+        # Cache Rate Buildups to get fresh mathematically calculated Grand Totals
+        native_rates = {}
+        # Scan ALL db files in Project Database, SOR, and Imported Library for rate buildups
+        from database import DatabaseManager
+        proj_db_dir = os.path.join(self.project_dir, "Project Database")
+        sor_dir = os.path.join(self.project_dir, "SOR")
+        lib_dir = os.path.join(self.project_dir, "Imported Library")
+        scan_dirs = []
+        if os.path.exists(lib_dir): scan_dirs.append(lib_dir)
+        if os.path.exists(sor_dir): scan_dirs.append(sor_dir)
+        if os.path.exists(proj_db_dir): scan_dirs.append(proj_db_dir)  # Last = highest priority
+        
+        for scan_dir in scan_dirs:
+            for f in os.listdir(scan_dir):
+                if not f.endswith('.db'): continue
+                db_path = os.path.join(scan_dir, f)
+                try:
+                    rdb = DatabaseManager(db_path)
+                    for r_data in rdb.get_rates_data():
+                        cde = r_data.get('rate_code')
+                        if cde:
+                            est_obj = rdb.load_estimate_details(r_data.get('id'))
+                            if est_obj:
+                                gt = est_obj.calculate_totals()['grand_total']
+                                native_rates[cde.strip().upper()] = gt
+                                self._log(f"  PBOQ native: {cde} -> O={est_obj.overhead_percent}% P={est_obj.profit_margin_percent}% GT={gt} (from {f})")
+                except Exception as ex:
+                    self._log(f"  PBOQ scan error on {f}: {ex}")
+        self._log(f"PBOQ: {len(native_rates)} native rates loaded")
         for f in os.listdir(pboq_dir):
             if not f.endswith('.db'): continue
             
@@ -111,12 +196,14 @@ class MarginMigrationWorker(QThread):
             # Map default columns (-1 means unmapped)
             m_rate = -1
             m_amt = -1
+            m_qty = -1
             if os.path.exists(states_folder) and os.path.exists(state_file):
                 try:
                     with open(state_file, 'r') as sf:
                         st = json.load(sf)
                         m_rate = st.get('cb_rate', 0) - 1
                         m_amt = st.get('cb_amount', 0) - 1 # If they mapped an amount
+                        m_qty = st.get('cb_qty', 0) - 1
                 except: pass
 
             conn = sqlite3.connect(db_path)
@@ -130,23 +217,16 @@ class MarginMigrationWorker(QThread):
                     conn.close()
                     continue
                     
+                # Deterministic List instead of Set
                 target_cols = ['"GrossRate"']
-                if m_rate >= 0: target_cols.append(f'"Column {m_rate}"')
-                if m_amt >= 0: target_cols.append(f'"Column {m_amt}"')
+                if m_rate >= 0 and f'"Column {m_rate}"' not in target_cols: target_cols.append(f'"Column {m_rate}"')
+                if m_amt >= 0 and f'"Column {m_amt}"' not in target_cols: target_cols.append(f'"Column {m_amt}"')
                 
-                # We need "RateCode" and Qty to do a native extraction if linked
-                q_cols = ", ".join(set(target_cols))
+                q_cols = ", ".join(target_cols)
                 has_code = "RateCode" in db_cols
                 query_str = f'SELECT rowid, {q_cols}'
                 if has_code: query_str += ', "RateCode"'
-                # Get the generic Qty column if they mapped it
-                m_qty = -1
-                if os.path.exists(states_folder) and os.path.exists(state_file):
-                    try:
-                        with open(state_file, 'r') as sf:
-                            st = json.load(sf)
-                            m_qty = st.get('cb_qty', 0) - 1
-                    except: pass
+                
                 if m_qty >= 0:
                     query_str += f', "Column {m_qty}"'
                     
@@ -155,29 +235,16 @@ class MarginMigrationWorker(QThread):
                 rows = cursor.fetchall()
                 
                 updates = []
-                cols_to_update = list(set([c.strip('"') for c in target_cols]))
+                cols_to_update = [c.strip('"') for c in target_cols]
                 
-                # Cache Rate Buildups to get fresh mathematically calculated Grand Totals
-                native_rates = {}
-                rates_db_path = os.path.join(self.project_dir, "SOR", "construction_rates.db")
-                if os.path.exists(rates_db_path):
-                    from database import DatabaseManager
-                    rates_db = DatabaseManager(rates_db_path)
-                    for r_data in rates_db.get_rates_data():
-                        cde = r_data.get('rate_code')
-                        if cde:
-                            est_obj = rates_db.load_estimate_details(r_data.get('id'))
-                            if est_obj:
-                                native_rates[cde.strip().upper()] = est_obj.calculate_totals()['grand_total']
-
                 for row in rows:
                     rowid = row[0]
-                    v_gross = row[1] # GrossRate is at index 1
+                    v_gross = row[1] # GrossRate is at index 1 GUARANTEED by deterministic list target_cols[0]
                     
                     # Extract variables from dynamic end of row
                     code_val = ""
                     qty_val = 1.0
-                    idx_offset = 1 + len(set(target_cols))
+                    idx_offset = 1 + len(target_cols)
                     if has_code:
                         code_val = str(row[idx_offset] or "").strip().upper()
                         idx_offset += 1

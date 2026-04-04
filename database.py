@@ -709,7 +709,7 @@ class DatabaseManager:
             session.commit()
 
     def bulk_update_estimate_margins(self, new_overhead, new_profit):
-        """Updates the overhead and profit percent for all estimates in this database."""
+        """Updates the overhead and profit percent for all estimates and recalculates their grand_totals."""
         with self.Session() as session:
             # 1. Update the settings table directly
             from orm_models import Setting
@@ -722,11 +722,21 @@ class DatabaseManager:
             if s_pr: s_pr.value = str(new_profit)
             else: session.add(Setting(key='profit', value=str(new_profit)))
 
-            # 2. Update all estimates header
-            session.query(DBEstimate).update({
-                DBEstimate.overhead_percent: new_overhead,
-                DBEstimate.profit_margin_percent: new_profit
-            })
+            # 2. Update margins and recalculate exactly Native grand_totals perfectly
+            all_ests = session.query(DBEstimate).all()
+            for e in all_ests:
+                e.overhead_percent = new_overhead
+                e.profit_margin_percent = new_profit
+                
+                # Derive grand base cost
+                subtotal = e.net_total if e.net_total else 0.0
+                adj_factor = e.adjustment_factor if e.adjustment_factor is not None else 1.0
+                adj_subtotal = subtotal * adj_factor
+                
+                o_amt = adj_subtotal * (new_overhead / 100.0)
+                p_amt = (adj_subtotal + o_amt) * (new_profit / 100.0)
+                
+                e.grand_total = adj_subtotal + o_amt + p_amt
             
             session.commit()
 

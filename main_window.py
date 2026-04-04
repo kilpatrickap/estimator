@@ -772,16 +772,53 @@ class MainWindow(QMainWindow):
                 if "old_overhead" in data and "old_profit" in data:
                     if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit']:
                         margin_changed = True
+                
+                # File-based logging (safe for Windows cp1252)
+                try:
+                    _log_path = os.path.join(active_project_dir, "margin_sync.log") if active_project_dir else None
+                    if _log_path:
+                        with open(_log_path, 'a', encoding='utf-8') as _lf:
+                            _lf.write(f"[MAIN] margin_changed={margin_changed}, should_sync={should_sync}, active_project_dir={active_project_dir}\n")
+                            _lf.write(f"[MAIN] overhead={data.get('overhead')}, profit={data.get('profit')}, old_overhead={data.get('old_overhead')}, old_profit={data.get('old_profit')}\n")
+                except: pass
                         
                 if should_sync:
                     if active_project_dir:
                         self._sync_project_settings(active_project_dir, data)
-                        
-                        # Now that Settings have populated the new margins to local estimates in the ORM, Run Wizard
+                        # Now that Settings have populated the new margins to local estimates in the ORM, Run Wizard Automatically
                         if margin_changed:
-                            from margin_migrator_dialog import MarginMigrationDialog
-                            margin_dialog = MarginMigrationDialog(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'], self)
-                            margin_dialog.exec()
+                            from margin_migrator_dialog import MarginMigrationWorker
+                            from PyQt6.QtWidgets import QProgressDialog
+                            from PyQt6.QtCore import QEventLoop, Qt
+                            from PyQt6.QtWidgets import QApplication
+                            
+                            prog = QProgressDialog("Auto-syncing Gross Rates globally...", None, 0, 100, self)
+                            prog.setWindowTitle("Synchronizing Live...")
+                            prog.setWindowModality(Qt.WindowModality.WindowModal)
+                            prog.setAutoClose(True)
+                            prog.setValue(0)
+                            prog.show()
+                            
+                            loop = QEventLoop()
+                            worker = MarginMigrationWorker(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'])
+                            
+                            def update_prog(val, msg):
+                                prog.setValue(val)
+                                prog.setLabelText(msg)
+                                
+                            worker.progress.connect(update_prog)
+                            worker.finished_mig.connect(lambda s, m: loop.quit())
+                            
+                            worker.start()
+                            loop.exec()
+                            
+                            # Automatically refresh all open PBOQ Viewers natively!
+                            for sub in self.mdi_area.subWindowList():
+                                win = sub.widget()
+                                if type(win).__name__ == "PBOQDialog":
+                                    if hasattr(win, '_load_pboq_db'):
+                                        idx = win.pboq_file_selector.currentIndex()
+                                        win._load_pboq_db(idx)
                         
                         # Manual Title/State update for active estimate specifically
                         if active_est and type(active_est).__name__ == "EstimateWindow":
@@ -961,6 +998,7 @@ class MainWindow(QMainWindow):
         project_db_dir = os.path.join(project_dir, "Project Database")
         sor_dir = os.path.join(project_dir, "SOR")
         pboq_dir = os.path.join(project_dir, "Priced BOQs")
+        lib_dir = os.path.join(project_dir, "Imported Library")
 
         # Update Project Databases (project.db) - Save Settings + Labels
         if os.path.exists(project_db_dir):
@@ -975,6 +1013,14 @@ class MainWindow(QMainWindow):
             for f in os.listdir(sor_dir):
                 if f.lower().endswith('.db'):
                     db = DatabaseManager(os.path.join(sor_dir, f))
+                    db.bulk_update_estimate_currency(new_currency)
+                    db.bulk_update_estimate_margins(new_overhead, new_profit)
+
+        # Update Imported Library Databases
+        if os.path.exists(lib_dir):
+            for f in os.listdir(lib_dir):
+                if f.lower().endswith('.db'):
+                    db = DatabaseManager(os.path.join(lib_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
                     db.bulk_update_estimate_margins(new_overhead, new_profit)
 
