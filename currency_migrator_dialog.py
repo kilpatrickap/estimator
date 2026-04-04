@@ -220,7 +220,7 @@ class CurrencyMigrationDialog(QDialog):
     def __init__(self, project_dir, old_currency, new_currency, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Currency Conversion Wizard")
-        self.setMinimumWidth(400)
+        # Removing large fixed sizes to allow for a compact layout
         
         self.project_dir = project_dir
         self.old_currency = old_currency
@@ -230,16 +230,19 @@ class CurrencyMigrationDialog(QDialog):
         
     def _init_ui(self):
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(12)
         
-        title = QLabel(f"<b>Base Currency Change Detected</b><br><br>Changing from <b>{self.old_currency}</b> to <b>{self.new_currency}</b>")
+        title = QLabel(f"<b>Base Currency Change Detected</b><br>Changing from <b>{self.old_currency}</b> to <b>{self.new_currency}</b>")
         title.setWordWrap(True)
         layout.addWidget(title)
         
-        desc = QLabel("Do you want to mathematically scale all existing rates and amounts in this project to reflect the new currency?")
+        desc = QLabel("Do you want to mathematically scale all existing rates and amounts?")
         desc.setWordWrap(True)
         layout.addWidget(desc)
         
         lbl_rate = QLabel("Select operation and Exchange Rate:")
+        lbl_rate.setStyleSheet("font-weight: 500;")
         layout.addWidget(lbl_rate)
         
         input_layout = QHBoxLayout()
@@ -257,10 +260,12 @@ class CurrencyMigrationDialog(QDialog):
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(12)
         self.progress_bar.hide()
         layout.addWidget(self.progress_bar)
         
         self.status_lbl = QLabel()
+        self.status_lbl.setStyleSheet("font-size: 10px; color: #666;")
         self.status_lbl.hide()
         layout.addWidget(self.status_lbl)
         
@@ -270,10 +275,14 @@ class CurrencyMigrationDialog(QDialog):
         self.btn_cancel = self.btn_box.addButton(QDialogButtonBox.StandardButton.Cancel)
         
         self.btn_scale.clicked.connect(self._start_migration)
-        self.btn_just_labels.clicked.connect(self.reject) # Returns Rejected, meaning "Don't scale"
+        self.btn_just_labels.clicked.connect(self.reject) 
         self.btn_cancel.clicked.connect(self._on_cancel)
         
         layout.addWidget(self.btn_box)
+        
+        # Force the window to be exactly as tall as the content plus OS frame margins
+        self.setFixedWidth(520)
+        self.setFixedHeight(self.sizeHint().height())
 
     def _on_cancel(self):
         self.done(-1) # Special code for Cancel
