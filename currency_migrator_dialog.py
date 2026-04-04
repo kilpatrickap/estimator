@@ -2,8 +2,8 @@ import os
 import shutil
 import sqlite3
 import json
-from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QLineEdit, 
-                             QPushButton, QDialogButtonBox, QMessageBox, QProgressBar)
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, 
+                             QPushButton, QDialogButtonBox, QMessageBox, QProgressBar, QComboBox)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QDoubleValidator
 
@@ -14,12 +14,13 @@ class MigrationWorker(QThread):
     progress = pyqtSignal(int, str)
     finished_mig = pyqtSignal(bool, str)
 
-    def __init__(self, project_dir, old_currency, new_currency, rate):
+    def __init__(self, project_dir, old_currency, new_currency, rate, operator='/'):
         super().__init__()
         self.project_dir = project_dir
         self.old_currency = old_currency
         self.new_currency = new_currency
         self.rate = rate
+        self.operator = operator
 
     def run(self):
         try:
@@ -72,43 +73,46 @@ class MigrationWorker(QThread):
         cursor = conn.cursor()
         
         try:
+            op = self.operator
+            if op not in ['*', '/']: op = '/'
+            
             # 1. Update Settings
             cursor.execute("UPDATE settings SET value = ? WHERE key = 'currency'", (self.new_currency,))
             
             # 2. Scale Library Tables
-            cursor.execute("UPDATE materials SET price = price / ? WHERE price IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE materials SET price = price {op} ? WHERE price IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE materials SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE labor SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE labor SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE labor SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE equipment SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE equipment SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE equipment SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE plant SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE plant SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE plant SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE indirect_costs SET amount = amount / ? WHERE amount IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE indirect_costs SET amount = amount {op} ? WHERE amount IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE indirect_costs SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
             # 3. Scale Main Estimates
-            cursor.execute("UPDATE estimates SET grand_total = grand_total / ?, net_total = net_total / ?", (self.rate, self.rate))
+            cursor.execute(f"UPDATE estimates SET grand_total = grand_total {op} ?, net_total = net_total {op} ?", (self.rate, self.rate))
             cursor.execute("UPDATE estimates SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
             # 4. Scale Estimate Internals
-            cursor.execute("UPDATE estimate_materials SET price = price / ? WHERE price IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE estimate_materials SET price = price {op} ? WHERE price IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_materials SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE estimate_labor SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE estimate_labor SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_labor SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE estimate_equipment SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE estimate_equipment SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_equipment SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE estimate_plant SET rate = rate / ? WHERE rate IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE estimate_plant SET rate = rate {op} ? WHERE rate IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_plant SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
-            cursor.execute("UPDATE estimate_indirect_costs SET amount = amount / ? WHERE amount IS NOT NULL", (self.rate,))
+            cursor.execute(f"UPDATE estimate_indirect_costs SET amount = amount {op} ? WHERE amount IS NOT NULL", (self.rate,))
             cursor.execute("UPDATE estimate_indirect_costs SET currency = ? WHERE currency = ?", (self.new_currency, self.old_currency))
             
             conn.commit()
@@ -184,7 +188,10 @@ class MigrationWorker(QThread):
                         try:
                             # Parse out comma-formatted string, scale, format back
                             numeric_val = float(str(v).replace(',', ''))
-                            scaled_val = numeric_val / self.rate
+                            if self.operator == '*':
+                                scaled_val = numeric_val * self.rate
+                            else:
+                                scaled_val = numeric_val / self.rate
                             formatted_val = f"{scaled_val:,.2f}"
                             updates.append((f'"{cols_to_scale[i]}" = ?', formatted_val))
                         except ValueError:
@@ -232,13 +239,20 @@ class CurrencyMigrationDialog(QDialog):
         desc.setWordWrap(True)
         layout.addWidget(desc)
         
-        lbl_rate = QLabel(f"Exchange Rate (1 {self.new_currency} = ? {self.old_currency}):")
+        lbl_rate = QLabel("Select operation and Exchange Rate:")
         layout.addWidget(lbl_rate)
         
+        input_layout = QHBoxLayout()
+        self.operator_combo = QComboBox()
+        self.operator_combo.addItems(["Divide (/)", "Multiply (*)"])
+        input_layout.addWidget(self.operator_combo)
+        
         self.rate_input = QLineEdit()
-        self.rate_input.setPlaceholderText("e.g. 15.5")
+        self.rate_input.setPlaceholderText("e.g. 11.0")
         self.rate_input.setValidator(QDoubleValidator(0.0001, 10000.0, 4))
-        layout.addWidget(self.rate_input)
+        input_layout.addWidget(self.rate_input)
+        input_layout.setStretch(1, 1)
+        layout.addLayout(input_layout)
         
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
@@ -275,17 +289,22 @@ class CurrencyMigrationDialog(QDialog):
             QMessageBox.warning(self, "Validation", "Exchange rate must be greater than zero.")
             return
 
+        op_text = self.operator_combo.currentText()
+        operator = '*' if '*' in op_text else '/'
+        action_word = "multiply" if operator == '*' else "divide"
+
         reply = QMessageBox.question(self, "Confirm Migration", 
-                                    f"Are you sure you want to divide all monetary values in the project by {rate}?\n\nBackups will be created.",
+                                    f"Are you sure you want to {action_word} all monetary values in the project by {rate}?\n\nBackups will be created.",
                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
                                     
         if reply == QMessageBox.StandardButton.Yes:
             self.btn_box.setEnabled(False)
             self.rate_input.setEnabled(False)
+            self.operator_combo.setEnabled(False)
             self.progress_bar.show()
             self.status_lbl.show()
             
-            self.worker = MigrationWorker(self.project_dir, self.old_currency, self.new_currency, rate)
+            self.worker = MigrationWorker(self.project_dir, self.old_currency, self.new_currency, rate, operator)
             self.worker.progress.connect(self._update_progress)
             self.worker.finished_mig.connect(self._migration_finished)
             self.worker.start()
