@@ -296,6 +296,13 @@ class SettingsDialog(QDialog):
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
                 
             self._def_currency = def_currency
+            
+            try:
+                self._def_overhead = float(def_overhead)
+                self._def_profit = float(def_profit)
+            except:
+                self._def_overhead = 15.0
+                self._def_profit = 10.0
                 
             try:
                 def_overhead = f"{float(def_overhead):.2f}"
@@ -528,6 +535,8 @@ class SettingsDialog(QDialog):
             "date": getattr(self, '_def_date', ""),
             "overhead": float(self.proj_overhead.text() or 0),
             "profit": float(self.proj_profit.text() or 0),
+            "old_overhead": getattr(self, '_def_overhead', 0.0),
+            "old_profit": getattr(self, '_def_profit', 0.0),
             "currency": self.proj_currency.currentText(),
             "old_currency": getattr(self, '_def_currency', ""),
             "library_path": ""

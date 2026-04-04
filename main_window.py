@@ -756,6 +756,8 @@ class MainWindow(QMainWindow):
                 active_project_dir = os.path.dirname(os.path.dirname(db_path)) if db_path and "Project Database" in db_path else project_dir
 
                 should_sync = True
+                
+                # Check Currency Migration
                 if data.get('old_currency') and data['currency'] != data['old_currency'] and active_project_dir:
                     from currency_migrator_dialog import CurrencyMigrationDialog
                     from PyQt6.QtWidgets import QDialog
@@ -765,9 +767,23 @@ class MainWindow(QMainWindow):
                         # User cancelled the migration explicitly
                         should_sync = False
                         
+                # Check Margin Migration
+                margin_changed = False
+                if "old_overhead" in data and "old_profit" in data:
+                    if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit']:
+                        margin_changed = True
+                        
+                if should_sync and margin_changed and active_project_dir:
+                    from margin_migrator_dialog import MarginMigrationDialog
+                    from PyQt6.QtWidgets import QDialog
+                    margin_dialog = MarginMigrationDialog(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'], self)
+                    m_result = margin_dialog.exec()
+                    if m_result == -1:
+                        should_sync = False
+                        
                 if should_sync:
                     if active_project_dir:
-                        self._sync_project_currency(active_project_dir, data['currency'], data['library_path'])
+                        self._sync_project_settings(active_project_dir, data)
                         
                         # Manual Title/State update for active estimate specifically
                         if active_est and type(active_est).__name__ == "EstimateWindow":
@@ -778,12 +794,18 @@ class MainWindow(QMainWindow):
                         if active_est and type(active_est).__name__ == "EstimateWindow":
                              active_est.save_state()
                              active_est.estimate.currency = data['currency']
+                             active_est.estimate.overhead_percent = data['overhead']
+                             active_est.estimate.profit_margin_percent = data['profit']
                              active_est.db_manager.bulk_update_estimate_currency(data['currency'])
+                             active_est.db_manager.set_setting('overhead', str(data['overhead']))
+                             active_est.db_manager.set_setting('profit', str(data['profit']))
                              active_est.refresh_view()
                         elif db_path:
                             from database import DatabaseManager
                             temp_db = DatabaseManager(db_path)
                             temp_db.bulk_update_estimate_currency(data['currency'])
+                            temp_db.set_setting('overhead', str(data['overhead']))
+                            temp_db.set_setting('profit', str(data['profit']))
                             temp_db.set_setting('library_path', data['library_path'])
 
 
@@ -925,11 +947,16 @@ class MainWindow(QMainWindow):
             return active.widget()
         return None
 
-    def _sync_project_currency(self, project_dir, new_currency, library_path=None):
-        """Synchronizes the currency across all project files on disk and all open windows."""
+    def _sync_project_settings(self, project_dir, data):
+        """Synchronizes currency, overhead, and profit across all project files and memory views."""
         import re, os
         from database import DatabaseManager
         from pboq_logic import PBOQLogic
+        
+        new_currency = data.get('currency')
+        new_overhead = data.get('overhead', 15.0)
+        new_profit = data.get('profit', 10.0)
+        library_path = data.get('library_path', '')
 
         # 1. SCAN AND UPDATE DISK FILES
         # Define directory paths
@@ -937,14 +964,16 @@ class MainWindow(QMainWindow):
         sor_dir = os.path.join(project_dir, "SOR")
         pboq_dir = os.path.join(project_dir, "Priced BOQs")
 
-        # Update Project Databases (project.db)
+        # Update Project Databases (project.db) - Save Settings + Labels
         if os.path.exists(project_db_dir):
             for f in os.listdir(project_db_dir):
                 if f.lower().endswith('.db'):
                     db = DatabaseManager(os.path.join(project_db_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
+                    db.set_setting('overhead', str(new_overhead))
+                    db.set_setting('profit', str(new_profit))
 
-        # Update SOR / Rates Databases (construction_rates.db)
+        # Update SOR / Rates Databases
         if os.path.exists(sor_dir):
             for f in os.listdir(sor_dir):
                 if f.lower().endswith('.db'):
@@ -974,6 +1003,9 @@ class MainWindow(QMainWindow):
                 if win_type in ["EstimateWindow", "RateBuildUpDialog"]:
                     if hasattr(win, 'estimate'):
                         win.estimate.currency = new_currency
+                        win.estimate.overhead_percent = new_overhead
+                        win.estimate.profit_margin_percent = new_profit
+                        
                         for task in getattr(win.estimate, 'tasks', []):
                             for res_type in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:
                                 for item in getattr(task, res_type, []):
