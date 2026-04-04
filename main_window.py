@@ -752,27 +752,40 @@ class MainWindow(QMainWindow):
             data = dialog.get_project_data()
             if data:
                 import re
-                project_dir = os.path.dirname(os.path.dirname(db_path)) if db_path and "Project Database" in db_path else ""
+                # Use fallback if needed
+                active_project_dir = os.path.dirname(os.path.dirname(db_path)) if db_path and "Project Database" in db_path else project_dir
 
-                if project_dir:
-                    self._sync_project_currency(project_dir, data['currency'], data['library_path'])
-                    
-                    # Manual Title/State update for active estimate specifically
-                    if active_est and type(active_est).__name__ == "EstimateWindow":
-                        active_est.save_state()
-                        active_est.setWindowTitle(f"Estimate: {data['name']}")
-                else:
-                    # Fallback for when no project_dir is identified (singleton db or library edit)
-                    if active_est and type(active_est).__name__ == "EstimateWindow":
-                         active_est.save_state()
-                         active_est.estimate.currency = data['currency']
-                         active_est.db_manager.bulk_update_estimate_currency(data['currency'])
-                         active_est.refresh_view()
-                    elif db_path:
-                        from database import DatabaseManager
-                        temp_db = DatabaseManager(db_path)
-                        temp_db.bulk_update_estimate_currency(data['currency'])
-                        temp_db.set_setting('library_path', data['library_path'])
+                should_sync = True
+                if data.get('old_currency') and data['currency'] != data['old_currency'] and active_project_dir:
+                    from currency_migrator_dialog import CurrencyMigrationDialog
+                    from PyQt6.QtWidgets import QDialog
+                    mig_dialog = CurrencyMigrationDialog(active_project_dir, data['old_currency'], data['currency'], self)
+                    result = mig_dialog.exec()
+                    if result == -1:
+                        # User cancelled the migration explicitly
+                        should_sync = False
+                        
+                if should_sync:
+                    if active_project_dir:
+                        self._sync_project_currency(active_project_dir, data['currency'], data['library_path'])
+                        
+                        # Manual Title/State update for active estimate specifically
+                        if active_est and type(active_est).__name__ == "EstimateWindow":
+                            active_est.save_state()
+                            active_est.setWindowTitle(f"Estimate: {data['name']}")
+                    else:
+                        # Fallback for when no project_dir is identified (singleton db or library edit)
+                        if active_est and type(active_est).__name__ == "EstimateWindow":
+                             active_est.save_state()
+                             active_est.estimate.currency = data['currency']
+                             active_est.db_manager.bulk_update_estimate_currency(data['currency'])
+                             active_est.refresh_view()
+                        elif db_path:
+                            from database import DatabaseManager
+                            temp_db = DatabaseManager(db_path)
+                            temp_db.bulk_update_estimate_currency(data['currency'])
+                            temp_db.set_setting('library_path', data['library_path'])
+
 
     def open_boq_setup(self):
         active_est = self._get_active_estimate_window()

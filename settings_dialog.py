@@ -295,6 +295,8 @@ class SettingsDialog(QDialog):
                 def_profit = proj_db_manager.get_setting('profit', def_profit)
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
                 
+            self._def_currency = def_currency
+                
             try:
                 def_overhead = f"{float(def_overhead):.2f}"
             except (ValueError, TypeError):
@@ -486,6 +488,7 @@ class SettingsDialog(QDialog):
             "overhead": float(self.proj_overhead.text() or 0),
             "profit": float(self.proj_profit.text() or 0),
             "currency": self.proj_currency.currentText(),
+            "old_currency": getattr(self, '_def_currency', ""),
             "library_path": ""
         }
 
