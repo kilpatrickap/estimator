@@ -572,11 +572,18 @@ class PBOQDialog(QDialog):
         
         menu.addSeparator()
         
+        insert_mat_act = None
+        insert_lab_act = None
+        insert_plt_act = None
+        insert_profit_act = None
+        insert_gen_att_act = None
+        insert_spec_att_act = None
+        
         if is_dw:
             insert_mat_act = menu.addAction("Insert Material Daywork")
             insert_lab_act = menu.addAction("Insert Labour Daywork")
             insert_plt_act = menu.addAction("Insert Plant Daywork")
-        else:
+        elif is_pc:
             insert_profit_act = menu.addAction("Insert Profit")
             insert_gen_att_act = menu.addAction("Insert General Attendance")
             insert_spec_att_act = menu.addAction("Insert Special Attendance")
@@ -607,11 +614,11 @@ class PBOQDialog(QDialog):
             self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
             self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw, target_role='bill_amount')
-        elif not is_dw and action == insert_profit_act:
+        elif is_pc and action == insert_profit_act:
             self._insert_attendance_value(table, row, col, rowid, 'profit')
-        elif not is_dw and action == insert_gen_att_act:
+        elif is_pc and action == insert_gen_att_act:
             self._insert_attendance_value(table, row, col, rowid, 'gen_attendance')
-        elif not is_dw and action == insert_spec_att_act:
+        elif is_pc and action == insert_spec_att_act:
             self._insert_attendance_value(table, row, col, rowid, 'spec_attendance')
         elif is_dw and action == insert_mat_act:
             self._insert_daywork_value(table, row, col, rowid, 'mat')
