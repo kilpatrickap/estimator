@@ -39,6 +39,9 @@ class PBOQDialog(QDialog):
         self._pc_selection_mode = False
         self._pc_selection_data = {} # target_rowid, target_row, field_type, etc.
         
+        # Synchronization Flags
+        self._is_syncing_codes = False
+        
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
         
@@ -964,6 +967,7 @@ class PBOQDialog(QDialog):
             rate_role = 'plug_rate' if is_plug else 'rate'
             code_role = 'plug_code' if is_plug else 'rate_code'
         code_col = m.get(code_role, -1)
+        rate_col = m.get(rate_role, -1)
         unit_col = m.get('unit', -1)
         
         if rate_col < 0 or code_col < 0: return
@@ -1215,6 +1219,14 @@ class PBOQDialog(QDialog):
         file_path = self.pboq_file_selector.currentData()
         self.logic.persist_batch_updates(file_path, self.db_columns, display_col, updates)
         
+        # Code Synchronization: If a value column (Plug Rate, etc.) is updated, sync other rows with the same code.
+        if not self._is_syncing_codes:
+            self._is_syncing_codes = True
+            try:
+                self._sync_coded_updates(display_col, updates)
+            finally:
+                self._is_syncing_codes = False
+
         # Mirroring Logic: Sync physical edits to logical subbee columns
         m = self.tools_pane.get_mappings()
         mirror_map = {
@@ -1296,6 +1308,58 @@ class PBOQDialog(QDialog):
         
         # Stats update is fast enough to keep live
         self._update_stats()
+
+    def _sync_coded_updates(self, display_col, updates):
+        """Finds all other rows in the UI sharing the same code as the updated rows and updates their values."""
+        m = self.tools_pane.get_mappings()
+        
+        # Map value columns to their respective source-of-truth code columns
+        sync_map = {
+            m.get('rate'): m.get('rate_code'),
+            m.get('plug_rate'): m.get('plug_code'),
+            m.get('prov_sum'): m.get('prov_sum_code'),
+            m.get('pc_sum'): m.get('pc_sum_code'),
+            m.get('sub_rate'): m.get('sub_code'),
+            m.get('daywork'): m.get('daywork_code')
+        }
+        
+        if display_col not in sync_map or sync_map[display_col] < 0:
+            return
+            
+        code_col_idx = sync_map[display_col]
+        
+        # We collect all updates found to avoid N separate persist calls
+        synced_updates = []
+        
+        for rowid, new_val in updates:
+            # 1. Resolve code for THIS updated row
+            item0 = self.rowid_to_item0.get(rowid)
+            if not item0: continue
+            table = item0.tableWidget()
+            row = item0.row()
+            
+            code_item = table.item(row, code_col_idx)
+            code_text = code_item.text().strip() if code_item else ""
+            if not code_text: continue
+            
+            # 2. Iterate through ALL row items and find matches
+            for other_rowid, other_item0 in self.rowid_to_item0.items():
+                if other_rowid == rowid: continue
+                
+                other_table = other_item0.tableWidget()
+                other_row = other_item0.row()
+                
+                other_code_item = other_table.item(other_row, code_col_idx)
+                if other_code_item and other_code_item.text().strip() == code_text:
+                    # Update UI directly
+                    val_item = other_table.item(other_row, display_col)
+                    if val_item and val_item.text() != new_val:
+                        val_item.setText(new_val)
+                        synced_updates.append((other_rowid, new_val))
+                        
+        # 3. Batch persist the synced results (recursion is prevented by the flag in _persist_updates)
+        if synced_updates:
+            self._persist_updates(display_col, synced_updates, trigger_recalc=True)
 
     def _recalculate_row_extension(self, table, row, rowid):
         """Intelligently recalculates Bill Amount based on item dynamics (Rate vs LumpSum)."""
