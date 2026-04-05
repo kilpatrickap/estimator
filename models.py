@@ -116,9 +116,8 @@ class Estimate:
         subtotal *= adj_factor
 
         overhead = subtotal * (self.overhead_percent / 100.0)
-        # Profit is calculated on (Subtotal + Overhead)
-        # Profit is calculated on (Subtotal + Overhead)
-        profit = (subtotal + overhead) * (self.profit_margin_percent / 100.0)
+        # Both Overhead and Profit are parallel markups on the Prime Cost (Subtotal)
+        profit = subtotal * (self.profit_margin_percent / 100.0)
 
         grand_total = subtotal + overhead + profit
         

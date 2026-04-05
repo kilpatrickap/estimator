@@ -734,7 +734,7 @@ class DatabaseManager:
                 adj_subtotal = subtotal * adj_factor
                 
                 o_amt = adj_subtotal * (new_overhead / 100.0)
-                p_amt = (adj_subtotal + o_amt) * (new_profit / 100.0)
+                p_amt = adj_subtotal * (new_profit / 100.0)
                 
                 e.grand_total = adj_subtotal + o_amt + p_amt
             

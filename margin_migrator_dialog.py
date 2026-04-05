@@ -21,9 +21,9 @@ class MarginMigrationWorker(QThread):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
             
-            # Subtotal * (1 + Overhead%) * (1 + Profit%)
-            old_multiplier = (1 + self.old_overhead / 100.0) * (1 + self.old_profit / 100.0)
-            new_multiplier = (1 + self.new_overhead / 100.0) * (1 + self.new_profit / 100.0)
+            # Multiplier: 1 + Overhead% + Profit% (Parallel Markup)
+            old_multiplier = 1 + (self.old_overhead / 100.0) + (self.old_profit / 100.0)
+            new_multiplier = 1 + (self.new_overhead / 100.0) + (self.new_profit / 100.0)
             
             if old_multiplier <= 0:
                 old_multiplier = 1.0
