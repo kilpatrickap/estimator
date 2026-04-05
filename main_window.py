@@ -773,14 +773,6 @@ class MainWindow(QMainWindow):
                     if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit']:
                         margin_changed = True
                 
-                # File-based logging (safe for Windows cp1252)
-                try:
-                    _log_path = os.path.join(active_project_dir, "margin_sync.log") if active_project_dir else None
-                    if _log_path:
-                        with open(_log_path, 'a', encoding='utf-8') as _lf:
-                            _lf.write(f"[MAIN] margin_changed={margin_changed}, should_sync={should_sync}, active_project_dir={active_project_dir}\n")
-                            _lf.write(f"[MAIN] overhead={data.get('overhead')}, profit={data.get('profit')}, old_overhead={data.get('old_overhead')}, old_profit={data.get('old_profit')}\n")
-                except: pass
                         
                 if should_sync:
                     if active_project_dir:

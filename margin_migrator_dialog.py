@@ -39,7 +39,6 @@ class MarginMigrationWorker(QThread):
             self.progress.emit(100, "Migration Complete.")
             self.finished_mig.emit(True, "All existing Gross Rates have been mathematically scaled to reflect new Overhead & Profit.")
         except Exception as e:
-            import traceback
             self.finished_mig.emit(False, str(e))
 
     def _migrate_sor_gross_rates(self, scale_factor):
