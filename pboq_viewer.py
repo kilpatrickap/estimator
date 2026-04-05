@@ -899,7 +899,8 @@ class PBOQDialog(QDialog):
                             target_role = 'bill_amount'
                     except: pass
         else:
-            return # Only plug rates, prov sums, pc sums, and dayworks are supported for this linking mechanism
+            source_role = 'rate'
+            if not target_role: target_role = 'bill_rate'
 
         source_col = m.get(source_role, -1)
         target_col = m.get(target_role, -1)
@@ -1210,6 +1211,8 @@ class PBOQDialog(QDialog):
                 self._persist_updates(code_col, [(rowid, new_code)])
                 
             self._update_stats()
+            # Automate Link to Bill Rate to skip manual process
+            self._link_item_to_bill(table, row, rowid)
 
 
 
@@ -2197,6 +2200,8 @@ class PBOQDialog(QDialog):
 
         if priced_count > 0:
             QMessageBox.information(self, "Pricing Successful", f"Found and applied matching rates for {priced_count} items using the project SOR.")
+            # Automate Link to Bill Rate for the entire sheet to skip manual process
+            self._run_link_bill_to_rate_logic()
         else:
             QMessageBox.information(self, "No Matches", "No matching items were found in the SOR for the current PBOQ view using strict validation.\n\nTips:\n- Ensure the 'Sheet' names in SOR match the PBOQ tab names.\n- Ensure Quantity values are identical (including decimal precision).")
             # Reset button state

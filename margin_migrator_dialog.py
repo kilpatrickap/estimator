@@ -200,6 +200,7 @@ class MarginMigrationWorker(QThread):
             m_code = 7
             m_qty = -1
             m_ref = -1
+            m_bill_rate = -1
             
             pboq_state_dir = os.path.join(self.project_dir, "PBOQ States")
             pboq_state_file = os.path.join(pboq_state_dir, db_basename + ".json")
@@ -228,11 +229,26 @@ class MarginMigrationWorker(QThread):
                             if m_qty_pst >= 0: m_qty = m_qty_pst
                             m_ref_pst = pst['mappings'].get('ref', -1)
                             if m_ref_pst >= 0: m_ref = m_ref_pst
+                            m_bill_rate_pst = pst['mappings'].get('bill_rate', -1)
+                            if m_bill_rate_pst >= 0: m_bill_rate = m_bill_rate_pst
                 except: pass
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
             try:
+                cursor.execute('SELECT rowid FROM pboq_items ORDER BY rowid')
+                all_rows = cursor.fetchall()
+                rowid_to_gidx = {r[0]: idx for idx, r in enumerate(all_rows)}
+                
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_formatting'")
+                has_fmt_table = bool(cursor.fetchone())
+                formatting_map = {}
+                if has_fmt_table:
+                    cursor.execute('SELECT row_idx, col_idx, fmt_json FROM pboq_formatting')
+                    for r_idx, c_idx, fmt_str in cursor.fetchall():
+                        try: formatting_map[(r_idx, c_idx)] = json.loads(fmt_str)
+                        except: pass
+
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
                 
@@ -248,6 +264,7 @@ class MarginMigrationWorker(QThread):
                 if m_rate >= 0 and f'"Column {m_rate}"' not in target_cols: target_cols.append(f'"Column {m_rate}"')
                 if m_amt >= 0 and f'"Column {m_amt}"' not in target_cols: target_cols.append(f'"Column {m_amt}"')
                 if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
+                if m_bill_rate >= 0 and f'"Column {m_bill_rate}"' not in target_cols: target_cols.append(f'"Column {m_bill_rate}"')
                 
                 q_cols = ", ".join(target_cols)
                 has_code = "RateCode" in db_cols
@@ -280,6 +297,18 @@ class MarginMigrationWorker(QThread):
                 for row in rows:
                     rowid = row[0]
                     v_gross = row[1] # GrossRate is at index 1
+                    g_idx = rowid_to_gidx.get(rowid, -1)
+                    
+                    is_rate_linked = False
+                    is_amt_linked = False
+                    
+                    if g_idx >= 0 and m_bill_rate >= 0:
+                        if formatting_map.get((g_idx, m_bill_rate), {}).get('bg_color', '').lower() == '#e8f5e9':
+                            is_rate_linked = True
+                            
+                    if g_idx >= 0 and m_amt >= 0:
+                        if formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower() == '#e8f5e9':
+                            is_amt_linked = True
                     
                     code_val = ""
                     # Grab logical code if exists
@@ -354,11 +383,22 @@ class MarginMigrationWorker(QThread):
                             cv = row[i+1] # +1 because rowid is 0
                             
                             if m_amt >= 0 and col_name == f'Column {m_amt}':
-                                # It's an Amount column. Amount = Qty * new Rate
-                                c_scaled = scaled_val * qty_val
-                                c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
-                                c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
-                                row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
+                                if is_amt_linked:
+                                    c_scaled = scaled_val * qty_val
+                                    c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                    c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
+                                    row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
+                                else:
+                                    row_update_vals.append(cv)
+                                continue
+                            
+                            if m_bill_rate >= 0 and col_name == f'Column {m_bill_rate}':
+                                if is_rate_linked:
+                                    c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                    c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
+                                    row_update_vals.append(f"{c_sym}{scaled_val:,.2f}".strip())
+                                else:
+                                    row_update_vals.append(cv)
                                 continue
                             
                             if m_rate >= 0 and col_name == f'Column {m_rate}':
