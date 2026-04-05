@@ -950,8 +950,7 @@ class PBOQDialog(QDialog):
             self.logic.persist_batch_cell_formatting(db_path, target_col, fmt_updates)
 
             # --- Recalculation logic ---
-            # Now that we've updated the target cell and its color, trigger the sync and recalc engine
-            self._sync_logical_assignment_columns()
+            # Now that we've updated the target cell and its color, trigger the recalc engine
             self._recalculate_row_extension(table, row, rowid)
             
         self._update_stats()
@@ -1252,6 +1251,7 @@ class PBOQDialog(QDialog):
 
         # --- LIVE RECALCULATION ENGINE ---
         if trigger_recalc and not self.is_updating_logic:
+            extension_updates = []
             # We must be careful not to create infinite recursion, so we only trigger this for non-recursive calls
             for rowid, new_val in updates:
                 # Resolve the row in UI
@@ -1262,7 +1262,9 @@ class PBOQDialog(QDialog):
 
                 # Rule 1: If Qty or Bill Rate changes, recalculate Extension (if applicable)
                 if display_col == m.get('qty') or display_col == m.get('bill_rate'):
-                    self._recalculate_row_extension(table, row, rowid)
+                    ext_upd = self._recalculate_row_extension(table, row, rowid, batch_mode=True)
+                    if ext_upd:
+                        extension_updates.append(ext_upd)
 
                 # Rule 2: If a Pricing Source changes, check for "Smart Links" (Propagation)
                 # Gross Rate Edit
@@ -1302,6 +1304,9 @@ class PBOQDialog(QDialog):
                     if bill_amt_item and bill_amt_item.background().color().name().lower() == const.COLOR_PROV_SUM.name().lower():
                         bill_amt_item.setText(new_val)
                         self._persist_updates(m['bill_amount'], [(rowid, new_val)])
+
+            if extension_updates:
+                self._persist_updates(m.get('bill_amount'), extension_updates, trigger_recalc=False)
 
         # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
         # AND we are not already in a logic update.
@@ -1364,7 +1369,7 @@ class PBOQDialog(QDialog):
         if synced_updates:
             self._persist_updates(display_col, synced_updates, trigger_recalc=True)
 
-    def _recalculate_row_extension(self, table, row, rowid):
+    def _recalculate_row_extension(self, table, row, rowid, batch_mode=False):
         """Intelligently recalculates Bill Amount based on item dynamics (Rate vs LumpSum)."""
         m = self.tools_pane.get_mappings()
         bill_rate_col = m.get('bill_rate', -1)
@@ -1414,15 +1419,20 @@ class PBOQDialog(QDialog):
                     amt_val = round(q_val * r_val, 2)
                     amt_str = "{:,.2f}".format(amt_val)
                     
-                    if amt_item.text() != amt_str:
+                    changed = (amt_item.text() != amt_str)
+                    if changed:
                         amt_item.setText(amt_str)
-                    # Avoid infinite recalc loops by passing trigger_recalc=False
-                    self._persist_updates(bill_amount_col, [(rowid, amt_str)], trigger_recalc=False)
+                        if batch_mode:
+                            return (rowid, amt_str)
+                        else:
+                            # Avoid infinite recalc loops by passing trigger_recalc=False
+                            self._persist_updates(bill_amount_col, [(rowid, amt_str)], trigger_recalc=False)
                 except ValueError: pass
         else:
             # Lumpsum Dynamics: Amount is needed, ignore Quantity changes
             # (Logic handled by simply doing nothing here)
             pass
+        return None
 
 
 
@@ -2402,9 +2412,7 @@ class PBOQDialog(QDialog):
                     amt_updates.append((row_id, active_val_str))
                     amt_fmt.append(fmt_info)
                 
-                # RECALCULATE after individual item update to handle the math chain
-                # (We do this row-by-row to ensure the UI stays in sync)
-                self._recalculate_row_extension(table, r, row_id)
+                # We skip inline recalculation here because _persist_updates handles it natively in batch mode.
                 processed_count += 1
 
         # Persistence
