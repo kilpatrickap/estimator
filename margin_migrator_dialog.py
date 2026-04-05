@@ -76,6 +76,7 @@ class MarginMigrationWorker(QThread):
                                 gt = est_obj.calculate_totals()['grand_total']
                                 native_rates[cde.strip().upper()] = gt
                 except Exception as ex:
+                    pass
         
         for d in target_dirs:
             for f in os.listdir(d):
@@ -165,6 +166,7 @@ class MarginMigrationWorker(QThread):
                                 gt = est_obj.calculate_totals()['grand_total']
                                 native_rates[cde.strip().upper()] = gt
                 except Exception as ex:
+                    pass
         pboq_files = [f for f in os.listdir(pboq_dir) if f.endswith('.db')]
         for f in pboq_files:
             db_path = os.path.join(pboq_dir, f)
