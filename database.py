@@ -706,6 +706,14 @@ class DatabaseManager:
             session.query(DBEstimatePlant).update({DBEstimatePlant.currency: new_currency})
             session.query(DBEstimateIndirectCost).update({DBEstimateIndirectCost.currency: new_currency})
             
+            # 4. Update Library items currency so that Resource views also reflect the global change
+            from orm_models import Material, Labor, Equipment, Plant, IndirectCost
+            session.query(Material).update({Material.currency: new_currency})
+            session.query(Labor).update({Labor.currency: new_currency})
+            session.query(Equipment).update({Equipment.currency: new_currency})
+            session.query(Plant).update({Plant.currency: new_currency})
+            session.query(IndirectCost).update({IndirectCost.currency: new_currency})
+            
             session.commit()
 
     def bulk_update_estimate_margins(self, new_overhead, new_profit):

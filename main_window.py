@@ -1063,6 +1063,17 @@ class MainWindow(QMainWindow):
                     if hasattr(win, '_load_pboq_db'):
                         idx = win.pboq_file_selector.currentIndex()
                         win._load_pboq_db(idx)
+                        
+                # Update Library and Rate Database Views
+                elif win_type == "DatabaseManagerDialog":
+                    if hasattr(win, 'load_data'):
+                        for table in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:
+                            win.load_data(table)
+                elif win_type == "RateManagerDialog":
+                    if hasattr(win, 'load_rates'):
+                        win.load_rates()
+                    if hasattr(win, 'load_project_rates'):
+                        win.load_project_rates()
 
     def _apply_zoom_to_subwindow(self, sub):
         """Applies the current global zoom scale to a newly added subwindow."""
