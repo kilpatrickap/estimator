@@ -17,20 +17,9 @@ class MarginMigrationWorker(QThread):
         self.new_overhead = new_overhead
         self.new_profit = new_profit
 
-    def _log(self, msg):
-        """Write log to file to avoid cp1252 encoding crashes on Windows terminals."""
-        try:
-            log_path = os.path.join(self.project_dir, "margin_sync.log")
-            with open(log_path, 'a', encoding='utf-8') as f:
-                from datetime import datetime
-                f.write(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}\n")
-        except: pass
-
     def run(self):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
-            
-            self._log(f"Old O={self.old_overhead}, Old P={self.old_profit}, New O={self.new_overhead}, New P={self.new_profit}")
             
             # Subtotal * (1 + Overhead%) * (1 + Profit%)
             old_multiplier = (1 + self.old_overhead / 100.0) * (1 + self.old_profit / 100.0)
@@ -40,7 +29,6 @@ class MarginMigrationWorker(QThread):
                 old_multiplier = 1.0
                 
             scale_factor = new_multiplier / old_multiplier
-            self._log(f"old_mult={old_multiplier}, new_mult={new_multiplier}, scale={scale_factor}")
             
             self.progress.emit(30, "Migrating PBOQ files (Gross Rates only)...")
             self._migrate_pboq_gross_rates(scale_factor)
@@ -49,11 +37,9 @@ class MarginMigrationWorker(QThread):
             self._migrate_sor_gross_rates(scale_factor)
             
             self.progress.emit(100, "Migration Complete.")
-            self._log("Migration completed successfully.")
             self.finished_mig.emit(True, "All existing Gross Rates have been mathematically scaled to reflect new Overhead & Profit.")
         except Exception as e:
             import traceback
-            self._log(f"ERROR: {traceback.format_exc()}")
             self.finished_mig.emit(False, str(e))
 
     def _migrate_sor_gross_rates(self, scale_factor):
@@ -89,10 +75,7 @@ class MarginMigrationWorker(QThread):
                             if est_obj:
                                 gt = est_obj.calculate_totals()['grand_total']
                                 native_rates[cde.strip().upper()] = gt
-                                self._log(f"  SOR native: {cde} -> O={est_obj.overhead_percent}% P={est_obj.profit_margin_percent}% GT={gt} (from {f})")
                 except Exception as ex:
-                    self._log(f"  SOR scan error on {f}: {ex}")
-        self._log(f"SOR: {len(native_rates)} native rates loaded, {len(target_dirs)} target dirs")
         
         for d in target_dirs:
             for f in os.listdir(d):
@@ -181,12 +164,8 @@ class MarginMigrationWorker(QThread):
                             if est_obj:
                                 gt = est_obj.calculate_totals()['grand_total']
                                 native_rates[cde.strip().upper()] = gt
-                                self._log(f"  PBOQ native: {cde} -> O={est_obj.overhead_percent}% P={est_obj.profit_margin_percent}% GT={gt} (from {f})")
                 except Exception as ex:
-                    self._log(f"  PBOQ scan error on {f}: {ex}")
-        self._log(f"PBOQ: {len(native_rates)} native rates loaded")
         pboq_files = [f for f in os.listdir(pboq_dir) if f.endswith('.db')]
-        self._log(f"PBOQ: found {len(pboq_files)} pboq files: {pboq_files}")
         for f in pboq_files:
             db_path = os.path.join(pboq_dir, f)
             db_basename = f
@@ -251,10 +230,7 @@ class MarginMigrationWorker(QThread):
 
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
-                
-                self._log(f"  PBOQ {f}: cols={db_cols}")
                 if "GrossRate" not in db_cols:
-                    self._log(f"  PBOQ {f}: NO GrossRate column, skipping")
                     conn.close()
                     continue
                     
@@ -285,11 +261,8 @@ class MarginMigrationWorker(QThread):
                     where_clauses.append(f'("Column {m_ref}" IS NOT NULL AND "Column {m_ref}" != "")')
                     
                 query_str += ' FROM pboq_items WHERE ' + ' OR '.join(where_clauses)
-                
-                self._log(f"  PBOQ {f}: query={query_str}")
                 cursor.execute(query_str)
                 rows = cursor.fetchall()
-                self._log(f"  PBOQ {f}: {len(rows)} candidate rows found")
                 
                 updates = []
                 cols_to_update = [c.strip('"') for c in target_cols]
@@ -440,14 +413,11 @@ class MarginMigrationWorker(QThread):
                         
                     except ValueError:
                         pass
-                self._log(f"  PBOQ {f}: {len(updates)} rows to update, cols={cols_to_update}")
                 if updates:
                     set_clause = ", ".join([f'"{c}" = ?' for c in cols_to_update])
-                    self._log(f"  PBOQ {f}: SQL SET={set_clause}, sample={updates[0]}")
                     cursor.executemany(f'UPDATE pboq_items SET {set_clause} WHERE rowid = ?', updates)
                     
                 conn.commit()
-                self._log(f"  PBOQ {f}: committed successfully")
             except Exception as e:
                 conn.rollback()
                 raise e
