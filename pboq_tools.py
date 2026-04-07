@@ -224,8 +224,7 @@ class PBOQToolsPane(QWidget):
         
         layout.addWidget(scroll_area)
 
-    def populate_column_combos(self, num_columns):
-        explicit_columns = [f"Column {i}" for i in range(num_columns)]
+    def populate_column_combos(self, column_names):
         combos = [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit, 
                   self.cb_bill_rate, self.cb_bill_amount, 
                   self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
@@ -239,59 +238,67 @@ class PBOQToolsPane(QWidget):
             cb.blockSignals(True)
             cb.clear()
             cb.addItem("-- Select Column --")
-            cb.addItems(explicit_columns)
+            cb.addItems(column_names)
             
-        # Set default mappings if columns exist
-        if num_columns > 4: self.cb_bill_rate.setCurrentIndex(5)   # Column 4
-        if num_columns > 5: self.cb_bill_amount.setCurrentIndex(6) # Column 5
-        if num_columns > 6: self.cb_rate.setCurrentIndex(7)        # Column 6
-        if num_columns > 7: self.cb_rate_code.setCurrentIndex(8)   # Column 7
-        if num_columns > 8: self.cb_plug_rate.setCurrentIndex(9)   # Column 8
-        if num_columns > 9: self.cb_plug_code.setCurrentIndex(10)  # Column 9
-        if num_columns > 10: self.cb_prov_sum.setCurrentIndex(11)  # Column 10
-        if num_columns > 11: self.cb_prov_sum_code.setCurrentIndex(12)  # Column 11
-        if num_columns > 12: self.cb_pc_sum.setCurrentIndex(13)  # Column 12
-        if num_columns > 13: self.cb_pc_sum_code.setCurrentIndex(14)  # Column 13
-        if num_columns > 14: self.cb_daywork.setCurrentIndex(15)       # Column 14
-        if num_columns > 15: self.cb_daywork_code.setCurrentIndex(16)  # Column 15
-        if num_columns > 16: self.cb_sub_package.setCurrentIndex(17) # Column 16
-        if num_columns > 17: self.cb_sub_name.setCurrentIndex(18)    # Column 17
-        if num_columns > 18: self.cb_sub_rate.setCurrentIndex(19)    # Column 18
-        if num_columns > 19: self.cb_sub_markup.setCurrentIndex(20)  # Column 19
-        if num_columns > 20: self.cb_sub_category.setCurrentIndex(21) # Column 20
-        if num_columns > 21: self.cb_sub_code.setCurrentIndex(22)     # Column 21
+        # Standard Smart-Detection (Role to DB column name mapping)
+        smart_map = {
+            self.cb_rate: "GrossRate",
+            self.cb_rate_code: "RateCode",
+            self.cb_plug_rate: "PlugRate",
+            self.cb_plug_code: "PlugCode",
+            self.cb_prov_sum: "ProvSum",
+            self.cb_prov_sum_code: "ProvSumCode",
+            self.cb_pc_sum: "PCSum",
+            self.cb_pc_sum_code: "PCSumCode",
+            self.cb_daywork: "Daywork",
+            self.cb_daywork_code: "DayworkCode",
+            self.cb_sub_package: "SubbeePackage",
+            self.cb_sub_name: "SubbeeName",
+            self.cb_sub_rate: "SubbeeRate",
+            self.cb_sub_markup: "SubbeeMarkup",
+            self.cb_sub_category: "SubbeeCategory",
+            self.cb_sub_code: "SubbeeCode"
+        }
         
+        for cb, db_name in smart_map.items():
+            idx = cb.findText(db_name, Qt.MatchFlag.MatchExactly)
+            if idx >= 0:
+                cb.setCurrentIndex(idx)
+        
+        # Fallback for Bill Rate/Amount if not already set (look for common indices 4,5 if they are "Column X")
+        if self.cb_bill_rate.currentIndex() <= 0 and len(column_names) > 4:
+            if "Column 4" in column_names: self.cb_bill_rate.setCurrentIndex(column_names.index("Column 4") + 1)
+        if self.cb_bill_amount.currentIndex() <= 0 and len(column_names) > 5:
+            if "Column 5" in column_names: self.cb_bill_amount.setCurrentIndex(column_names.index("Column 5") + 1)
+
         for cb in combos:
             cb.blockSignals(False)
 
     def get_mappings(self):
-        """Returns the current column mappings. Now enforces standardized indices (4-15) for Pricing/Subbee."""
+        """Returns the current column mappings based on UI selections."""
         m = {
             'ref': self.cb_ref.currentIndex() - 1,
             'desc': self.cb_desc.currentIndex() - 1,
             'qty': self.cb_qty.currentIndex() - 1,
             'unit': self.cb_unit.currentIndex() - 1,
-            
-            # Standard Fixed Columns (from Column 4 onwards)
-            # This order MUST match exactly the order expected by load_pboq and table_labels
-            'bill_rate': 4,
-            'bill_amount': 5,
-            'rate': 6,
-            'rate_code': 7,
-            'plug_rate': 8,
-            'plug_code': 9,
-            'prov_sum': 10,
-            'prov_sum_code': 11,
-            'pc_sum': 12,
-            'pc_sum_code': 13,
-            'daywork': 14,
-            'daywork_code': 15,
-            'sub_package': 16,
-            'sub_name': 17,
-            'sub_rate': 18,
-            'sub_markup': 19,
-            'sub_category': 20,
-            'sub_code': 21
+            'bill_rate': self.cb_bill_rate.currentIndex() - 1,
+            'bill_amount': self.cb_bill_amount.currentIndex() - 1,
+            'rate': self.cb_rate.currentIndex() - 1,
+            'rate_code': self.cb_rate_code.currentIndex() - 1,
+            'plug_rate': self.cb_plug_rate.currentIndex() - 1,
+            'plug_code': self.cb_plug_code.currentIndex() - 1,
+            'prov_sum': self.cb_prov_sum.currentIndex() - 1,
+            'prov_sum_code': self.cb_prov_sum_code.currentIndex() - 1,
+            'pc_sum': self.cb_pc_sum.currentIndex() - 1,
+            'pc_sum_code': self.cb_pc_sum_code.currentIndex() - 1,
+            'daywork': self.cb_daywork.currentIndex() - 1,
+            'daywork_code': self.cb_daywork_code.currentIndex() - 1,
+            'sub_package': self.cb_sub_package.currentIndex() - 1,
+            'sub_name': self.cb_sub_name.currentIndex() - 1,
+            'sub_rate': self.cb_sub_rate.currentIndex() - 1,
+            'sub_markup': self.cb_sub_markup.currentIndex() - 1,
+            'sub_category': self.cb_sub_category.currentIndex() - 1,
+            'sub_code': self.cb_sub_code.currentIndex() - 1
         }
         return m
     

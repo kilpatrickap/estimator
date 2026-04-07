@@ -257,7 +257,7 @@ class PBOQDialog(QDialog):
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
             sheet_groups[sheet_name].append((g_idx, row_id, physical_data[1:]))
             
-        self.tools_pane.populate_column_combos(num_display_cols)
+        self.tools_pane.populate_column_combos(display_col_names)
         
         progress = QProgressDialog("Loading Sheets...", None, 0, len(rows), self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
