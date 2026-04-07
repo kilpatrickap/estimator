@@ -303,27 +303,14 @@ class PBOQToolsPane(QWidget):
         return m
     
     def set_mappings(self, data):
+        # Only restore user-configurable columns. Auto-detected columns
+        # (rates, subbee, etc.) are set by populate_column_combos and must
+        # NOT be overridden by stale saved state values.
         mapping_keys = {
             'ref': self.cb_ref,
             'desc': self.cb_desc,
             'qty': self.cb_qty,
             'unit': self.cb_unit,
-            'bill_rate': self.cb_bill_rate,
-            'bill_amount': self.cb_bill_amount,
-            'rate': self.cb_rate,
-            'rate_code': self.cb_rate_code,
-            'plug_rate': self.cb_plug_rate,
-            'plug_code': self.cb_plug_code,
-            'prov_sum': self.cb_prov_sum,
-            'prov_sum_code': self.cb_prov_sum_code,
-            'pc_sum': self.cb_pc_sum,
-            'pc_sum_code': self.cb_pc_sum_code,
-            'daywork': self.cb_daywork,
-            'daywork_code': self.cb_daywork_code,
-            'sub_package': self.cb_sub_package,
-            'sub_name': self.cb_sub_name,
-            'sub_rate': self.cb_sub_rate,
-            'sub_markup': self.cb_sub_markup
         }
         for key, cb in mapping_keys.items():
             if key in data:
