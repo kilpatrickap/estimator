@@ -2581,7 +2581,6 @@ class PBOQDialog(QDialog):
             conn.close()
         except: pass
 
-        import re
         pattern = re.compile(rf"^{re.escape(sr_prefix)}(\d+)([A-Z])$")
         max_num = 1
         max_letter = '@'
@@ -2780,7 +2779,6 @@ class PBOQDialog(QDialog):
         
         def _get_next_code(p, codes, current_idx):
             """Returns the Nth code in a sequence starting from the last known code in the DB."""
-            import re
             pattern = re.compile(rf"^{re.escape(p)}(\d+)([A-Z])$")
             max_num = 1
             max_letter = '@' # Before 'A'
