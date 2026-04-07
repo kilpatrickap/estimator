@@ -1640,6 +1640,12 @@ class PBOQDialog(QDialog):
             'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
         }
         
+        # Determine the rightmost boundary for standard columns to keep unmapped columns hidden beyond it.
+        # This keeps the view clean by hiding empty trailing database columns while allowing initial mapping.
+        std_roles = ['ref', 'desc', 'qty', 'unit', 'bill_rate', 'bill_amount']
+        max_std_idx = max([m.get(r, -1) for r in std_roles] + [-1])
+        boundary = max(max_std_idx, 5) # Always allow at least 6 columns to be visible for initial mapping
+
         map_inv = {v: k for k, v in m.items() if v >= 0}
         
         for idx in range(self.tabs.count()):
@@ -1651,10 +1657,11 @@ class PBOQDialog(QDialog):
                 role = map_inv.get(i)
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
-                # Hide ALL columns that aren't mapped to a recognized role.
-                # The active price type's columns will be selectively shown
-                # by _toggle_rate_visibility immediately after this loop.
-                table.setColumnHidden(i, role is None)
+                
+                # Hide only if the column is unmapped AND it is beyond our standard BOQ boundary.
+                # Pricing-specific columns will still be selectively hidden by _toggle_rate_visibility later.
+                hide = (role is None and i > boundary)
+                table.setColumnHidden(i, hide)
             
             table.setHorizontalHeaderLabels(headers)
             
