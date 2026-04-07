@@ -121,13 +121,13 @@ class PackageSummaryDialog(QDialog):
                 self.table.setCellWidget(i, 1, container)
 
                 # Col 2: Markup (%)
-                # Priority: 1. Metadata Setting, 2. Existing PBOQ Value, 3. Project Default (20%)
+                # Priority: 1. Metadata Setting, 2. Existing PBOQ Value, 3. Project Default (10%)
                 m_val = pkg_settings.get(pkg, {}).get('markup')
                 if m_val is None:
                     try:
-                        m_val = float(markup) if markup else 20.0
+                        m_val = float(markup) if markup else 10.0
                     except:
-                        m_val = 20.0
+                        m_val = 10.0
                 
                 markup_item = QTableWidgetItem("{:,.2f}%".format(m_val))
                 markup_item.setTextAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
@@ -264,7 +264,7 @@ class PackageSummaryDialog(QDialog):
             # Fetch Markup
             raw_m = self.table.item(i, 2).text().replace(',', '').replace('%', '')
             try: m_val = float(raw_m)
-            except: m_val = 20.0
+            except: m_val = 10.0
             
             # Fetch Notes
             notes_widget = self.table.cellWidget(i, 3)
