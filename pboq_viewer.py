@@ -1629,14 +1629,10 @@ class PBOQDialog(QDialog):
                 role = map_inv.get(i)
                 name = friends.get(role, f"Column {i}")
                 headers.append(name)
-                
-                # Automatically hide blank/extra columns beyond the standard pricing range (20 columns)
-                # but only if they aren't mapped to anything.
-                if i >= 20:
-                    table.setColumnHidden(i, role is None)
-                else:
-                    # Ensure standard columns (0-7) are visible so user can map them
-                    table.setColumnHidden(i, False)
+                # Hide ALL columns that aren't mapped to a recognized role.
+                # The active price type's columns will be selectively shown
+                # by _toggle_rate_visibility immediately after this loop.
+                table.setColumnHidden(i, role is None)
             
             table.setHorizontalHeaderLabels(headers)
             
