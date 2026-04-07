@@ -246,7 +246,7 @@ class PBOQDialog(QDialog):
                     logical_val = logical_data[l_idx]
                     if role in logical_authoritative:
                         # Always prefer the logical store for category/code
-                        if logical_val and logical_val != "None":
+                        if logical_val is not None and str(logical_val) != "None":
                             physical_data[p_idx + 1] = logical_val
                     else:
                         # Fallback: only use logical if physical is empty
