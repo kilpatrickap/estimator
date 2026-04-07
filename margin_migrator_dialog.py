@@ -428,7 +428,7 @@ class MarginMigrationWorker(QThread):
                 conn.close()
 
 class MarginMigrationDialog(QDialog):
-    def __init__(self, project_dir, old_overhead, old_profit, new_overhead, new_profit, parent=None):
+    def __init__(self, project_dir, old_overhead, old_profit, new_overhead, new_profit, old_factor=1.0, new_factor=1.0, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Margin Adjustment Wizard")
         
@@ -437,6 +437,8 @@ class MarginMigrationDialog(QDialog):
         self.old_p = old_profit
         self.new_o = new_overhead
         self.new_p = new_profit
+        self.old_f = old_factor
+        self.new_f = new_factor
         
         self.setMinimumSize(450, 300)
         self._init_ui()
@@ -495,7 +497,7 @@ class MarginMigrationDialog(QDialog):
         self.progress_bar.show()
         self.status_lbl.show()
         
-        self.worker = MarginMigrationWorker(self.project_dir, self.old_o, self.old_p, self.new_o, self.new_p)
+        self.worker = MarginMigrationWorker(self.project_dir, self.old_o, self.old_p, self.new_o, self.new_p, self.old_f, self.new_f)
         self.worker.progress.connect(self._update_progress)
         self.worker.finished_mig.connect(self._migration_finished)
         self.worker.start()

@@ -85,7 +85,8 @@ class DatabaseManager:
             session.add_all([
                 Setting(key='currency', value='GHS (₵)'),
                 Setting(key='overhead', value='15.0'),
-                Setting(key='profit', value='10.0')
+                Setting(key='profit', value='10.0'),
+                Setting(key='factor', value='1.0')
             ])
 
             # Add Materials

@@ -50,6 +50,7 @@ class EstimateWindow(QMainWindow):
                 currency=estimate_data.get('currency', "GHS (₵)"),
                 date=estimate_data.get('date')
             )
+            self.estimate.adjustment_factor = float(estimate_data.get('factor', 1.0))
         else:
             self.estimate = Estimate("Error", "Error", 0, 0)
 

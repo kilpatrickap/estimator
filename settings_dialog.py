@@ -289,7 +289,7 @@ class SettingsDialog(QDialog):
             def_overhead = str(self.estimate.overhead_percent) if self.estimate else "15.0"
             def_profit = str(self.estimate.profit_margin_percent) if self.estimate else "10.0"
             def_currency = self.estimate.currency if self.estimate else "GHS (₵)"
-            def_factor = str(getattr(self.estimate, 'factor', "1.00")) if self.estimate else "1.00"
+            def_factor = str(getattr(self.estimate, 'adjustment_factor', "1.00")) if self.estimate else "1.00"
 
             if not self.estimate and proj_db_manager:
                 def_overhead = proj_db_manager.get_setting('overhead', def_overhead)

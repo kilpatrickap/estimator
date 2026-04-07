@@ -28,8 +28,14 @@ class ProfitOverheadDialog(QDialog):
         self.profit_input.setValidator(pct_validator)
         self.profit_input.setText(f"{self.estimate.profit_margin_percent:.2f}")
 
+        # Factor
+        self.factor_input = QLineEdit()
+        self.factor_input.setValidator(QDoubleValidator(0.0, 1000.0, 2))
+        self.factor_input.setText(f"{getattr(self.estimate, 'adjustment_factor', 1.0):.2f}")
+
         form_layout.addRow("Overhead (%):", self.overhead_input)
         form_layout.addRow("Profit (%):", self.profit_input)
+        form_layout.addRow("Factor (default):", self.factor_input)
 
         layout.addLayout(form_layout)
 
@@ -47,9 +53,11 @@ class ProfitOverheadDialog(QDialog):
         try:
             overhead = float(self.overhead_input.text())
             profit = float(self.profit_input.text())
+            factor = float(self.factor_input.text())
             
             self.estimate.overhead_percent = overhead
             self.estimate.profit_margin_percent = profit
+            self.estimate.adjustment_factor = factor
             
             self.accept()
         except ValueError:
