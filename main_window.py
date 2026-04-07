@@ -1355,17 +1355,6 @@ class NewEstimateDialog(QDialog):
         self.location = QLineEdit("Location")
         self.project_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy", date=QDate.currentDate())
         
-        validator = QDoubleValidator(0.0, 100.0, 2, notation=QDoubleValidator.Notation.StandardNotation)
-        
-        self.overhead = QLineEdit('15.00')
-        self.overhead.setValidator(validator)
-        self.profit = QLineEdit('10.00')
-        self.profit.setValidator(validator)
-        
-        # New Factor field
-        self.factor = QLineEdit('1.00')
-        self.factor.setValidator(QDoubleValidator(0.0, 1000.0, 2))
-        
         self.currency = QComboBox()
         self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
         self.currency.setCurrentText('GHS (₵)')
@@ -1399,9 +1388,6 @@ class NewEstimateDialog(QDialog):
         layout.addRow("Project Name:", self.project_name)
         layout.addRow("Location:", self.location)
         layout.addRow("Project Date:", self.project_date)
-        layout.addRow("Overhead (%):", self.overhead)
-        layout.addRow("Profit (%):", self.profit)
-        layout.addRow("Factor (default):", self.factor)
         layout.addRow("Currency:", self.currency)
         layout.addRow("Library(ies):", self.library_layout)
         layout.addRow("Project Directory:", self.project_dir_layout)
@@ -1482,9 +1468,9 @@ class NewEstimateDialog(QDialog):
             "name": project_name,
             "client": self.location.text(),
             "date": self.project_date.date().toString("yyyy-MM-dd"),
-            "overhead": float(self.overhead.text() or 0),
-            "profit": float(self.profit.text() or 0),
-            "factor": float(self.factor.text() or 1.0),
+            "overhead": 0.0,
+            "profit": 0.0,
+            "factor": 1.0,
             "currency": self.currency.currentText(),
             "library_path": self.library_path.text(),
             "project_dir": project_dir,
