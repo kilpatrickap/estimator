@@ -334,6 +334,12 @@ class PBOQDialog(QDialog):
             self.tabs.blockSignals(False)
             
         self._load_pboq_state(index)
+        
+        # Always ensure Global UI preferences (Wrap, Align) are applied
+        # even if no per-file state existed.
+        self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
+        self._toggle_left_align(self.tools_pane.align_left_btn.isChecked())
+        
         self._update_column_headers()
         self._update_stats()
         self._run_global_search(self.search_bar.text())
@@ -1656,6 +1662,9 @@ class PBOQDialog(QDialog):
             
             # Apply dynamic alignment
             table.apply_column_alignment(self.tools_pane.align_left_btn.isChecked(), m)
+            
+            # Ensure Word Wrap is synced for every sheet
+            table.set_word_wrap_enabled(self.tools_pane.wrap_text_btn.isChecked())
         
         # Ensure Rate visibility is synced with current mapping
         self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
