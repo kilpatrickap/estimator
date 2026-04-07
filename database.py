@@ -748,3 +748,30 @@ class DatabaseManager:
             
             session.commit()
 
+    def bulk_update_estimate_factor(self, new_factor):
+        """Updates the adjustment factor for all estimates in this database and recalculates their grand_totals."""
+        with self.Session() as session:
+            # 1. Update the settings table directly
+            from orm_models import Setting
+            s = session.query(Setting).get('factor')
+            if s: 
+                s.value = str(new_factor)
+            else: 
+                session.add(Setting(key='factor', value=str(new_factor)))
+
+            # 2. Update all estimates adjustment factor and recalculate grand_totals
+            all_ests = session.query(DBEstimate).all()
+            for e in all_ests:
+                e.adjustment_factor = new_factor
+                
+                # Recalculate exactly following the project's margin logic
+                subtotal = e.net_total if e.net_total else 0.0
+                adj_subtotal = subtotal * new_factor
+                
+                o_amt = adj_subtotal * (e.overhead_percent / 100.0)
+                p_amt = adj_subtotal * (e.profit_margin_percent / 100.0)
+                
+                e.grand_total = adj_subtotal + o_amt + p_amt
+            
+            session.commit()
+

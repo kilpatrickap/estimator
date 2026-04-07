@@ -770,7 +770,7 @@ class MainWindow(QMainWindow):
                 # Check Margin Migration
                 margin_changed = False
                 if "old_overhead" in data and "old_profit" in data:
-                    if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit']:
+                    if float(data['overhead']) != data['old_overhead'] or float(data['profit']) != data['old_profit'] or float(data.get('factor', 1.0)) != data.get('old_factor', 1.0):
                         margin_changed = True
                 
                         
@@ -792,7 +792,7 @@ class MainWindow(QMainWindow):
                             prog.show()
                             
                             loop = QEventLoop()
-                            worker = MarginMigrationWorker(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'])
+                            worker = MarginMigrationWorker(active_project_dir, data['old_overhead'], data['old_profit'], data['overhead'], data['profit'], data.get('old_factor', 1.0), data.get('factor', 1.0))
                             
                             def update_prog(val, msg):
                                 prog.setValue(val)
@@ -983,6 +983,7 @@ class MainWindow(QMainWindow):
         new_currency = data.get('currency')
         new_overhead = data.get('overhead', 15.0)
         new_profit = data.get('profit', 10.0)
+        new_factor = data.get('factor', 1.0)
         library_path = data.get('library_path', '')
 
         # 1. SCAN AND UPDATE DISK FILES
@@ -999,6 +1000,7 @@ class MainWindow(QMainWindow):
                     db = DatabaseManager(os.path.join(project_db_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
                     db.bulk_update_estimate_margins(new_overhead, new_profit)
+                    db.bulk_update_estimate_factor(new_factor)
 
         # Update SOR / Rates Databases
         if os.path.exists(sor_dir):
@@ -1007,6 +1009,7 @@ class MainWindow(QMainWindow):
                     db = DatabaseManager(os.path.join(sor_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
                     db.bulk_update_estimate_margins(new_overhead, new_profit)
+                    db.bulk_update_estimate_factor(new_factor)
 
         # Update Imported Library Databases
         if os.path.exists(lib_dir):
@@ -1015,6 +1018,7 @@ class MainWindow(QMainWindow):
                     db = DatabaseManager(os.path.join(lib_dir, f))
                     db.bulk_update_estimate_currency(new_currency)
                     db.bulk_update_estimate_margins(new_overhead, new_profit)
+                    db.bulk_update_estimate_factor(new_factor)
 
         # Update Priced BOQ Databases
         if os.path.exists(pboq_dir):
@@ -1041,6 +1045,7 @@ class MainWindow(QMainWindow):
                         win.estimate.currency = new_currency
                         win.estimate.overhead_percent = new_overhead
                         win.estimate.profit_margin_percent = new_profit
+                        win.estimate.adjustment_factor = new_factor
                         
                         for task in getattr(win.estimate, 'tasks', []):
                             for res_type in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:

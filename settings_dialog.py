@@ -289,13 +289,16 @@ class SettingsDialog(QDialog):
             def_overhead = str(self.estimate.overhead_percent) if self.estimate else "15.0"
             def_profit = str(self.estimate.profit_margin_percent) if self.estimate else "10.0"
             def_currency = self.estimate.currency if self.estimate else "GHS (₵)"
+            def_factor = str(getattr(self.estimate, 'factor', "1.00")) if self.estimate else "1.00"
 
             if not self.estimate and proj_db_manager:
                 def_overhead = proj_db_manager.get_setting('overhead', def_overhead)
                 def_profit = proj_db_manager.get_setting('profit', def_profit)
                 def_currency = proj_db_manager.get_setting('currency', def_currency)
+                def_factor = proj_db_manager.get_setting('factor', def_factor)
                 
             self._def_currency = def_currency
+            self._def_factor = float(def_factor) if def_factor else 1.00
             
             try:
                 self._def_overhead = float(def_overhead)
@@ -319,6 +322,15 @@ class SettingsDialog(QDialog):
             self.proj_overhead.setValidator(pct_validator)
             self.proj_profit = QLineEdit(def_profit)
             self.proj_profit.setValidator(pct_validator)
+            
+            # New Factor field
+            try:
+                formatted_factor = f"{float(def_factor):.2f}"
+            except:
+                formatted_factor = "1.00"
+            self.proj_factor = QLineEdit(formatted_factor)
+            self.proj_factor.setPlaceholderText("1.00")
+            self.proj_factor.setValidator(QDoubleValidator(0.0, 1000.0, 2))
             
             self.proj_currency = QComboBox()
             self.proj_currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
@@ -376,9 +388,20 @@ class SettingsDialog(QDialog):
             boq_main_layout.addWidget(self.boq_list)
             boq_main_layout.addLayout(boq_btn_layout)
 
-            proj_form.addRow("Overhead (%):", self.proj_overhead)
-            proj_form.addRow("Profit (%):", self.proj_profit)
-            proj_form.addRow("Currency:", curr_layout)
+            # Parameters Group (Grouped as requested)
+            param_group = QGroupBox("Global Parameters")
+            param_form = QFormLayout(param_group)
+            param_form.setContentsMargins(10, 15, 10, 10)
+            param_form.setVerticalSpacing(8)
+            
+            param_form.addRow("Overhead (%):", self.proj_overhead)
+            param_form.addRow("Profit (%):", self.proj_profit)
+            param_form.addRow("Factor (default):", self.proj_factor)
+            param_form.addRow("Currency:", curr_layout)
+            
+            proj_layout.addWidget(param_group)
+
+            # File/Library Settings remain in the main project layout
             proj_form.addRow("Library(ies):", lib_main_layout)
             proj_form.addRow("Imported BOQs:", boq_main_layout)
             
@@ -535,8 +558,10 @@ class SettingsDialog(QDialog):
             "date": getattr(self, '_def_date', ""),
             "overhead": float(self.proj_overhead.text() or 0),
             "profit": float(self.proj_profit.text() or 0),
+            "factor": float(self.proj_factor.text() or 1.0),
             "old_overhead": getattr(self, '_def_overhead', 0.0),
             "old_profit": getattr(self, '_def_profit', 0.0),
+            "old_factor": getattr(self, '_def_factor', 1.00),
             "currency": self.proj_currency.currentText(),
             "old_currency": getattr(self, '_def_currency', ""),
             "library_path": ""

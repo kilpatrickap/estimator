@@ -9,21 +9,23 @@ class MarginMigrationWorker(QThread):
     progress = pyqtSignal(int, str)
     finished_mig = pyqtSignal(bool, str)
 
-    def __init__(self, project_dir, old_overhead, old_profit, new_overhead, new_profit):
+    def __init__(self, project_dir, old_overhead, old_profit, new_overhead, new_profit, old_factor=1.0, new_factor=1.0):
         super().__init__()
         self.project_dir = project_dir
         self.old_overhead = old_overhead
         self.old_profit = old_profit
         self.new_overhead = new_overhead
         self.new_profit = new_profit
+        self.old_factor = old_factor
+        self.new_factor = new_factor
 
     def run(self):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
             
-            # Multiplier: 1 + Overhead% + Profit% (Parallel Markup)
-            old_multiplier = 1 + (self.old_overhead / 100.0) + (self.old_profit / 100.0)
-            new_multiplier = 1 + (self.new_overhead / 100.0) + (self.new_profit / 100.0)
+            # Multiplier: Factor * (1 + Overhead% + Profit%) (Parallel Markup)
+            old_multiplier = self.old_factor * (1 + (self.old_overhead / 100.0) + (self.old_profit / 100.0))
+            new_multiplier = self.new_factor * (1 + (self.new_overhead / 100.0) + (self.new_profit / 100.0))
             
             if old_multiplier <= 0:
                 old_multiplier = 1.0
