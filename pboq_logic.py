@@ -1,11 +1,43 @@
 import os
 import sqlite3
 import json
+import re
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
 class PBOQLogic:
     """Handles database interactions and business logic for the PBOQ viewer."""
+
+    @staticmethod
+    def evaluate_formula(formula_text):
+        """Evaluates a multi-line PBOQ formula string to a single float value."""
+        if not formula_text: return 0.0
+        lines = formula_text.split('\n')
+        total_sum = 0
+        for line in lines:
+            val = PBOQLogic.parse_single_line(line)
+            if val is not None:
+                total_sum += val
+        return total_sum
+
+    @staticmethod
+    def parse_single_line(text):
+        trimmed = text.strip()
+        if not trimmed: return None
+        is_formula = trimmed.startswith('=')
+        segment = text.split(';')[0]
+        if not is_formula:
+            try: return float(segment.strip().replace(',',''))
+            except ValueError: return None
+        term = segment.replace('=', '', 1)
+        term = re.sub(r'"[^"]*"', '', term)
+        term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
+        term = re.sub(r'/\s*[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
+        term = re.sub(r'[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
+        try:
+            cleaned_term = re.sub(r'[^0-9+\-*/(). ]', '', term)
+            return float(eval(cleaned_term, {"__builtins__": None}, {}))
+        except: return None
     
     @staticmethod
     def connect_db(file_path):
@@ -27,7 +59,7 @@ class PBOQLogic:
         
         # Standard Columns and Named Columns in a fixed preferred order
         standard_cols = [f"Column {i}" for i in range(20)]
-        named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
+        named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",

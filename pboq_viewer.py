@@ -1082,7 +1082,12 @@ class PBOQDialog(QDialog):
             
             prefix = "PCSum" if is_pc else ("ProvSum" if is_prov else "Plug")
             rate_col_name = "PCSum" if is_pc else ("ProvSum" if is_prov else "PlugRate")
-            query = f"SELECT {prefix}Formula, {prefix}Category, {prefix}Currency, {prefix}ExchangeRates, {prefix}Code, {rate_col_name} FROM pboq_items WHERE rowid = ?"
+            
+            # Additional logical column for Factor (only for Plug rates)
+            extra_cols = ""
+            if is_plug: extra_cols = ", PlugFactor"
+            
+            query = f"SELECT {prefix}Formula, {prefix}Category, {prefix}Currency, {prefix}ExchangeRates, {prefix}Code, {rate_col_name}{extra_cols} FROM pboq_items WHERE rowid = ?"
             
             try:
                 conn = sqlite3.connect(file_path)
@@ -1097,6 +1102,7 @@ class PBOQDialog(QDialog):
                     plug_code_val = res[4] or ""
                     try: rate_val = float(str(res[5]).replace(',', '')) if res[5] else 0.0
                     except: rate_val = 0.0
+                    factor_val = res[6] if len(res) > 6 else ""
                 conn.close()
             except: pass
             
@@ -1118,6 +1124,7 @@ class PBOQDialog(QDialog):
                 'category': category_val,
                 'currency': currency_val,
                 'code': plug_code_val,
+                'factor': factor_val,
                 'exchange_rates': ex_rates
             }
             
@@ -1149,11 +1156,20 @@ class PBOQDialog(QDialog):
                 try:
                     conn = sqlite3.connect(file_path)
                     cursor = conn.cursor()
+                    
+                    factor_bit = ""
+                    params = [new_rate_str, new_formula, new_code, new_cat, new_curr, new_ex_rates]
+                    if is_plug:
+                        factor_bit = ", PlugFactor = ?"
+                        params.append(item_data.get('factor', '1.00'))
+                    
+                    params.append(rowid)
+                    
                     cursor.execute(f"""
                         UPDATE pboq_items 
-                        SET {rate_col_name} = ?, {prefix}Formula = ?, {prefix}Code = ?, {prefix}Category = ?, {prefix}Currency = ?, {prefix}ExchangeRates = ?
+                        SET {rate_col_name} = ?, {prefix}Formula = ?, {prefix}Code = ?, {prefix}Category = ?, {prefix}Currency = ?, {prefix}ExchangeRates = ? {factor_bit}
                         WHERE rowid = ?
-                    """, (new_rate_str, new_formula, new_code, new_cat, new_curr, new_ex_rates, rowid))
+                    """, tuple(params))
                     conn.commit()
                     conn.close()
                 except: pass

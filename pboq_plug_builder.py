@@ -8,6 +8,7 @@ import json
 import sqlite3
 from edit_item_dialog import ZebraInput
 from database import DatabaseManager
+from pboq_logic import PBOQLogic
 
 class PlugRateBuilderDialog(QDialog):
     """
@@ -25,9 +26,11 @@ class PlugRateBuilderDialog(QDialog):
         self.is_pc = is_pc
         self.is_dw = is_dw
         
-        # CATEGORIES: Always pull from the global software database (construction_costs.db)
         # SETTINGS (Like Currency): Pull from the project-level Database if it exists.
         self.global_db = DatabaseManager()
+        
+        # Load global project factor
+        global_f = "1.00"
         
         db_path = "construction_costs.db"
         project_db_dir = os.path.join(self.project_dir, "Project Database")
@@ -37,6 +40,8 @@ class PlugRateBuilderDialog(QDialog):
                     db_path = os.path.join(project_db_dir, f)
                     break
         self.db_manager = DatabaseManager(db_path)
+        global_f = self.db_manager.get_setting('factor', '1.00')
+        self.item_data['factor'] = self.item_data.get('factor') or global_f
         
         if self.is_pc:
             self.setWindowTitle("PC Sum Builder")
@@ -157,6 +162,21 @@ class PlugRateBuilderDialog(QDialog):
         meta_row.addWidget(self.curr_combo, 1)
         
         layout.addLayout(meta_row)
+
+        # --- Row 2.5: Factor ---
+        if not self.is_pc and not self.is_prov and not self.is_dw:
+            factor_row = QHBoxLayout()
+            factor_row.setSpacing(10)
+            from PyQt6.QtGui import QDoubleValidator
+            factor_row.addWidget(QLabel("Adjustment Factor:"))
+            self.factor_input = QLineEdit()
+            self.factor_input.setValidator(QDoubleValidator(0.0, 100.0, 2))
+            self.factor_input.setText(str(self.item_data.get('factor', '1.00')))
+            self.factor_input.textChanged.connect(self.update_display)
+            self.factor_input.setFixedWidth(80)
+            factor_row.addWidget(self.factor_input)
+            factor_row.addStretch()
+            layout.addLayout(factor_row)
 
         # --- Row 3: Main Editing Area ---
         split_layout = QHBoxLayout()
@@ -306,7 +326,7 @@ class PlugRateBuilderDialog(QDialog):
         html_lines = []
         total_sum = 0
         for line in lines:
-            val = self.parse_single_line(line)
+            val = PBOQLogic.parse_single_line(line)
             if val is not None:
                 total_sum += val
                 html_lines.append(f"<div>= {val:,.2f}</div>")
@@ -314,26 +334,16 @@ class PlugRateBuilderDialog(QDialog):
                 html_lines.append("<div>&nbsp;</div>")
         while len(html_lines) < 20: 
             html_lines.append("<div>&nbsp;</div>")
+            
+        # Apply Factor if applicable
+        if hasattr(self, 'factor_input') and not self.is_pc and not self.is_prov and not self.is_dw:
+            try:
+                fac = float(self.factor_input.text())
+                total_sum *= fac
+            except: pass
+
         self.total_display.setText(f"TOTAL: {total_sum:,.2f}")
         self.qty_display.setHtml(f"<div style='color: blue; font-family: Consolas, monospace; font-size: 11px;'>{''.join(html_lines)}</div>")
-
-    def parse_single_line(self, text):
-        trimmed = text.strip()
-        if not trimmed: return None
-        is_formula = trimmed.startswith('=')
-        segment = text.split(';')[0]
-        if not is_formula:
-            try: return float(segment.strip())
-            except ValueError: return None
-        term = segment.replace('=', '', 1)
-        term = re.sub(r'"[^"]*"', '', term)
-        term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
-        term = re.sub(r'/\s*[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
-        term = re.sub(r'[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
-        try:
-            cleaned_term = re.sub(r'[^0-9+\-*/(). ]', '', term)
-            return float(eval(cleaned_term, {"__builtins__": None}, {}))
-        except: return None
 
     def on_save_clicked(self):
         input_text = self.qty_input.toPlainText().strip()
@@ -342,7 +352,7 @@ class PlugRateBuilderDialog(QDialog):
             total = 0
             has_formula = False
             for line in lines:
-                val = self.parse_single_line(line)
+                val = PBOQLogic.parse_single_line(line)
                 if val is not None:
                     total += val
                     if line.strip().startswith('=') or len(lines) > 1:
@@ -353,6 +363,8 @@ class PlugRateBuilderDialog(QDialog):
             self.item_data['code'] = self.current_plug_code 
             self.item_data['category'] = self.cat_combo.currentText()
             self.item_data['currency'] = self.curr_combo.currentText()
+            if hasattr(self, 'factor_input'):
+                self.item_data['factor'] = self.factor_input.text()
             
             self.accept()
             self.dataCommitted.emit()

@@ -23,9 +23,9 @@ class MarginMigrationWorker(QThread):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
             
-            # Multiplier: Factor * (1 + Overhead% + Profit%) (Parallel Markup)
-            old_multiplier = self.old_factor * (1 + (self.old_overhead / 100.0) + (self.old_profit / 100.0))
-            new_multiplier = self.new_factor * (1 + (self.new_overhead / 100.0) + (self.new_profit / 100.0))
+            # Use strictly the Adjustment Factor for scaling fallback
+            old_multiplier = self.old_factor
+            new_multiplier = self.new_factor
             
             if old_multiplier <= 0:
                 old_multiplier = 1.0
@@ -134,6 +134,7 @@ class MarginMigrationWorker(QThread):
                     conn.close()
 
     def _migrate_pboq_gross_rates(self, scale_factor):
+        from pboq_logic import PBOQLogic
         pboq_dir = os.path.join(self.project_dir, "Priced BOQs")
         if not os.path.exists(pboq_dir): return
         
@@ -213,6 +214,9 @@ class MarginMigrationWorker(QThread):
                             if m_ref_pst >= 0: m_ref = m_ref_pst
                             m_bill_rate_pst = pst['mappings'].get('bill_rate', -1)
                             if m_bill_rate_pst >= 0: m_bill_rate = m_bill_rate_pst
+                            
+                            m_plug_rate = pst['mappings'].get('plug_rate', -1)
+                            m_plug_code = pst['mappings'].get('plug_code', -1)
                 except: pass
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
@@ -240,10 +244,18 @@ class MarginMigrationWorker(QThread):
                 # Deterministic List instead of Set
                 target_cols = ['"GrossRate"']
                 if "RateCode" in db_cols: target_cols.append('"RateCode"')
-                if m_rate >= 0 and f'"Column {m_rate}"' not in target_cols: target_cols.append(f'"Column {m_rate}"')
+                if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
                 if m_amt >= 0 and f'"Column {m_amt}"' not in target_cols: target_cols.append(f'"Column {m_amt}"')
                 if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
                 if m_bill_rate >= 0 and f'"Column {m_bill_rate}"' not in target_cols: target_cols.append(f'"Column {m_bill_rate}"')
+                
+                # Plug columns
+                target_cols.append('"PlugRate"')
+                if "PlugCode" in db_cols: target_cols.append('"PlugCode"')
+                if "PlugFormula" in db_cols: target_cols.append('"PlugFormula"')
+                if "PlugFactor" in db_cols: target_cols.append('"PlugFactor"')
+                if m_plug_rate >= 0 and f'"Column {m_plug_rate}"' not in target_cols: target_cols.append(f'"Column {m_plug_rate}"')
+                if m_plug_code >= 0 and f'"Column {m_plug_code}"' not in target_cols: target_cols.append(f'"Column {m_plug_code}"')
                 
                 q_cols = ", ".join(target_cols)
                 has_code = "RateCode" in db_cols
@@ -262,6 +274,11 @@ class MarginMigrationWorker(QThread):
                     where_clauses.append(f'("Column {m_code}" IS NOT NULL AND "Column {m_code}" != "")')
                 if m_ref >= 0:
                     where_clauses.append(f'("Column {m_ref}" IS NOT NULL AND "Column {m_ref}" != "")')
+                
+                # Include Plug Rate rows
+                where_clauses.append('("PlugCode" IS NOT NULL AND "PlugCode" != "")')
+                if m_plug_code >= 0:
+                    where_clauses.append(f'("Column {m_plug_code}" IS NOT NULL AND "Column {m_plug_code}" != "")')
                     
                 query_str += ' FROM pboq_items WHERE ' + ' OR '.join(where_clauses)
                 cursor.execute(query_str)
@@ -278,13 +295,20 @@ class MarginMigrationWorker(QThread):
                     is_rate_linked = False
                     is_amt_linked = False
                     
-                    if g_idx >= 0 and m_bill_rate >= 0:
-                        if formatting_map.get((g_idx, m_bill_rate), {}).get('bg_color', '').lower() == '#e8f5e9':
-                            is_rate_linked = True
-                            
                     if g_idx >= 0 and m_amt >= 0:
-                        if formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower() == '#e8f5e9':
+                        bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
+                        if bg == '#e8f5e9': # Linked from Gross
                             is_amt_linked = True
+                        elif bg == '#f3e5f5': # Linked from Plug
+                            is_amt_linked = 'plug'
+                    
+                    is_rate_linked_plug = False
+                    if g_idx >= 0 and m_bill_rate >= 0:
+                        bg = formatting_map.get((g_idx, m_bill_rate), {}).get('bg_color', '').lower()
+                        if bg == '#e8f5e9': # Linked from Gross
+                            is_rate_linked = True
+                        elif bg == '#f3e5f5': # Linked from Plug
+                            is_rate_linked_plug = True
                     
                     code_val = ""
                     # Grab logical code if exists
@@ -292,6 +316,12 @@ class MarginMigrationWorker(QThread):
                         c_idx = cols_to_update.index('RateCode') + 1
                         code_val = str(row[c_idx] or "").strip().upper()
                         
+                    # Plug Code logic
+                    plug_code_val = ""
+                    if 'PlugCode' in cols_to_update:
+                        p_idx = cols_to_update.index('PlugCode') + 1
+                        plug_code_val = str(row[p_idx] or "").strip().upper()
+
                     # Also check physical rate code column
                     if m_code >= 0:
                         phys_name = f'Column {m_code}'
@@ -300,6 +330,14 @@ class MarginMigrationWorker(QThread):
                             p_code = str(row[p_idx] or "").strip().upper()
                             if p_code and not code_val:
                                 code_val = p_code
+                                
+                    if m_plug_code >= 0:
+                        phys_name = f'Column {m_plug_code}'
+                        if phys_name in cols_to_update:
+                            p_idx = cols_to_update.index(phys_name) + 1
+                            p_code = str(row[p_idx] or "").strip().upper()
+                            if p_code and not plug_code_val:
+                                plug_code_val = p_code
                                 
                     # Advanced offset for the trailing columns (qty, ref)
                     idx_offset = 1 + len(target_cols)
@@ -332,11 +370,37 @@ class MarginMigrationWorker(QThread):
                         elif v_gross and str(v_gross).strip():
                             # Existing GrossRate - scale mathematically
                             clean_str = re.sub(r'[^\d.-]', '', str(v_gross))
-                            if not clean_str: continue
-                            numeric_val = float(clean_str)
-                            scaled_val = numeric_val * scale_factor
+                            if not clean_str: scaled_val = 0.0
+                            else:
+                                numeric_val = float(clean_str)
+                                scaled_val = numeric_val * scale_factor
                         else:
-                            # No GrossRate and no native rate - skip
+                            scaled_val = 0.0
+                        
+                        # Determine new Plug rate
+                        scaled_plug = 0.0
+                        if plug_code_val:
+                            # Re-calculate from formula if available
+                            formula_val = ""
+                            if 'PlugFormula' in cols_to_update:
+                                formula_val = row[cols_to_update.index('PlugFormula') + 1] or ""
+                            
+                            if formula_val:
+                                base_sum = PBOQLogic.evaluate_formula(formula_val)
+                                scaled_plug = base_sum * self.new_factor
+                            elif plug_code_val in native_rates:
+                                # Fallback to native rates if it matched a buildup
+                                scaled_plug = native_rates[plug_code_val]
+                            else:
+                                # Fallback to straight math scaling
+                                c_idx = cols_to_update.index('PlugRate') + 1
+                                v_plug = row[c_idx]
+                                try:
+                                    p_clean = re.sub(r'[^\d.-]', '', str(v_plug))
+                                    scaled_plug = float(p_clean) * scale_factor if p_clean else 0.0
+                                except: pass
+                        
+                        if scaled_val == 0.0 and scaled_plug == 0.0:
                             continue
                         
                         # Determine currency symbol from existing GrossRate or mapped column
@@ -346,12 +410,20 @@ class MarginMigrationWorker(QThread):
                             sym = sym_match.group(1).strip() + " " if sym_match else ""
                         elif m_rate >= 0:
                             # Try mapped rate column for symbol
-                            cv_rate = row[2] if len(target_cols) > 1 else None
+                            cv_rate = row[cols_to_update.index(f'Column {m_rate}') + 1] if f'Column {m_rate}' in cols_to_update else None
                             if cv_rate:
                                 sym_match = re.search(r'^([^\d]+)', str(cv_rate).strip())
                                 sym = sym_match.group(1).strip() + " " if sym_match else ""
+                                
+                        # Plug symbol
+                        p_sym = ""
+                        v_plug_val = row[cols_to_update.index('PlugRate') + 1] if 'PlugRate' in cols_to_update else None
+                        if v_plug_val and str(v_plug_val).strip():
+                            p_match = re.search(r'^([^\d]+)', str(v_plug_val).strip())
+                            p_sym = p_match.group(1).strip() + " " if p_match else ""
                             
                         new_gross = f"{sym}{scaled_val:,.2f}".strip()
+                        new_plug_str = f"{p_sym}{scaled_plug:,.2f}".strip()
                         
                         # Apply multiplier to ALL targeted columns in this row independently
                         row_update_vals = []
@@ -360,7 +432,8 @@ class MarginMigrationWorker(QThread):
                             
                             if m_amt >= 0 and col_name == f'Column {m_amt}':
                                 if is_amt_linked:
-                                    c_scaled = scaled_val * qty_val
+                                    s_val = scaled_plug if is_amt_linked == 'plug' else scaled_val
+                                    c_scaled = s_val * qty_val
                                     c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                     c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
                                     row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
@@ -369,10 +442,11 @@ class MarginMigrationWorker(QThread):
                                 continue
                             
                             if m_bill_rate >= 0 and col_name == f'Column {m_bill_rate}':
-                                if is_rate_linked:
+                                if is_rate_linked or is_rate_linked_plug:
+                                    s_val = scaled_plug if is_rate_linked_plug else scaled_val
                                     c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                     c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
-                                    row_update_vals.append(f"{c_sym}{scaled_val:,.2f}".strip())
+                                    row_update_vals.append(f"{c_sym}{s_val:,.2f}".strip())
                                 else:
                                     row_update_vals.append(cv)
                                 continue
@@ -391,6 +465,22 @@ class MarginMigrationWorker(QThread):
                                 row_update_vals.append(code_val)
                                 continue
                                 
+                            if col_name == 'PlugRate':
+                                row_update_vals.append(new_plug_str)
+                                continue
+                                
+                            if col_name == 'PlugFactor':
+                                row_update_vals.append(str(self.new_factor))
+                                continue
+                                
+                            if m_plug_rate >= 0 and col_name == f'Column {m_plug_rate}':
+                                row_update_vals.append(new_plug_str)
+                                continue
+                                
+                            if col_name == 'PlugCode' or (m_plug_code >= 0 and col_name == f'Column {m_plug_code}'):
+                                row_update_vals.append(plug_code_val)
+                                continue
+
                             if m_code >= 0 and col_name == f'Column {m_code}':
                                 row_update_vals.append(code_val)
                                 continue
