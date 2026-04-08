@@ -445,14 +445,23 @@ class MarginMigrationWorker(QThread):
                             cv = row[i+1] # +1 because rowid is 0
                             
                             if m_amt >= 0 and col_name == f'Column {m_amt}':
-                                if is_amt_linked:
-                                    # Identify source value
-                                    s_val = scaled_plug if is_amt_linked == 'plug' else scaled_val
+                                # Favor recalculation if we have a new rate and a quantity
+                                s_val = scaled_plug if (is_amt_linked == 'plug' or is_rate_linked_plug) else scaled_val
+                                
+                                # If it's a standard bill item (linked color OR yellow/default color with quantity)
+                                # we should perform the extension to keep math consistent.
+                                if s_val is not None:
+                                    bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
+                                    is_prov = (bg == '#e0ffff') # Prov Sum color
                                     
-                                    if s_val is None: 
-                                        row_update_vals.append(cv)
+                                    if not is_prov and qty_val is not None:
+                                        c_scaled = s_val * qty_val
+                                        c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                        c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
+                                        row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
                                         continue
-                                        
+
+                                if is_amt_linked and s_val is not None:
                                     c_scaled = s_val * qty_val
                                     c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                     c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
