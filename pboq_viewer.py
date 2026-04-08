@@ -209,7 +209,7 @@ class PBOQDialog(QDialog):
             "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeCategory", "SubbeeCode",
             "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
             "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
-            "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates"
+            "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates", "PlugFactor"
         ]
         query = f"SELECT rowid, {', '.join(quoted_cols)}, {', '.join(logical_cols)} FROM pboq_items"
         cursor.execute(query)
@@ -236,22 +236,22 @@ class PBOQDialog(QDialog):
                 'sub_markup': 3, 'sub_category': 4, 'sub_code': 5,
                 'prov_sum': 6, 'prov_sum_code': 7,
                 'pc_sum': 12, 'pc_sum_code': 13,
-                'plug_rate': 18, 'plug_code': 19
+                'plug_rate': 18, 'plug_code': 19, 'plug_factor': 24
             }
-            # Roles where the logical store is always authoritative
-            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'pc_sum_code', 'plug_code', 'plug_rate', 'prov_sum', 'pc_sum'}
+            # Roles where the logical store is ALWAYS authoritative and should overwrite physical spreadsheet cells
+            logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'pc_sum_code', 'plug_code', 'plug_rate', 'prov_sum', 'pc_sum', 'plug_factor'}
+            
             for role, l_idx in sub_roles.items():
                 p_idx = m.get(role, -1)
                 if p_idx >= 0 and p_idx < len(physical_data) - 1:
                     logical_val = logical_data[l_idx]
-                    if role in logical_authoritative:
-                        # Always prefer the logical store for category/code
-                        if logical_val is not None and str(logical_val) != "None":
+                    if logical_val is not None and str(logical_val).strip() != "" and str(logical_val) != "None":
+                        if role in logical_authoritative:
                             physical_data[p_idx + 1] = logical_val
-                    else:
-                        # Fallback: only use logical if physical is empty
-                        if not physical_data[p_idx + 1] or physical_data[p_idx + 1] == "None":
-                            physical_data[p_idx + 1] = logical_val
+                        else:
+                            # Fallback: only use logical if physical is empty
+                            if not physical_data[p_idx + 1] or str(physical_data[p_idx + 1]).strip() == "" or physical_data[p_idx + 1] == "None":
+                                physical_data[p_idx + 1] = logical_val
 
             sheet_name = str(physical_data[0]) if physical_data[0] else "Sheet 1"
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
@@ -618,7 +618,7 @@ class PBOQDialog(QDialog):
         if not action: return
         
         if action == build_act:
-            self._build_rate(table, row, rowid, is_plug, is_prov, is_pc, is_dw)
+            self._build_rate(table, row, col, rowid, is_plug, is_prov, is_pc, is_dw)
         elif link_rate_act and action == link_rate_act:
             self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw, target_role='bill_rate')
         elif link_amt_act and action == link_amt_act:
@@ -1047,7 +1047,7 @@ class PBOQDialog(QDialog):
                     self._persist_updates(c, [(rowid, "")])
         self._update_stats()
 
-    def _build_rate(self, table, row, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
+    def _build_rate(self, table, row, col, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
         m = self.tools_pane.get_mappings()
         desc_col = m.get('desc', -1)
         unit_col = m.get('unit', -1)
@@ -1140,11 +1140,17 @@ class PBOQDialog(QDialog):
                 new_ex_rates = json.dumps(item_data.get('exchange_rates', {}))
                 
                 # Update UI and Physical Persistence
+                # Update UI and DB
+                rate_col = m.get(rate_role, col) # Use context column as fallback if unmapped
                 if rate_col >= 0:
                     it = table.item(row, rate_col)
                     if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
                     it.setText(new_rate_str)
                     self._persist_updates(rate_col, [(rowid, new_rate_str)])
+                    
+                    # Auto-Link to Bill Rate if it matches Plug color or if just created
+                    if is_plug:
+                        self._link_item_to_bill(table, row, rowid, is_plug=True)
                 
                 if code_col >= 0:
                     it = table.item(row, code_col)

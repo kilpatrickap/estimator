@@ -261,9 +261,19 @@ class PBOQToolsPane(QWidget):
         }
         
         for cb, db_name in smart_map.items():
+            # 1. Try Exact match first
             idx = cb.findText(db_name, Qt.MatchFlag.MatchExactly)
             if idx >= 0:
                 cb.setCurrentIndex(idx)
+                continue
+                
+            # 2. Try Fuzzy match (case-insensitive, ignore spaces/underscores)
+            clean_db = db_name.lower().replace(" ", "").replace("_", "")
+            for i in range(1, cb.count()):
+                clean_item = cb.itemText(i).lower().replace(" ", "").replace("_", "")
+                if clean_item == clean_db:
+                    cb.setCurrentIndex(i)
+                    break
         
         # Fallback for Bill Rate/Amount if not already set (look for common indices 4,5 if they are "Column X")
         if self.cb_bill_rate.currentIndex() <= 0 and len(column_names) > 4:

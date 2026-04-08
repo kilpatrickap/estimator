@@ -244,8 +244,18 @@ class PlugRateBuilderDialog(QDialog):
         if self.item_data.get('formula'):
             self.qty_input.setPlainText(self.item_data['formula'])
         elif self.item_data.get('rate'):
-            # Convert rate to string for simple entry
-            self.qty_input.setPlainText(str(self.item_data['rate']))
+            # Convert rate to string for simple entry. 
+            # If it's a plug rate, we must unfactor it to show the 'Base Rate' in the formula input.
+            val = self.item_data['rate']
+            try:
+                numeric_val = float(str(val).replace(',', ''))
+                if not self.is_pc and not self.is_prov and not self.is_dw:
+                    fac = float(self.item_data.get('factor', '1.0'))
+                    if fac > 0:
+                        numeric_val /= fac
+                val = str(round(numeric_val, 4))
+            except: pass
+            self.qty_input.setPlainText(str(val))
             
         self.update_display()
 
@@ -358,8 +368,16 @@ class PlugRateBuilderDialog(QDialog):
                     if line.strip().startswith('=') or len(lines) > 1:
                         has_formula = True
 
-            self.item_data['rate'] = total
-            self.item_data['formula'] = input_text if has_formula else None
+            # Apply Factor if applicable before saving to rate
+            factored_total = total
+            if hasattr(self, 'factor_input') and not self.is_pc and not self.is_prov and not self.is_dw:
+                try:
+                    fac = float(self.factor_input.text())
+                    factored_total = total * fac
+                except: pass
+
+            self.item_data['rate'] = factored_total
+            self.item_data['formula'] = input_text
             self.item_data['code'] = self.current_plug_code 
             self.item_data['category'] = self.cat_combo.currentText()
             self.item_data['currency'] = self.curr_combo.currentText()

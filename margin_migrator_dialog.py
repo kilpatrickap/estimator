@@ -217,6 +217,13 @@ class MarginMigrationWorker(QThread):
                             
                             m_plug_rate = pst['mappings'].get('plug_rate', -1)
                             m_plug_code = pst['mappings'].get('plug_code', -1)
+                            
+                            # Fallback fuzzy detection if state mapping is incomplete
+                            if m_plug_rate < 0:
+                                for i, col in enumerate(db_cols):
+                                    if "plugrate" in col.lower().replace(" ", ""):
+                                        m_plug_rate = i - 1
+                                        break
                 except: pass
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
