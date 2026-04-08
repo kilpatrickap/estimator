@@ -455,14 +455,21 @@ class MarginMigrationWorker(QThread):
                                     is_prov = (bg == '#e0ffff') # Prov Sum color
                                     
                                     if not is_prov and qty_val is not None:
-                                        c_scaled = s_val * qty_val
+                                        # Precision as Displayed: Round rate to 2 decimals, Qty to 4 decimals
+                                        r_val_rounded = round(float(s_val), 2)
+                                        q_val_rounded = round(float(qty_val), 4)
+                                        c_scaled = round(r_val_rounded * q_val_rounded, 2)
+                                        
                                         c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                         c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
                                         row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
                                         continue
 
                                 if is_amt_linked and s_val is not None:
-                                    c_scaled = s_val * qty_val
+                                    r_val_rounded = round(float(s_val), 2)
+                                    q_val_rounded = round(float(qty_val), 4)
+                                    c_scaled = round(r_val_rounded * q_val_rounded, 2)
+                                    
                                     c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                     c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
                                     row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())

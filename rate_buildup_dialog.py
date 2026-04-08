@@ -704,7 +704,9 @@ class RateBuildUpDialog(QDialog):
                                 try:
                                     if q_str is None or str(q_str).strip() == "": continue
                                     qv = float(str(q_str).replace(',', ''))
-                                    av = qv * new_gross
+                                    r_val_rounded = round(float(new_gross), 2)
+                                    q_val_rounded = round(float(qv), 4)
+                                    av = round(r_val_rounded * q_val_rounded, 2)
                                     cursor.execute(f'UPDATE pboq_items SET "{a_col}" = ? WHERE rowid = ?', ("{:,.2f}".format(av), rid))
                                 except: pass
                 
