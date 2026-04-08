@@ -85,6 +85,7 @@ class PBOQDialog(QDialog):
         self.tools_pane.alignTextLeftToggled.connect(self._toggle_left_align)
         self.tools_pane.clearGrossRequested.connect(self._clear_gross_and_code)
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
+        self.tools_pane.recalculateRequested.connect(self._run_recalculate_all_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
         self.tools_pane.stateChanged.connect(self._update_stats)
@@ -1831,6 +1832,32 @@ class PBOQDialog(QDialog):
             self.tools_pane.extend_btn.setText("Extend" if is_revert else "Revert")
             self._update_column_headers()
             QMessageBox.information(self, "Success", f"Processed {len(rate_updates)} rows.")
+
+    def _run_recalculate_all_logic(self):
+        """Audits every row in the PBOQ and recalculates Bill Amount for accuracy."""
+        m = self.tools_pane.get_mappings()
+        if m['qty'] < 0 or m['bill_rate'] < 0 or m['bill_amount'] < 0:
+            QMessageBox.warning(self, "Mapping Required", "Map Qty, Bill Rate, and Bill Amount columns.")
+            return
+
+        total_updates = []
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            # Recursively check all rows
+            for r in range(table.rowCount()):
+                item0 = table.item(r, 0)
+                if not item0: continue
+                rowid = item0.data(Qt.ItemDataRole.UserRole)
+                # This already uses the core rounding logic (Rate:2, Qty:4)
+                update = self._recalculate_row_extension(table, r, rowid, batch_mode=True)
+                if update:
+                    total_updates.append(update)
+
+        if total_updates:
+            self._persist_updates(m['bill_amount'], total_updates)
+            QMessageBox.information(self, "Recalculation Complete", f"Accuracy Audit finished. Recalculated {len(total_updates)} rows.")
+        else:
+            QMessageBox.information(self, "Recalculation Complete", "All Bill Amount calculations are already accurate.")
 
     def _clear_bill_rates(self):
         m = self.tools_pane.get_mappings()

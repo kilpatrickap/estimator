@@ -11,6 +11,7 @@ class PBOQToolsPane(QWidget):
     stateChanged = pyqtSignal()
     clearGrossRequested = pyqtSignal()
     extendRequested = pyqtSignal()
+    recalculateRequested = pyqtSignal()
     clearBillRequested = pyqtSignal()
     collectRequested = pyqtSignal()
     columnHeadersRequested = pyqtSignal()
@@ -145,9 +146,12 @@ class PBOQToolsPane(QWidget):
         extend_btns = QHBoxLayout()
         self.extend_btn = QPushButton("Extend")
         self.extend_btn.clicked.connect(self.extendRequested)
+        self.recalc_btn = QPushButton("Recalc")
+        self.recalc_btn.clicked.connect(self.recalculateRequested)
         self.clear_bill_btn = QPushButton("Clear")
         self.clear_bill_btn.clicked.connect(self.clearBillRequested)
         extend_btns.addWidget(self.extend_btn)
+        extend_btns.addWidget(self.recalc_btn)
         extend_btns.addWidget(self.clear_bill_btn)
         extend_layout.addLayout(extend_btns)
         container_layout.addWidget(extend_group)
@@ -413,7 +417,7 @@ class PBOQToolsPane(QWidget):
             self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
             self.wrap_text_btn, self.align_left_btn, self.clear_all_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
-            self.dummy_rate_spin, self.extend_btn, self.clear_bill_btn,
+            self.dummy_rate_spin, self.extend_btn, self.recalc_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
             self.collect_btn
         ]
