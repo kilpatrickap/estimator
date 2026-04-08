@@ -343,6 +343,9 @@ class PBOQDialog(QDialog):
         
         self._update_column_headers()
         self._update_stats()
+        
+        # Accuracy Audit: Automatically ensure all extensions follow 'Precision as Displayed'
+        self._run_recalculate_all_logic(silent=True)
         self._run_global_search(self.search_bar.text())
 
     def _handle_cell_updated(self, rowid, col_idx, new_val):
@@ -1833,31 +1836,31 @@ class PBOQDialog(QDialog):
             self._update_column_headers()
             QMessageBox.information(self, "Success", f"Processed {len(rate_updates)} rows.")
 
-    def _run_recalculate_all_logic(self):
+    def _run_recalculate_all_logic(self, silent=False):
         """Audits every row in the PBOQ and recalculates Bill Amount for accuracy."""
         m = self.tools_pane.get_mappings()
         if m['qty'] < 0 or m['bill_rate'] < 0 or m['bill_amount'] < 0:
-            QMessageBox.warning(self, "Mapping Required", "Map Qty, Bill Rate, and Bill Amount columns.")
+            if not silent: QMessageBox.warning(self, "Mapping Required", "Map Qty, Bill Rate, and Bill Amount columns.")
             return
 
         total_updates = []
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
-            # Recursively check all rows
+            # Check all rows
             for r in range(table.rowCount()):
                 item0 = table.item(r, 0)
                 if not item0: continue
                 rowid = item0.data(Qt.ItemDataRole.UserRole)
-                # This already uses the core rounding logic (Rate:2, Qty:4)
+                # This uses the core rounding logic (Rate:2, Qty:4)
                 update = self._recalculate_row_extension(table, r, rowid, batch_mode=True)
                 if update:
                     total_updates.append(update)
 
         if total_updates:
             self._persist_updates(m['bill_amount'], total_updates)
-            QMessageBox.information(self, "Recalculation Complete", f"Accuracy Audit finished. Recalculated {len(total_updates)} rows.")
+            if not silent: QMessageBox.information(self, "Recalculation Complete", f"Accuracy Audit finished. Recalculated {len(total_updates)} rows.")
         else:
-            QMessageBox.information(self, "Recalculation Complete", "All Bill Amount calculations are already accurate.")
+            if not silent: QMessageBox.information(self, "Recalculation Complete", "All Bill Amount calculations are already accurate.")
 
     def _clear_bill_rates(self):
         m = self.tools_pane.get_mappings()
