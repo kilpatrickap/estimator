@@ -180,6 +180,11 @@ class PBOQDialog(QDialog):
 
     def _load_pboq_db(self, index):
         if index < 0: return
+        
+        # Reset tool labels to defaults before loading new DB context
+        self.tools_pane.extend_btn.setText("Extend")
+        self.tools_pane.collect_btn.setText("Collect")
+
         file_path = self.pboq_file_selector.itemData(index)
         self._save_viewer_state() # Save selection change
         

@@ -365,7 +365,8 @@ class PBOQToolsPane(QWidget):
             'wrap_text': self.wrap_text_btn.isChecked(),
             'align_left': self.align_left_btn.isChecked(),
             'frozen': self.freeze_btn.isChecked(),
-            'collect_revert': self.collect_btn.text() == "Revert"
+            'collect_revert': self.collect_btn.text() == "Revert",
+            'extend_revert': self.extend_btn.text() == "Revert"
         }
 
     def set_tools_state(self, state):
@@ -392,6 +393,11 @@ class PBOQToolsPane(QWidget):
                 self.collect_btn.setText("Revert")
             else:
                 self.collect_btn.setText("Collect")
+
+            if state.get('extend_revert'):
+                self.extend_btn.setText("Revert")
+            else:
+                self.extend_btn.setText("Extend")
         finally:
             self.blockSignals(False)
         
