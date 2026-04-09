@@ -654,10 +654,17 @@ class RateManagerDialog(QDialog):
             if table == self.project_table and rate_type in ["Plug Rate", "Sub. Rate"]:
                 edit_action = QAction("Go-To", self)
                 edit_action.triggered.connect(lambda checked=False, t=table: self.goto_pboq_row(t))
+                menu.addAction(edit_action)
             else:
                 edit_action = QAction("Edit Rate", self)
                 edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
-            menu.addAction(edit_action)
+                menu.addAction(edit_action)
+                
+                # Add optional Go-To for Gross Rates in the Project Table
+                if table == self.project_table and rate_type == "Gross Rate":
+                    goto_action = QAction("Go-To", self)
+                    goto_action.triggered.connect(lambda checked=False, t=table: self.goto_pboq_row(t))
+                    menu.addAction(goto_action)
             
             if table == self.project_table:
                 price_desc_action = QAction("Price SOR with Description", self)
