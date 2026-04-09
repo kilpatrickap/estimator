@@ -64,8 +64,8 @@ class Estimate:
         self.sub_rates = [] # List of sub-rates for composite rates
         self.project_name = project_name
         self.client_name = client_name
-        self.overhead_percent = overhead
-        self.profit_margin_percent = profit
+        self.overhead_percent = overhead if overhead is not None else 0.0
+        self.profit_margin_percent = profit if profit is not None else 0.0
         self.currency = currency
         self.unit = unit
         self.notes = notes

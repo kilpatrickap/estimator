@@ -742,8 +742,11 @@ class DatabaseManager:
                 adj_factor = e.adjustment_factor if e.adjustment_factor is not None else 1.0
                 adj_subtotal = subtotal * adj_factor
                 
-                o_amt = adj_subtotal * (new_overhead / 100.0)
-                p_amt = adj_subtotal * (new_profit / 100.0)
+                oh = new_overhead if new_overhead is not None else 0.0
+                pr = new_profit if new_profit is not None else 0.0
+                
+                o_amt = adj_subtotal * (oh / 100.0)
+                p_amt = adj_subtotal * (pr / 100.0)
                 
                 e.grand_total = adj_subtotal + o_amt + p_amt
             
@@ -769,8 +772,11 @@ class DatabaseManager:
                 subtotal = e.net_total if e.net_total else 0.0
                 adj_subtotal = subtotal * new_factor
                 
-                o_amt = adj_subtotal * (e.overhead_percent / 100.0)
-                p_amt = adj_subtotal * (e.profit_margin_percent / 100.0)
+                oh = e.overhead_percent if e.overhead_percent is not None else 0.0
+                pr = e.profit_margin_percent if e.profit_margin_percent is not None else 0.0
+                
+                o_amt = adj_subtotal * (oh / 100.0)
+                p_amt = adj_subtotal * (pr / 100.0)
                 
                 e.grand_total = adj_subtotal + o_amt + p_amt
             
