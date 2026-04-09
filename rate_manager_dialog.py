@@ -441,12 +441,12 @@ class RateManagerDialog(QDialog):
                 if p_val is not None and float(p_val) != 0.0:
                     row = {
                         'rate_code': code,
-                        'project_name': f"[DISCOVERED] {data.get('desc', '')}",
+                        'project_name': data.get('desc', ''),
                         'unit': data.get('unit', ''),
                         'currency': data.get('curr', ''),
                         '_rate_val': p_val,
                         '_type_val': "Plug Rate",
-                        'date_created': 'From PBOQ',
+                        'date_created': data.get('_source_date', 'From PBOQ'),
                         'id': None
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
@@ -456,12 +456,12 @@ class RateManagerDialog(QDialog):
                 if s_val is not None and float(s_val) != 0.0:
                     row = {
                         'rate_code': code,
-                        'project_name': f"[DISCOVERED] {data.get('desc', '')}",
+                        'project_name': data.get('desc', ''),
                         'unit': data.get('unit', ''),
                         'currency': data.get('curr', ''),
                         '_rate_val': s_val,
                         '_type_val': "Sub. Rate",
-                        'date_created': 'From PBOQ',
+                        'date_created': data.get('_source_date', 'From PBOQ'),
                         'id': None
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']

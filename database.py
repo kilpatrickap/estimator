@@ -805,8 +805,9 @@ class DatabaseManager:
                 idx_s = get_idx(['SubbeeCode', 'Sub. Code', 'SubCode'])
                 idx_pr = get_idx(['PlugRate', 'Plug Rate'])
                 idx_sr = get_idx(['SubbeeRate', 'Sub. Rate', 'SubRate'])
-                idx_desc = get_idx(['Column 2', 'Description'])
-                idx_unit = get_idx(['Column 3', 'Unit'])
+                idx_bill = get_idx(['BillRate', 'Bill Rate', 'Column 4']) # Marked up rate
+                idx_desc = get_idx(['Description', 'Column 1', 'Column 2']) # Prioritize Description or Column 1
+                idx_unit = get_idx(['Unit', 'Column 3']) # Prioritize Unit column
                 idx_curr = get_idx(['PlugCurrency', 'Currency'])
                 idx_cat = get_idx(['SubbeeCategory', 'Category'])
                 
@@ -818,7 +819,17 @@ class DatabaseManager:
                     s_code = get_v(idx_s)
                     p_rate = get_v(idx_pr)
                     s_rate = get_v(idx_sr)
-                    desc = get_v(idx_desc)
+                    b_rate = get_v(idx_bill)
+                    
+                    # Better Description Fallback
+                    d_val = get_v(idx_desc)
+                    # If Description is a number (like a quantity), try checking if the OTHER column has text
+                    if d_val is None or str(d_val).replace('.','').isdigit():
+                        alt_desc = get_v(get_idx(['Description']) if 'Description' in keys else -1)
+                        if alt_desc and not str(alt_desc).replace('.','').isdigit():
+                            d_val = alt_desc
+                    
+                    desc = d_val if d_val else ""
                     unit = get_v(idx_unit)
                     curr = get_v(idx_curr)
                     cat = get_v(idx_cat)
@@ -831,6 +842,7 @@ class DatabaseManager:
                         
                     pr = clean_f(p_rate)
                     sr = clean_f(s_rate)
+                    br = clean_f(b_rate)
                     
                     # Map to different codes
                     targets = []
@@ -841,7 +853,16 @@ class DatabaseManager:
                     for code in set(targets):
                         if code not in summary:
                             import os
-                            db_name = os.path.basename(self.db_file)
+                            db_path = self.db_file
+                            db_name = os.path.basename(db_path)
+                            
+                            import datetime
+                            file_time = "From PBOQ"
+                            try:
+                                mtime = os.path.getmtime(db_path)
+                                file_time = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                            except: pass
+
                             summary[code] = {
                                 'plug_rate': None, 
                                 'sub_rate': None, 
@@ -849,10 +870,18 @@ class DatabaseManager:
                                 'unit': unit, 
                                 'curr': curr, 
                                 'cat': cat,
-                                '_source_db': db_name
+                                '_source_db': db_name,
+                                '_source_date': file_time
                             }
-                        if pr is not None: summary[code]['plug_rate'] = pr
-                        if sr is not None: summary[code]['sub_rate'] = sr
+                        
+                        # Logic: Use Bill Rate (br) as primary if available, fall back to specific type
+                        if code == str(p_code).strip() or code == str(r_code).strip():
+                            val = br if br is not None else pr
+                            if val is not None: summary[code]['plug_rate'] = val
+                            
+                        if code == str(s_code).strip():
+                            val = br if br is not None else sr
+                            if val is not None: summary[code]['sub_rate'] = val
                         
             except Exception as e:
                 print(f"PBOQ Summary Fetch Error: {e}")
