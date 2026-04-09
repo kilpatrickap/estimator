@@ -788,17 +788,41 @@ class DatabaseManager:
                 if not res.fetchone():
                     return {}
                 
-                # Fetch all logical rate assignments
-                # Inclusion: RateCode, PlugCode, SubbeeCode, PlugRate, SubbeeRate, Column 2 (Description Fallback), Unit (Fallback)
-                # We also grab Description and Unit from the pboq_items in case these codes aren't in the estimates table yet.
-                query = text("""
-                    SELECT RateCode, PlugCode, SubbeeCode, PlugRate, SubbeeRate, 
-                           "Column 2", "Column 3", PlugCurrency, SubbeeCategory
-                    FROM pboq_items
-                """)
-                rows = conn.execute(query).fetchall()
+                # Fetch all assignments. We use a more robust column-by-name approach.
+                query = text("SELECT * FROM pboq_items")
+                result = conn.execute(query)
+                keys = list(result.keys())
+                rows = result.fetchall()
                 
-                for r_code, p_code, s_code, p_rate, s_rate, desc, unit, curr, cat in rows:
+                # Identify column indices
+                def get_idx(candidates):
+                    for c in candidates:
+                        if c in keys: return keys.index(c)
+                    return -1
+                
+                idx_r = get_idx(['RateCode', 'Rate Code'])
+                idx_p = get_idx(['PlugCode', 'Plug Code'])
+                idx_s = get_idx(['SubbeeCode', 'Sub. Code', 'SubCode'])
+                idx_pr = get_idx(['PlugRate', 'Plug Rate'])
+                idx_sr = get_idx(['SubbeeRate', 'Sub. Rate', 'SubRate'])
+                idx_desc = get_idx(['Column 2', 'Description'])
+                idx_unit = get_idx(['Column 3', 'Unit'])
+                idx_curr = get_idx(['PlugCurrency', 'Currency'])
+                idx_cat = get_idx(['SubbeeCategory', 'Category'])
+                
+                for r in rows:
+                    def get_v(idx): return r[idx] if idx != -1 else None
+                    
+                    r_code = get_v(idx_r)
+                    p_code = get_v(idx_p)
+                    s_code = get_v(idx_s)
+                    p_rate = get_v(idx_pr)
+                    s_rate = get_v(idx_sr)
+                    desc = get_v(idx_desc)
+                    unit = get_v(idx_unit)
+                    curr = get_v(idx_curr)
+                    cat = get_v(idx_cat)
+
                     def clean_f(val):
                         try:
                             if val is None or str(val).strip() == "": return None
@@ -808,24 +832,26 @@ class DatabaseManager:
                     pr = clean_f(p_rate)
                     sr = clean_f(s_rate)
                     
-                    # We want to map these rates to their respective codes.
-                    # 1. RateCode (SOR/Gross)
-                    if r_code and str(r_code).strip():
-                        code = str(r_code).strip()
-                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
+                    # Map to different codes
+                    targets = []
+                    if r_code and str(r_code).strip(): targets.append(str(r_code).strip())
+                    if p_code and str(p_code).strip(): targets.append(str(p_code).strip())
+                    if s_code and str(s_code).strip(): targets.append(str(s_code).strip())
+                    
+                    for code in set(targets):
+                        if code not in summary:
+                            import os
+                            db_name = os.path.basename(self.db_file)
+                            summary[code] = {
+                                'plug_rate': None, 
+                                'sub_rate': None, 
+                                'desc': desc, 
+                                'unit': unit, 
+                                'curr': curr, 
+                                'cat': cat,
+                                '_source_db': db_name
+                            }
                         if pr is not None: summary[code]['plug_rate'] = pr
-                        if sr is not None: summary[code]['sub_rate'] = sr
-
-                    # 2. PlugCode
-                    if p_code and str(p_code).strip():
-                        code = str(p_code).strip()
-                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
-                        if pr is not None: summary[code]['plug_rate'] = pr
-
-                    # 3. SubbeeCode
-                    if s_code and str(s_code).strip():
-                        code = str(s_code).strip()
-                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
                         if sr is not None: summary[code]['sub_rate'] = sr
                         
             except Exception as e:

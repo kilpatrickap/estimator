@@ -114,6 +114,26 @@ class RateManagerDialog(QDialog):
                         self.project_db_manager = DatabaseManager(os.path.join(pdb_dir, f))
                         self.project_db_name = f
                         break
+            
+            # Also locate all PBOQ databases to capture Plug/Sub rates
+            self.pboq_db_managers = []
+            
+            # Look for "Priced BOQs" folder in project root (case-insensitive)
+            pboq_dir = None
+            if os.path.exists(project_dir):
+                for d in os.listdir(project_dir):
+                    if d.lower() == "priced boqs":
+                        pboq_dir = os.path.join(project_dir, d)
+                        break
+            
+            # If still not found, try common naming patterns
+            if not pboq_dir:
+                pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            
+            if os.path.exists(pboq_dir):
+                for f in sorted(os.listdir(pboq_dir)):
+                    if f.lower().endswith('.db'):
+                        self.pboq_db_managers.append(DatabaseManager(os.path.join(pboq_dir, f)))
 
         self.library_combo.currentIndexChanged.connect(self._change_library)
         header_layout.addWidget(self.library_combo)
@@ -295,7 +315,12 @@ class RateManagerDialog(QDialog):
                     r['_library_path'] = lib_path
                 all_rates.extend(rates)
         
-        for row_idx, row_data in enumerate(all_rates):
+        for row_data in all_rates:
+            rate_val = row_data.get('grand_total')
+            if rate_val is None or float(rate_val) == 0.0:
+                continue
+            
+            row_idx = self.table.rowCount()
             self.table.insertRow(row_idx)
             
             columns = [
@@ -361,7 +386,16 @@ class RateManagerDialog(QDialog):
         self.is_loading = True
         self.project_table.setRowCount(0)
         rates = self.project_db_manager.get_rates_data()
-        pboq_summary = self.project_db_manager.get_pboq_rates_summary()
+        
+        # Aggregate Plug and Sub rates from ALL PBOQ databases found in the project
+        pboq_summary = {}
+        target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
+        # If no specific PBOQ managers, try the project DB manager as fallback
+        if not target_managers: target_managers = [self.project_db_manager]
+        
+        for manager in target_managers:
+            summary_data = manager.get_pboq_rates_summary()
+            pboq_summary.update(summary_data)
         
         db_name_str = getattr(self, 'project_db_name', "Project Database")
         db_path_str = self.project_db_manager.db_file
@@ -377,56 +411,69 @@ class RateManagerDialog(QDialog):
             p_data = pboq_summary.get(code, {})
             
             # 1. Gross Rate
-            r['_rate_val'] = r.get('grand_total')
-            r['_type_val'] = "Gross Rate"
-            processed_data.append(r)
+            rate_g = r.get('grand_total')
+            if rate_g is not None and float(rate_g) != 0.0:
+                gr = copy.deepcopy(r)
+                gr['_rate_val'] = rate_g
+                gr['_type_val'] = "Gross Rate"
+                processed_data.append(gr)
             
             # 2. Plug Rate (if discovered)
-            if p_data.get('plug_rate'):
+            p_val = p_data.get('plug_rate')
+            if p_val is not None and float(p_val) != 0.0:
                 pr = copy.deepcopy(r)
-                pr['_rate_val'] = p_data['plug_rate']
+                pr['_rate_val'] = p_val
                 pr['_type_val'] = "Plug Rate"
                 processed_data.append(pr)
                 
             # 3. Sub. Rate (if discovered)
-            if p_data.get('sub_rate'):
+            s_val = p_data.get('sub_rate')
+            if s_val is not None and float(s_val) != 0.0:
                 sr = copy.deepcopy(r)
-                sr['_rate_val'] = p_data['sub_rate']
+                sr['_rate_val'] = s_val
                 sr['_type_val'] = "Sub. Rate"
                 processed_data.append(sr)
 
         # Discovery (No formal rate yet)
         for code, data in pboq_summary.items():
             if code not in seen_codes:
-                if data.get('plug_rate'):
-                    processed_data.append({
+                p_val = data.get('plug_rate')
+                if p_val is not None and float(p_val) != 0.0:
+                    row = {
                         'rate_code': code,
                         'project_name': f"[DISCOVERED] {data.get('desc', '')}",
                         'unit': data.get('unit', ''),
                         'currency': data.get('curr', ''),
-                        '_rate_val': data.get('plug_rate'),
+                        '_rate_val': p_val,
                         '_type_val': "Plug Rate",
-                        'date_created': 'Direct Entry',
-                        'notes': 'From PBOQ',
+                        'date_created': 'From PBOQ',
                         'id': None
-                    })
-                if data.get('sub_rate'):
-                    processed_data.append({
+                    }
+                    if data.get('_source_db'): row['_lib_override'] = data['_source_db']
+                    processed_data.append(row)
+                    
+                s_val = data.get('sub_rate')
+                if s_val is not None and float(s_val) != 0.0:
+                    row = {
                         'rate_code': code,
                         'project_name': f"[DISCOVERED] {data.get('desc', '')}",
                         'unit': data.get('unit', ''),
                         'currency': data.get('curr', ''),
-                        '_rate_val': data.get('sub_rate'),
+                        '_rate_val': s_val,
                         '_type_val': "Sub. Rate",
-                        'date_created': 'Direct Entry',
-                        'notes': 'From PBOQ',
+                        'date_created': 'From PBOQ',
                         'id': None
-                    })
+                    }
+                    if data.get('_source_db'): row['_lib_override'] = data['_source_db']
+                    processed_data.append(row)
 
         for row_idx, row_data in enumerate(processed_data):
             self.project_table.insertRow(row_idx)
+            
+            lib_display = row_data.get('_lib_override', db_name_str)
+            
             columns = [
-                db_name_str,
+                lib_display,
                 row_data.get('rate_code'),
                 row_data.get('project_name'),
                 row_data.get('unit'),
