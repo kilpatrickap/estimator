@@ -405,40 +405,35 @@ class RateManagerDialog(QDialog):
         processed_data = []
 
         seen_codes = set()
-        # Process and split rows by Price Type (Enforcing Hierarchy: Gross > Plug > Sub)
+        # Process and split rows by Price Type
         for r in rates:
             code = (r.get('rate_code') or "").strip()
             seen_codes.add(code)
             p_data = pboq_summary.get(code, {})
             
-            # 1. Gross Rate (Priority 1)
+            # 1. Gross Rate
             rate_g = r.get('grand_total')
             if rate_g is not None and float(rate_g) != 0.0:
                 gr = copy.deepcopy(r)
                 gr['_rate_val'] = rate_g
                 gr['_type_val'] = "Gross Rate"
                 processed_data.append(gr)
-                continue # Skip others for this code
             
-            # 2. Plug Rate (Priority 2)
+            # 2. Plug Rate (if discovered)
             p_val = p_data.get('plug_rate')
             if p_val is not None and float(p_val) != 0.0:
                 pr = copy.deepcopy(r)
                 pr['_rate_val'] = p_val
                 pr['_type_val'] = "Plug Rate"
-                if p_data.get('_source_db'): pr['_lib_override'] = p_data['_source_db']
                 processed_data.append(pr)
-                continue
                 
-            # 3. Sub. Rate (Priority 3)
+            # 3. Sub. Rate (if discovered)
             s_val = p_data.get('sub_rate')
             if s_val is not None and float(s_val) != 0.0:
                 sr = copy.deepcopy(r)
                 sr['_rate_val'] = s_val
                 sr['_type_val'] = "Sub. Rate"
-                if p_data.get('_source_db'): sr['_lib_override'] = p_data['_source_db']
                 processed_data.append(sr)
-
 
         # Discovery (No formal rate yet)
         for code, data in pboq_summary.items():
@@ -457,11 +452,9 @@ class RateManagerDialog(QDialog):
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
-                    continue
                     
                 s_val = data.get('sub_rate')
                 if s_val is not None and float(s_val) != 0.0:
-
                     row = {
                         'rate_code': code,
                         'project_name': data.get('desc', ''),
@@ -475,34 +468,10 @@ class RateManagerDialog(QDialog):
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
 
-        # Pre-scan pboq_summary for all unique source DB names to help localize Gross Rates
-        available_pboqs = set()
-        for s_data in pboq_summary.values():
-            if s_data.get('_source_db'): available_pboqs.add(s_data['_source_db'].lower())
-
         for row_idx, row_data in enumerate(processed_data):
             self.project_table.insertRow(row_idx)
             
             lib_display = row_data.get('_lib_override', db_name_str)
-            
-            # If the library name matches the project DB, check if a matching PBOQ exists and show that instead for better UX/Go-To support
-            if lib_display == db_name_str:
-                # Try simple prefixing
-                p_name = f"PBOQ_{db_name_str}"
-                if p_name.lower() in available_pboqs:
-                    lib_display = p_name
-                else:
-                    # Case insensitive check
-                    for existing in available_pboqs:
-                        if existing == p_name.lower() or existing == f"pboq_{db_name_str.lower()}":
-                            # Try to preserve casing if possible by finding it in managers
-                            for mgr in self.pboq_db_managers:
-                                m_f = os.path.basename(mgr.db_file)
-                                if m_f.lower() == existing:
-                                    lib_display = m_f
-                                    break
-                            break
-
             
             columns = [
                 lib_display,
@@ -752,32 +721,19 @@ class RateManagerDialog(QDialog):
         if not project_dir:
             return
             
-        # Robust folder lookup (handle Priced BOQs casing)
-        pboq_dir = os.path.join(project_dir, "Priced BOQs")
-        if not os.path.exists(pboq_dir):
-            for d in os.listdir(project_dir):
-                if d.lower() == "priced boqs":
-                    pboq_dir = os.path.join(project_dir, d)
-                    break
-        
-        bill_path = os.path.join(pboq_dir, lib_name)
+        bill_path = os.path.join(project_dir, "Priced BOQs", lib_name)
         if not os.path.exists(bill_path):
-            # Try case-insensitive scan and prefix scan
-            found = False
+            # Try case-insensitive scan
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
             if os.path.exists(pboq_dir):
-                lib_lower = lib_name.lower()
-                prefix_lower = f"pboq_{lib_lower}"
                 for f in os.listdir(pboq_dir):
-                    f_lower = f.lower()
-                    if f_lower == lib_lower or f_lower == prefix_lower:
+                    if f.lower() == lib_name.lower():
                         bill_path = os.path.join(pboq_dir, f)
-                        lib_name = f # Update lib_name to the actual filename found on disk
-                        found = True
                         break
-            if not found:
-                 QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
-                 return
-
+        
+        if not os.path.exists(bill_path):
+             QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
+             return
 
         # 2. Find or open the PBOQDialog
         from pboq_viewer import PBOQDialog

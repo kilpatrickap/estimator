@@ -88,13 +88,6 @@ class DBEstimate(Base):
     adjustment_factor = Column(Float, default=1.0)
     category = Column(String)
     rate_type = Column(String, default='Simple')
-    
-    # Centralized Pricing Fields
-    plug_rate = Column(Float, default=0.0)
-    sub_rate = Column(Float, default=0.0)
-    sub_markup = Column(Float, default=0.0)
-    sub_package = Column(String)
-
 
     tasks = relationship("DBTask", back_populates="estimate", cascade="all, delete-orphan")
     exchange_rates = relationship("DBEstimateExchangeRate", back_populates="estimate", cascade="all, delete-orphan")
