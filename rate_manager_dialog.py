@@ -475,13 +475,33 @@ class RateManagerDialog(QDialog):
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
 
+        # Pre-scan pboq_summary for all unique source DB names to help localize Gross Rates
+        available_pboqs = set()
+        for s_data in pboq_summary.values():
+            if s_data.get('_source_db'): available_pboqs.add(s_data['_source_db'].lower())
 
         for row_idx, row_data in enumerate(processed_data):
             self.project_table.insertRow(row_idx)
             
             lib_display = row_data.get('_lib_override', db_name_str)
             
-            # (Prefacing logic removed to maintain Single Source of Truth as the Project Master DB)
+            # If the library name matches the project DB, check if a matching PBOQ exists and show that instead for better UX/Go-To support
+            if lib_display == db_name_str:
+                # Try simple prefixing
+                p_name = f"PBOQ_{db_name_str}"
+                if p_name.lower() in available_pboqs:
+                    lib_display = p_name
+                else:
+                    # Case insensitive check
+                    for existing in available_pboqs:
+                        if existing == p_name.lower() or existing == f"pboq_{db_name_str.lower()}":
+                            # Try to preserve casing if possible by finding it in managers
+                            for mgr in self.pboq_db_managers:
+                                m_f = os.path.basename(mgr.db_file)
+                                if m_f.lower() == existing:
+                                    lib_display = m_f
+                                    break
+                            break
 
             
             columns = [
