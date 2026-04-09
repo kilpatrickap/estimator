@@ -1518,24 +1518,39 @@ class PBOQDialog(QDialog):
                 if item0 and item0.data(Qt.ItemDataRole.UserRole + 2) == 1:
                     flagged += 1
 
+                # Item Detection: Has quantity OR Unit is 'Item' OR is already priced via tools
                 qty_item = t.item(r, m['qty'])
-                if qty_item and qty_item.text().strip():
+                unit_item = t.item(r, m['unit'])
+                has_qty = qty_item and qty_item.text().strip()
+                is_lump_sum = unit_item and unit_item.text().strip().lower() == "item"
+                
+                # Colors that indicate a tool has been used for pricing
+                pricing_hexes = [
+                    const.COL_COLOR_GREEN.name().lower(),
+                    const.COL_COLOR_PURPLE.name().lower(),
+                    const.COL_COLOR_ORANGE.name().lower(),
+                    const.COLOR_PROV_SUM.name().lower(),
+                    const.COL_COLOR_LIME.name().lower(),
+                    const.COL_COLOR_BROWN.name().lower(),
+                    const.COLOR_LINK_CYAN.name().lower()
+                ]
+                
+                is_row_priced = False
+                price_indices = [m.get('bill_rate', -1), m.get('bill_amount', -1)]
+                for c_idx in price_indices:
+                    if c_idx < 0: continue
+                    it = t.item(r, c_idx)
+                    if it and it.text().strip():
+                        bg_color = it.background().color()
+                        if bg_color.isValid() and bg_color.name().lower() in pricing_hexes:
+                            is_row_priced = True
+                            break
+
+                # Count as a valid item if it has quantity, is a lump sum, or is actually priced
+                if has_qty or is_lump_sum or is_row_priced:
                     total += 1
-                    # Determine which rate column to check for "priced" count
-                    rate_col = m['rate']
-                    if hasattr(self, 'price_pane'):
-                        p_type = self.price_pane.price_type_combo.currentText()
-                        if p_type == "Plug Rate":
-                            rate_col = m.get('plug_rate', -1)
-                        elif p_type == "Prov Sum":
-                            rate_col = m.get('prov_sum', -1)
-                        elif p_type == "Subcontractor Rate":
-                            rate_col = m.get('sub_rate', -1)
-                            
-                    if rate_col >= 0:
-                        rate_item = t.item(r, rate_col)
-                        if rate_item and rate_item.text().strip():
-                            priced += 1
+                    if is_row_priced:
+                        priced += 1
         
         outstanding = total - priced
         
