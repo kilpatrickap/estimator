@@ -143,7 +143,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Net Rate", "Gross Rate", "Adj. Factor", "Date", "Notes"]
+        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Rate", "Rate Type", "Date"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -156,8 +156,8 @@ class RateManagerDialog(QDialog):
                                    QTableWidget.EditTrigger.EditKeyPressed | 
                                    QTableWidget.EditTrigger.SelectedClicked)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.table.setWordWrap(False)
-        self.table.verticalHeader().setDefaultSectionSize(25)
+        self.table.setWordWrap(True)
+        self.table.verticalHeader().setDefaultSectionSize(30)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
@@ -207,8 +207,8 @@ class RateManagerDialog(QDialog):
                                            QTableWidget.EditTrigger.EditKeyPressed | 
                                            QTableWidget.EditTrigger.SelectedClicked)
         self.project_table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.project_table.setWordWrap(False)
-        self.project_table.verticalHeader().setDefaultSectionSize(25)
+        self.project_table.setWordWrap(True)
+        self.project_table.verticalHeader().setDefaultSectionSize(30)
         self.project_table.setAlternatingRowColors(True)
         self.project_table.setShowGrid(False)
         self.project_table.setStyleSheet("QTableWidget { border: 1px solid #e0e0e0; border-radius: 4px; }")
@@ -304,55 +304,52 @@ class RateManagerDialog(QDialog):
                 row_data.get('project_name'),
                 row_data.get('unit'),
                 row_data.get('currency'),
-                row_data.get('net_total'),
                 row_data.get('grand_total'),
-                row_data.get('adjustment_factor'),
-                row_data.get('date_created'),
-                row_data.get('notes')
+                "Gross Rate",
+                row_data.get('date_created')
             ]
             
             for col_idx, data in enumerate(columns):
-                if col_idx in [5, 6]: # net_total or grand_total
+                if col_idx == 5: # Rate
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
-                elif col_idx == 7: # adjustment_factor
-                    try:
-                        val = float(data)
-                        display_text = f"{val:.2f}" if val != 1.0 else "N/A"
-                    except:
-                        display_text = "N/A"
                 else:
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
-                # Store the internal DB ID and path in the first visible column's UserRole
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                
+                # Store metadata in Library column
                 if col_idx == 0:
                     val_str = f"{row_data.get('id')}|{row_data.get('_library_path')}"
                     item.setData(Qt.ItemDataRole.UserRole, val_str)
-                    
-                if col_idx == 1:
+                
+                if col_idx == 1: # Rate Code
                     font = item.font()
                     font.setBold(True)
                     item.setFont(font)
                 
-                if col_idx in [5, 6, 7]: # Net Rate, Gross Rate, and Adj Factor
+                if col_idx == 5: # Rate
                     font = item.font()
-                    font.setBold(True) if col_idx in [5, 6] else None
+                    font.setBold(True)
                     item.setFont(font)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 
-                # Freeze all columns except Rate Code and Description
-                if col_idx not in [1, 2]:
+                if col_idx == 6: # Rate Type
+                    item.setForeground(Qt.GlobalColor.darkGreen)
+                
+                # Freeze all columns except Description
+                if col_idx != 2:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 
                 self.table.setItem(row_idx, col_idx, item)
         
         # Initial fit for all columns
         for i in range(self.table.columnCount()):
-            self.table.resizeColumnToContents(i)
-            
-        # Ensure description and notes had a bit of extra space to start
-        current_desc_w = self.table.columnWidth(2)
-        self.table.setColumnWidth(2, max(current_desc_w, 250))
+            if i == 2:
+                self.table.setColumnWidth(i, 300)
+            else:
+                self.table.resizeColumnToContents(i)
+        
+        self.table.resizeRowsToContents()
         
         self.is_loading = False
 
@@ -364,10 +361,69 @@ class RateManagerDialog(QDialog):
         self.is_loading = True
         self.project_table.setRowCount(0)
         rates = self.project_db_manager.get_rates_data()
+        pboq_summary = self.project_db_manager.get_pboq_rates_summary()
+        
         db_name_str = getattr(self, 'project_db_name', "Project Database")
         db_path_str = self.project_db_manager.db_file
         
-        for row_idx, row_data in enumerate(rates):
+        import copy
+        processed_data = []
+
+        seen_codes = set()
+        # Process and split rows by Price Type
+        for r in rates:
+            code = (r.get('rate_code') or "").strip()
+            seen_codes.add(code)
+            p_data = pboq_summary.get(code, {})
+            
+            # 1. Gross Rate
+            r['_rate_val'] = r.get('grand_total')
+            r['_type_val'] = "Gross Rate"
+            processed_data.append(r)
+            
+            # 2. Plug Rate (if discovered)
+            if p_data.get('plug_rate'):
+                pr = copy.deepcopy(r)
+                pr['_rate_val'] = p_data['plug_rate']
+                pr['_type_val'] = "Plug Rate"
+                processed_data.append(pr)
+                
+            # 3. Sub. Rate (if discovered)
+            if p_data.get('sub_rate'):
+                sr = copy.deepcopy(r)
+                sr['_rate_val'] = p_data['sub_rate']
+                sr['_type_val'] = "Sub. Rate"
+                processed_data.append(sr)
+
+        # Discovery (No formal rate yet)
+        for code, data in pboq_summary.items():
+            if code not in seen_codes:
+                if data.get('plug_rate'):
+                    processed_data.append({
+                        'rate_code': code,
+                        'project_name': f"[DISCOVERED] {data.get('desc', '')}",
+                        'unit': data.get('unit', ''),
+                        'currency': data.get('curr', ''),
+                        '_rate_val': data.get('plug_rate'),
+                        '_type_val': "Plug Rate",
+                        'date_created': 'Direct Entry',
+                        'notes': 'From PBOQ',
+                        'id': None
+                    })
+                if data.get('sub_rate'):
+                    processed_data.append({
+                        'rate_code': code,
+                        'project_name': f"[DISCOVERED] {data.get('desc', '')}",
+                        'unit': data.get('unit', ''),
+                        'currency': data.get('curr', ''),
+                        '_rate_val': data.get('sub_rate'),
+                        '_type_val': "Sub. Rate",
+                        'date_created': 'Direct Entry',
+                        'notes': 'From PBOQ',
+                        'id': None
+                    })
+
+        for row_idx, row_data in enumerate(processed_data):
             self.project_table.insertRow(row_idx)
             columns = [
                 db_name_str,
@@ -375,50 +431,49 @@ class RateManagerDialog(QDialog):
                 row_data.get('project_name'),
                 row_data.get('unit'),
                 row_data.get('currency'),
-                row_data.get('net_total'),
-                row_data.get('grand_total'),
-                row_data.get('adjustment_factor'),
-                row_data.get('date_created'),
-                row_data.get('notes')
+                row_data.get('_rate_val'),
+                row_data.get('_type_val'),
+                row_data.get('date_created')
             ]
             
             for col_idx, data in enumerate(columns):
-                if col_idx in [5, 6]:
+                if col_idx == 5:
                     display_text = f"{float(data):,.2f}" if data is not None else "0.00"
-                elif col_idx == 7:
-                    try:
-                        val = float(data)
-                        display_text = f"{val:.2f}" if val != 1.0 else "N/A"
-                    except:
-                        display_text = "N/A"
                 else:
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
+                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+                
                 if col_idx == 0:
                     val_str = f"{row_data.get('id')}|{db_path_str}"
                     item.setData(Qt.ItemDataRole.UserRole, val_str)
-                    
-                if col_idx == 1:
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
                 
-                if col_idx in [5, 6, 7]:
-                    font = item.font()
-                    font.setBold(True) if col_idx in [5, 6] else None
-                    item.setFont(font)
-                    item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                if col_idx == 1: # Rate Code
+                    font = item.font(); font.setBold(True); item.setFont(font)
+
+                if col_idx == 5: # Rate
+                    font = item.font(); font.setBold(True); item.setFont(font)
                 
-                if col_idx not in [1, 2]:
+                if col_idx == 6: # Rate Type
+                    from PyQt6.QtGui import QColor
+                    tp = str(data)
+                    if tp == "Gross Rate": item.setForeground(Qt.GlobalColor.darkGreen)
+                    elif tp == "Plug Rate": item.setForeground(QColor("#7b1fa2"))
+                    elif tp == "Sub. Rate": item.setForeground(QColor("#e65100"))
+
+                if col_idx != 2:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 
                 self.project_table.setItem(row_idx, col_idx, item)
         
         for i in range(self.project_table.columnCount()):
-            self.project_table.resizeColumnToContents(i)
-        current_desc_w = self.project_table.columnWidth(2)
-        self.project_table.setColumnWidth(2, max(current_desc_w, 250))
+            if i == 2:
+                self.project_table.setColumnWidth(i, 300)
+            else:
+                self.project_table.resizeColumnToContents(i)
+        
+        self.project_table.resizeRowsToContents()
         
         self.is_loading = False
 
@@ -428,7 +483,11 @@ class RateManagerDialog(QDialog):
         val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         
         if val_str:
-            db_id = int(val_str.split('|')[0])
+            db_id_str = val_str.split('|')[0]
+            if db_id_str == "None":
+                QMessageBox.information(self, "No Build-up", "This discovered rate has no build-up. Price it manually or using tools.")
+                return
+            db_id = int(db_id_str)
             db_path = val_str.split('|')[1]
             from database import DatabaseManager
             rates_db = DatabaseManager(db_path)
@@ -460,7 +519,7 @@ class RateManagerDialog(QDialog):
         # Search project table first, then library table
         for tbl in [self.project_table, self.table]:
             for row in range(tbl.rowCount()):
-                item = tbl.item(row, 1)
+                item = tbl.item(row, 1) # Rate Code
                 if item and item.text() == rate_code:
                     tbl.clearSelection()
                     tbl.scrollToItem(item, QTableWidget.ScrollHint.PositionAtCenter)
@@ -477,9 +536,9 @@ class RateManagerDialog(QDialog):
     def filter_rates(self, text):
         query = text.lower()
         for row in range(self.table.rowCount()):
-            item0 = self.table.item(row, 0)
-            item1 = self.table.item(row, 1)
-            item2 = self.table.item(row, 2)
+            item0 = self.table.item(row, 0) # Library
+            item1 = self.table.item(row, 1) # Rate Code
+            item2 = self.table.item(row, 2) # Description
             if item1 and item2:
                 lib_match = query in item0.text().lower() if item0 else False
                 id_match = query in item1.text().lower()
@@ -489,9 +548,9 @@ class RateManagerDialog(QDialog):
     def filter_project_rates(self, text):
         query = text.lower()
         for row in range(self.project_table.rowCount()):
-            item0 = self.project_table.item(row, 0)
-            item1 = self.project_table.item(row, 1)
-            item2 = self.project_table.item(row, 2)
+            item0 = self.project_table.item(row, 0) # Library
+            item1 = self.project_table.item(row, 1) # Rate Code
+            item2 = self.project_table.item(row, 2) # Description
             if item1 and item2:
                 lib_match = query in item0.text().lower() if item0 else False
                 id_match = query in item1.text().lower()
@@ -512,7 +571,7 @@ class RateManagerDialog(QDialog):
             return
             
         val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        if not val_str:
+        if not val_str or val_str.split('|')[0] == "None":
             return
             
         db_id = int(val_str.split('|')[0])
@@ -642,7 +701,7 @@ class RateManagerDialog(QDialog):
         val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
         rate_code = table.item(row, 1).text()
         
-        if val_str:
+        if val_str and val_str.split('|')[0] != "None":
             db_id = int(val_str.split('|')[0])
             db_path = val_str.split('|')[1]
             db = DatabaseManager(db_path)
@@ -669,12 +728,12 @@ class RateManagerDialog(QDialog):
         rate_code = self.project_table.item(row, 1).text()
         rate_desc = self.project_table.item(row, 2).text()
         
-        # Gross Rate is index 6
+        # Selected Rate is index 5
         try:
-            gross_str = self.project_table.item(row, 6).text().replace(',', '')
-            gross_rate = float(gross_str)
+            rate_str = self.project_table.item(row, 5).text().replace(',', '')
+            selected_rate = float(rate_str)
         except:
-            gross_rate = 0.0
+            selected_rate = 0.0
             
         # Find SORDialog in MDI area
         sor_dialog = None
@@ -690,26 +749,27 @@ class RateManagerDialog(QDialog):
             QMessageBox.warning(self, "SOR Not Open", "Please open the SOR window first to use 'Price SOR'.")
             return
             
-        count = sor_dialog._price_sor_with_rate(rate_desc, gross_rate, rate_code)
+        count = sor_dialog._price_sor_with_rate(rate_desc, selected_rate, rate_code)
         if count > 0:
             QMessageBox.information(self, "Success", f"Successfully found and priced {count} SOR item(s) matching '{rate_desc}'.")
         else:
             QMessageBox.information(self, "No Match", f"No items matching '{rate_desc}' were found in the current SOR view.")
 
     def price_sor_from_keywords(self):
-        """Prices SOR items using the keywords active in the SOR window."""
+        """Finds SOR and prices items using currently defined keywords & selected rate."""
         selected_indexes = self.project_table.selectionModel().selectedRows()
-        if not selected_indexes:
+        if not selected_indexes or self.project_table.rowCount() == 0:
             return
             
         row = selected_indexes[0].row()
         rate_code = self.project_table.item(row, 1).text()
         
+        # Selected Rate is index 5
         try:
-            gross_str = self.project_table.item(row, 6).text().replace(',', '')
-            gross_rate = float(gross_str)
+            rate_str = self.project_table.item(row, 5).text().replace(',', '')
+            selected_rate = float(rate_str)
         except:
-            gross_rate = 0.0
+            selected_rate = 0.0
             
         # Find SORDialog
         sor_dialog = None
@@ -725,7 +785,7 @@ class RateManagerDialog(QDialog):
             QMessageBox.warning(self, "SOR Not Open", "Please open the SOR window first to use 'Price SOR with Keywords'.")
             return
             
-        count = sor_dialog._price_sor_with_keywords(gross_rate, rate_code)
+        count = sor_dialog._price_sor_with_keywords(selected_rate, rate_code)
         
         if count == -1:
             QMessageBox.warning(self, "No Keywords", "Please enter keywords in the SOR window first.")

@@ -776,3 +776,59 @@ class DatabaseManager:
             
             session.commit()
 
+    def get_pboq_rates_summary(self):
+        """Fetches a summary of Plug and Subcontractor rates from pboq_items table."""
+        from sqlalchemy import text
+        summary = {} # {code: {'plug_rate': float, 'sub_rate': float}}
+        
+        with self.engine.connect() as conn:
+            try:
+                # Check if the table exists first
+                res = conn.execute(text("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'"))
+                if not res.fetchone():
+                    return {}
+                
+                # Fetch all logical rate assignments
+                # Inclusion: RateCode, PlugCode, SubbeeCode, PlugRate, SubbeeRate, Column 2 (Description Fallback), Unit (Fallback)
+                # We also grab Description and Unit from the pboq_items in case these codes aren't in the estimates table yet.
+                query = text("""
+                    SELECT RateCode, PlugCode, SubbeeCode, PlugRate, SubbeeRate, 
+                           "Column 2", "Column 3", PlugCurrency, SubbeeCategory
+                    FROM pboq_items
+                """)
+                rows = conn.execute(query).fetchall()
+                
+                for r_code, p_code, s_code, p_rate, s_rate, desc, unit, curr, cat in rows:
+                    def clean_f(val):
+                        try:
+                            if val is None or str(val).strip() == "": return None
+                            return float(str(val).replace(',', ''))
+                        except: return None
+                        
+                    pr = clean_f(p_rate)
+                    sr = clean_f(s_rate)
+                    
+                    # We want to map these rates to their respective codes.
+                    # 1. RateCode (SOR/Gross)
+                    if r_code and str(r_code).strip():
+                        code = str(r_code).strip()
+                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
+                        if pr is not None: summary[code]['plug_rate'] = pr
+                        if sr is not None: summary[code]['sub_rate'] = sr
+
+                    # 2. PlugCode
+                    if p_code and str(p_code).strip():
+                        code = str(p_code).strip()
+                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
+                        if pr is not None: summary[code]['plug_rate'] = pr
+
+                    # 3. SubbeeCode
+                    if s_code and str(s_code).strip():
+                        code = str(s_code).strip()
+                        if code not in summary: summary[code] = {'plug_rate': None, 'sub_rate': None, 'desc': desc, 'unit': unit, 'curr': curr, 'cat': cat}
+                        if sr is not None: summary[code]['sub_rate'] = sr
+                        
+            except Exception as e:
+                print(f"PBOQ Summary Fetch Error: {e}")
+                return {}
+        return summary
