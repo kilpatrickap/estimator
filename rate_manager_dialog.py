@@ -468,10 +468,34 @@ class RateManagerDialog(QDialog):
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
 
+        # Pre-scan pboq_summary for all unique source DB names to help localize Gross Rates
+        available_pboqs = set()
+        for s_data in pboq_summary.values():
+            if s_data.get('_source_db'): available_pboqs.add(s_data['_source_db'].lower())
+
         for row_idx, row_data in enumerate(processed_data):
             self.project_table.insertRow(row_idx)
             
             lib_display = row_data.get('_lib_override', db_name_str)
+            
+            # For Gross Rates, if the project has a matching PBOQ, show that instead for better UX/Go-To support
+            if row_data.get('_type_val') == "Gross Rate" and lib_display == db_name_str:
+                # Try simple prefixing
+                p_name = f"PBOQ_{db_name_str}"
+                if p_name.lower() in available_pboqs:
+                    lib_display = p_name
+                else:
+                    # Case insensitive check
+                    for existing in available_pboqs:
+                        if existing == p_name.lower() or existing == f"pboq_{db_name_str.lower()}":
+                            # Try to preserve casing if possible by finding it in managers
+                            for mgr in self.pboq_db_managers:
+                                m_f = os.path.basename(mgr.db_file)
+                                if m_f.lower() == existing:
+                                    lib_display = m_f
+                                    break
+                            break
+
             
             columns = [
                 lib_display,
@@ -721,19 +745,32 @@ class RateManagerDialog(QDialog):
         if not project_dir:
             return
             
-        bill_path = os.path.join(project_dir, "Priced BOQs", lib_name)
-        if not os.path.exists(bill_path):
-            # Try case-insensitive scan
-            pboq_dir = os.path.join(project_dir, "Priced BOQs")
-            if os.path.exists(pboq_dir):
-                for f in os.listdir(pboq_dir):
-                    if f.lower() == lib_name.lower():
-                        bill_path = os.path.join(pboq_dir, f)
-                        break
+        # Robust folder lookup (handle Priced BOQs casing)
+        pboq_dir = os.path.join(project_dir, "Priced BOQs")
+        if not os.path.exists(pboq_dir):
+            for d in os.listdir(project_dir):
+                if d.lower() == "priced boqs":
+                    pboq_dir = os.path.join(project_dir, d)
+                    break
         
+        bill_path = os.path.join(pboq_dir, lib_name)
         if not os.path.exists(bill_path):
-             QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
-             return
+            # Try case-insensitive scan and prefix scan
+            found = False
+            if os.path.exists(pboq_dir):
+                lib_lower = lib_name.lower()
+                prefix_lower = f"pboq_{lib_lower}"
+                for f in os.listdir(pboq_dir):
+                    f_lower = f.lower()
+                    if f_lower == lib_lower or f_lower == prefix_lower:
+                        bill_path = os.path.join(pboq_dir, f)
+                        lib_name = f # Update lib_name to the actual filename found on disk
+                        found = True
+                        break
+            if not found:
+                 QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
+                 return
+
 
         # 2. Find or open the PBOQDialog
         from pboq_viewer import PBOQDialog
