@@ -345,7 +345,7 @@ class RateManagerDialog(QDialog):
         # Initial fit for all columns
         for i in range(self.table.columnCount()):
             if i == 2:
-                self.table.setColumnWidth(i, 300)
+                self.table.setColumnWidth(i, 350)
             else:
                 self.table.resizeColumnToContents(i)
         
@@ -469,7 +469,7 @@ class RateManagerDialog(QDialog):
         
         for i in range(self.project_table.columnCount()):
             if i == 2:
-                self.project_table.setColumnWidth(i, 300)
+                self.project_table.setColumnWidth(i, 350)
             else:
                 self.project_table.resizeColumnToContents(i)
         
