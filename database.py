@@ -77,6 +77,19 @@ class DatabaseManager:
                     conn.commit()
                 except Exception:
                     pass
+            
+            # Migration for estimates table (Centralized Pricing)
+            try:
+                conn.execute(text("SELECT plug_rate FROM estimates LIMIT 1"))
+            except Exception:
+                try:
+                    conn.execute(text("ALTER TABLE estimates ADD COLUMN plug_rate FLOAT DEFAULT 0.0"))
+                    conn.execute(text("ALTER TABLE estimates ADD COLUMN sub_rate FLOAT DEFAULT 0.0"))
+                    conn.execute(text("ALTER TABLE estimates ADD COLUMN sub_markup FLOAT DEFAULT 0.0"))
+                    conn.execute(text("ALTER TABLE estimates ADD COLUMN sub_package VARCHAR"))
+                    conn.commit()
+                except Exception:
+                    pass
 
     def _insert_sample_data(self):
         now = datetime.now().strftime('%Y-%m-%d')
@@ -575,7 +588,44 @@ class DatabaseManager:
     def get_rates_data(self):
         with self.Session() as session:
             ests = session.query(DBEstimate).order_by(DBEstimate.rate_code.asc()).all()
-            return [{'id': e.id, 'rate_code': e.rate_code, 'project_name': e.project_name, 'unit': e.unit, 'currency': e.currency, 'net_total': e.net_total, 'grand_total': e.grand_total, 'adjustment_factor': e.adjustment_factor, 'date_created': e.date_created, 'notes': e.notes, 'rate_type': e.rate_type} for e in ests]
+            return [
+                {
+                    'id': e.id, 
+                    'rate_code': e.rate_code, 
+                    'project_name': e.project_name, 
+                    'unit': e.unit, 
+                    'currency': e.currency, 
+                    'net_total': e.net_total, 
+                    'grand_total': e.grand_total, 
+                    'adjustment_factor': e.adjustment_factor, 
+                    'date_created': e.date_created, 
+                    'notes': e.notes, 
+                    'rate_type': e.rate_type,
+                    'plug_rate': e.plug_rate,
+                    'sub_rate': e.sub_rate,
+                    'sub_markup': e.sub_markup,
+                    'sub_package': e.sub_package
+                } for e in ests
+            ]
+
+    def update_project_rate_by_code(self, rate_code, updates_dict):
+        """Updates centralized pricing fields in the project DB for a specific rate code."""
+        if not rate_code: return False
+        with self.Session() as session:
+            est = session.query(DBEstimate).filter(DBEstimate.rate_code == rate_code).first()
+            if est:
+                for key, val in updates_dict.items():
+                    if hasattr(est, key):
+                        # Convert to float if it's a numeric field
+                        if key in ['plug_rate', 'sub_rate', 'sub_markup']:
+                            try:
+                                if isinstance(val, str): val = val.replace(',', '').replace('%', '')
+                                val = float(val) if val else 0.0
+                            except: pass
+                        setattr(est, key, val)
+                session.commit()
+                return True
+        return False
 
     def get_estimates_using_resource(self, table_name, resource_name):
         with self.Session() as session:

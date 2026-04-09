@@ -226,25 +226,59 @@ class PBOQDialog(QDialog):
         # logical_start_idx is row[0] (rowid) + physical_cols (len(db_columns))
         logical_start_idx = 1 + len(self.db_columns)
         
+        # Fetch Project Rates for Centralization
+        project_rates = {}
+        if self.main_window and hasattr(self.main_window, 'db_manager'):
+            rates_data = self.main_window.db_manager.get_rates_data()
+            for r in rates_data:
+                if r.get('rate_code'):
+                    project_rates[r['rate_code']] = r
+        
+        m = self.tools_pane.get_mappings()
+        
+        # logical_data indices (based on logical_cols list)
+        L_PKG = 0; L_NAME = 1; L_SUB_RATE = 2; L_SUB_MARKUP = 3; L_SUB_CODE = 5
+        L_PROV_CODE = 7; L_PC_CODE = 13; L_PLUG_RATE = 18; L_PLUG_CODE = 19; L_FLAG = 25
+        
         for g_idx, row in enumerate(rows):
             row_id = row[0]
             physical_data = list(row[1:logical_start_idx])
-            logical_data = row[logical_start_idx:]
-            is_flagged = 1 if logical_data[25] in [1, '1', True, 'True'] else 0
+            logical_data = list(row[logical_start_idx:])
             
-            # --- Logic Layer MERGE ---
+            # --- CENTRALIZATION MERGE ---
+            # Search for a rate code in any logical column to identify this row
+            row_code = ""
+            for l_idx in [L_PLUG_CODE, L_SUB_CODE, L_PROV_CODE, L_PC_CODE]:
+                if logical_data[l_idx] and str(logical_data[l_idx]).strip():
+                    row_code = str(logical_data[l_idx]).strip()
+                    break
+            
+            p_rate_data = project_rates.get(row_code)
+            
+            # If we found a master project rate, overwrite logical columns with master truth
+            if p_rate_data:
+                # Update logical_data from Project DB
+                if p_rate_data.get('plug_rate') is not None and float(p_rate_data['plug_rate']) != 0.0: 
+                    logical_data[L_PLUG_RATE] = p_rate_data['plug_rate']
+                if p_rate_data.get('sub_rate') is not None and float(p_rate_data['sub_rate']) != 0.0: 
+                    logical_data[L_SUB_RATE] = p_rate_data['sub_rate']
+                if p_rate_data.get('sub_markup') is not None and float(p_rate_data['sub_markup']) != 0.0: 
+                    logical_data[L_SUB_MARKUP] = p_rate_data['sub_markup']
+                if p_rate_data.get('sub_package'): 
+                    logical_data[L_PKG] = p_rate_data['sub_package']
+
+            is_flagged = 1 if str(logical_data[L_FLAG]) in [1, '1', True, 'True'] else 0
+            
+            # --- Logic Layer MERGE into Physical Data (UI Display) ---
             # For subbee roles, prefer logical store values.
-            # Category and Code ALWAYS use logical store (they are the source of truth).
-            # Other roles only pull from logical store when the physical cell is empty.
-            m = self.tools_pane.get_mappings()
             sub_roles = {
-                'sub_package': 0, 'sub_name': 1, 'sub_rate': 2, 
-                'sub_markup': 3, 'sub_category': 4, 'sub_code': 5,
-                'prov_sum': 6, 'prov_sum_code': 7,
-                'pc_sum': 12, 'pc_sum_code': 13,
-                'plug_rate': 18, 'plug_code': 19, 'plug_factor': 24
+                'sub_package': L_PKG, 'sub_name': L_NAME, 'sub_rate': L_SUB_RATE, 
+                'sub_markup': L_SUB_MARKUP, 'sub_category': 4, 'sub_code': L_SUB_CODE,
+                'prov_sum': 6, 'prov_sum_code': L_PROV_CODE,
+                'pc_sum': 12, 'pc_sum_code': L_PC_CODE,
+                'plug_rate': L_PLUG_RATE, 'plug_code': L_PLUG_CODE, 'plug_factor': 24
             }
-            # Roles where the logical store is ALWAYS authoritative and should overwrite physical spreadsheet cells
+            # Roles where the logical store is ALWAYS authoritative
             logical_authoritative = {'sub_category', 'sub_code', 'prov_sum_code', 'pc_sum_code', 'plug_code', 'plug_rate', 'prov_sum', 'pc_sum', 'plug_factor'}
             
             for role, l_idx in sub_roles.items():
@@ -262,6 +296,7 @@ class PBOQDialog(QDialog):
             sheet_name = str(physical_data[0]) if physical_data[0] else "Sheet 1"
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
             sheet_groups[sheet_name].append((g_idx, row_id, physical_data[1:], is_flagged))
+
             
         self.tools_pane.populate_column_combos(display_col_names)
         
@@ -1311,6 +1346,38 @@ class PBOQDialog(QDialog):
             if display_col == m.get(role):
                 self.logic.persist_batch_named_updates(file_path, logical_col, updates)
                 break
+
+        # --- CENTRALIZATION: Master-Write Logic ---
+        # If we have a Rate Code, also update the Project Master DB
+        if self.main_window and hasattr(self.main_window, 'db_manager'):
+            project_updates = {} # rate_code -> {dict of values to update}
+            for rowid, new_val in updates:
+                item0 = self.rowid_to_item0.get(rowid)
+                if not item0 or not item0.tableWidget(): continue
+                table = item0.tableWidget()
+                row = item0.row()
+                
+                # Identify the rate code for this row (checking plug/sub/gross code fields)
+                rate_code = ""
+                for role in ['rate_code', 'plug_code', 'sub_code', 'prov_sum_code', 'pc_sum_code']:
+                    c_idx = m.get(role, -1)
+                    if c_idx >= 0:
+                        it = table.item(row, c_idx)
+                        if it and it.text().strip():
+                            rate_code = it.text().strip()
+                            break
+                
+                if rate_code:
+                    if rate_code not in project_updates: project_updates[rate_code] = {}
+                    if display_col == m.get('plug_rate'): project_updates[rate_code]['plug_rate'] = new_val
+                    elif display_col == m.get('sub_rate'): project_updates[rate_code]['sub_rate'] = new_val
+                    elif display_col == m.get('sub_markup'): project_updates[rate_code]['sub_markup'] = new_val
+                    elif display_col == m.get('sub_package'): project_updates[rate_code]['sub_package'] = new_val
+            
+            # Commit batches to Project DB
+            for code, upds in project_updates.items():
+                if upds:
+                    self.main_window.db_manager.update_project_rate_by_code(code, upds)
 
         # --- LIVE RECALCULATION ENGINE ---
         if trigger_recalc and not self.is_updating_logic:
