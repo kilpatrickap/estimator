@@ -129,7 +129,7 @@ class PBOQDialog(QDialog):
         
         # Search Bar
         self.search_bar = QLineEdit()
-        self.search_bar.setPlaceholderText("Search for items in sheet(s).")
+        self.search_bar.setPlaceholderText("Search for items or @review.")
         self.search_bar.setMinimumWidth(250)
         self.search_bar.textChanged.connect(self._run_global_search)
         top_bar.addWidget(self.search_bar)
