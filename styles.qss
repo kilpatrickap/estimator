@@ -103,6 +103,20 @@ QTableWidget::item:selected, QTreeView::item:selected, QTreeWidget::item:selecte
     background-color: #e8f5e9;
     color: #2e7d32;
 }
+
+/* Specific styling for PBOQ Table as requested */
+#PBOQTable::item:selected {
+    background-color: #ffff00;
+    color: #000000;
+}
+#PBOQTable::item:hover {
+    background-color: #ffff00;
+    color: #000000;
+}
+#PBOQTable::item:selected:hover {
+    background-color: #ffff00;
+    color: #000000;
+}
 QHeaderView::section {
     background-color: #f5f7f9;
     padding: 3px 6px;

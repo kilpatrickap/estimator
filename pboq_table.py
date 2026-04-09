@@ -12,6 +12,7 @@ class PBOQTable(QTableWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.main_dialog = parent
+        self.setObjectName("PBOQTable")
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setAlternatingRowColors(True)
         self.setWordWrap(False)
