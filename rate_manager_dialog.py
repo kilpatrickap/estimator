@@ -405,35 +405,40 @@ class RateManagerDialog(QDialog):
         processed_data = []
 
         seen_codes = set()
-        # Process and split rows by Price Type
+        # Process and split rows by Price Type (Enforcing Hierarchy: Gross > Plug > Sub)
         for r in rates:
             code = (r.get('rate_code') or "").strip()
             seen_codes.add(code)
             p_data = pboq_summary.get(code, {})
             
-            # 1. Gross Rate
+            # 1. Gross Rate (Priority 1)
             rate_g = r.get('grand_total')
             if rate_g is not None and float(rate_g) != 0.0:
                 gr = copy.deepcopy(r)
                 gr['_rate_val'] = rate_g
                 gr['_type_val'] = "Gross Rate"
                 processed_data.append(gr)
+                continue # Skip others for this code
             
-            # 2. Plug Rate (if discovered)
+            # 2. Plug Rate (Priority 2)
             p_val = p_data.get('plug_rate')
             if p_val is not None and float(p_val) != 0.0:
                 pr = copy.deepcopy(r)
                 pr['_rate_val'] = p_val
                 pr['_type_val'] = "Plug Rate"
+                if p_data.get('_source_db'): pr['_lib_override'] = p_data['_source_db']
                 processed_data.append(pr)
+                continue
                 
-            # 3. Sub. Rate (if discovered)
+            # 3. Sub. Rate (Priority 3)
             s_val = p_data.get('sub_rate')
             if s_val is not None and float(s_val) != 0.0:
                 sr = copy.deepcopy(r)
                 sr['_rate_val'] = s_val
                 sr['_type_val'] = "Sub. Rate"
+                if p_data.get('_source_db'): sr['_lib_override'] = p_data['_source_db']
                 processed_data.append(sr)
+
 
         # Discovery (No formal rate yet)
         for code, data in pboq_summary.items():
@@ -452,9 +457,11 @@ class RateManagerDialog(QDialog):
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
+                    continue
                     
                 s_val = data.get('sub_rate')
                 if s_val is not None and float(s_val) != 0.0:
+
                     row = {
                         'rate_code': code,
                         'project_name': data.get('desc', ''),
@@ -478,8 +485,8 @@ class RateManagerDialog(QDialog):
             
             lib_display = row_data.get('_lib_override', db_name_str)
             
-            # For Gross Rates, if the project has a matching PBOQ, show that instead for better UX/Go-To support
-            if row_data.get('_type_val') == "Gross Rate" and lib_display == db_name_str:
+            # If the library name matches the project DB, check if a matching PBOQ exists and show that instead for better UX/Go-To support
+            if lib_display == db_name_str:
                 # Try simple prefixing
                 p_name = f"PBOQ_{db_name_str}"
                 if p_name.lower() in available_pboqs:
