@@ -164,7 +164,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Rate", "Rate Type", "Date"]
+        headers = ["PBOQs", "Rate Code", "Description", "Unit", "Base Curr", "Rate", "Rate Type", "Date"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -417,6 +417,9 @@ class RateManagerDialog(QDialog):
                 gr = copy.deepcopy(r)
                 gr['_rate_val'] = rate_g
                 gr['_type_val'] = "Gross Rate"
+                # Link to PBOQ if found in summary
+                if p_data.get('_source_db'):
+                    gr['_lib_override'] = p_data['_source_db']
                 processed_data.append(gr)
             
             # 2. Plug Rate (if discovered)
@@ -425,6 +428,8 @@ class RateManagerDialog(QDialog):
                 pr = copy.deepcopy(r)
                 pr['_rate_val'] = p_val
                 pr['_type_val'] = "Plug Rate"
+                if p_data.get('_source_db'):
+                    pr['_lib_override'] = p_data['_source_db']
                 processed_data.append(pr)
                 
             # 3. Sub. Rate (if discovered)
@@ -433,6 +438,8 @@ class RateManagerDialog(QDialog):
                 sr = copy.deepcopy(r)
                 sr['_rate_val'] = s_val
                 sr['_type_val'] = "Sub. Rate"
+                if p_data.get('_source_db'):
+                    sr['_lib_override'] = p_data['_source_db']
                 processed_data.append(sr)
 
         # Discovery (No formal rate yet)
