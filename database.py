@@ -870,24 +870,33 @@ class DatabaseManager:
                             except: pass
 
                             summary[code] = {
-                                'plug_rate': None, 
-                                'sub_rate': None, 
-                                'desc': desc, 
-                                'unit': unit, 
                                 'curr': curr, 
                                 'cat': cat,
                                 '_source_db': db_name,
-                                '_source_date': file_time
+                                '_source_date': file_time,
+                                '_is_plug': False,
+                                '_is_sub': False,
+                                '_is_gross_usage': False
                             }
                         
                         # Logic: Use Bill Rate (br) as primary if available, fall back to specific type
-                        if code == str(p_code).strip() or code == str(r_code).strip():
+                        if r_code and code == str(r_code).strip():
                             val = br if br is not None else pr
-                            if val is not None: summary[code]['plug_rate'] = val
+                            if val is not None: 
+                                summary[code]['plug_rate'] = val
+                                summary[code]['_is_gross_usage'] = True
+                                
+                        if p_code and code == str(p_code).strip():
+                            val = br if br is not None else pr
+                            if val is not None: 
+                                summary[code]['plug_rate'] = val
+                                summary[code]['_is_plug'] = True
                             
-                        if code == str(s_code).strip():
+                        if s_code and code == str(s_code).strip():
                             val = br if br is not None else sr
-                            if val is not None: summary[code]['sub_rate'] = val
+                            if val is not None: 
+                                summary[code]['sub_rate'] = val
+                                summary[code]['_is_sub'] = True
                         
             except Exception as e:
                 print(f"PBOQ Summary Fetch Error: {e}")

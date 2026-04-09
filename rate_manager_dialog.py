@@ -424,7 +424,9 @@ class RateManagerDialog(QDialog):
             
             # 2. Plug Rate (if discovered)
             p_val = p_data.get('plug_rate')
-            if p_val is not None and float(p_val) != 0.0:
+            # Only show as a Plug Rate if it was specifically discovered via a Plug Code
+            # or if it's a formal item being overridden manually.
+            if p_val is not None and float(p_val) != 0.0 and p_data.get('_is_plug'):
                 pr = copy.deepcopy(r)
                 pr['_rate_val'] = p_val
                 pr['_type_val'] = "Plug Rate"
