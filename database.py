@@ -871,8 +871,7 @@ class DatabaseManager:
                                 'curr': curr, 
                                 'cat': cat,
                                 '_source_db': db_name,
-                                '_source_date': file_time,
-                                '_source_path': db_path
+                                '_source_date': file_time
                             }
                         
                         # Logic: Use Bill Rate (br) as primary if available, fall back to specific type

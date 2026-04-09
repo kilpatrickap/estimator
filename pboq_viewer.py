@@ -3346,3 +3346,50 @@ class PBOQDialog(QDialog):
                             it.setBackground(def_color if def_color else QBrush(Qt.BrushStyle.NoBrush))
             
             self._update_stats()
+
+    def highlight_code(self, code):
+        """Finds and highlights a specific code in the PBOQ across all sheets."""
+        if not code or not str(code).strip(): return False
+        code = str(code).strip().lower()
+        
+        m = self.tools_pane.get_mappings()
+        # Potential columns that might contain the code
+        code_cols = [m.get('rate_code'), m.get('plug_code'), m.get('sub_code')]
+        code_cols = [c for c in code_cols if c >= 0]
+        
+        from PyQt6.QtWidgets import QTableWidget
+        from PyQt6.QtGui import QColor
+        
+        for tab_idx in range(self.tabs.count()):
+            table = self.tabs.widget(tab_idx)
+            if not isinstance(table, PBOQTable): continue
+            
+            for row in range(table.rowCount()):
+                found = False
+                # 1. Try mapped code columns first
+                for c in code_cols:
+                    it = table.item(row, c)
+                    if it and it.text().strip().lower() == code:
+                        found = True
+                        break
+                
+                # 2. Fallback: Search ALL columns if not found in primary ones
+                if not found:
+                    for c in range(table.columnCount()):
+                        it = table.item(row, c)
+                        if it and it.text().strip().lower() == code:
+                            found = True
+                            break
+                            
+                if found:
+                    self.tabs.setCurrentIndex(tab_idx)
+                    table.setCurrentCell(row, 0)
+                    table.scrollToItem(table.item(row, 0), QTableWidget.ScrollHint.PositionAtCenter)
+                    
+                    # Highlight effect (temporary yellow)
+                    for c in range(table.columnCount()):
+                        item = table.item(row, c)
+                        if item:
+                            item.setBackground(QColor("#fff9c4")) # Light yellow
+                    return True
+        return False

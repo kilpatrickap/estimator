@@ -451,7 +451,6 @@ class RateManagerDialog(QDialog):
                         'id': None
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
-                    if data.get('_source_path'): row['_lib_path_override'] = data['_source_path']
                     processed_data.append(row)
                     
                 s_val = data.get('sub_rate')
@@ -467,7 +466,6 @@ class RateManagerDialog(QDialog):
                         'id': None
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
-                    if data.get('_source_path'): row['_lib_path_override'] = data['_source_path']
                     processed_data.append(row)
 
         for row_idx, row_data in enumerate(processed_data):
@@ -496,8 +494,7 @@ class RateManagerDialog(QDialog):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 
                 if col_idx == 0:
-                    current_path = row_data.get('_lib_path_override') or db_path_str
-                    val_str = f"{row_data.get('id')}|{current_path}"
+                    val_str = f"{row_data.get('id')}|{db_path_str}"
                     item.setData(Qt.ItemDataRole.UserRole, val_str)
                 
                 if col_idx == 1: # Rate Code
@@ -532,84 +529,20 @@ class RateManagerDialog(QDialog):
         """Loads and shows the build-up for the selected rate."""
         row = index.row()
         val_str = table.item(row, 0).data(Qt.ItemDataRole.UserRole)
-        rate_code = table.item(row, 1).text()
-        rate_type = table.item(row, 6).text() if table.columnCount() > 6 else "Gross Rate"
         
         if val_str:
-            db_id_str, db_path = val_str.split('|')
-            
-            # Special Case: Plug Rates open the Plug Rate Builder
-            if rate_type == "Plug Rate":
-                from pboq_plug_builder import PlugRateBuilderDialog
-                import sqlite3
-                import json
-                
-                # Fetch metadata for this plug from the source PBOQ database
-                item_data = {}
-                try:
-                    conn = sqlite3.connect(db_path)
-                    conn.row_factory = sqlite3.Row
-                    cursor = conn.cursor()
-                    # We look for the row by its PlugCode
-                    cursor.execute("""
-                        SELECT rowid, * FROM pboq_items 
-                        WHERE PlugCode = ? OR RateCode = ? 
-                        LIMIT 1
-                    """, (rate_code, rate_code))
-                    res = cursor.fetchone()
-                    if res:
-                        # Map to item_data expected by the builder
-                        res_keys = res.keys()
-                        desc = (res['Description'] if 'Description' in res_keys else None) or (res['Column 1'] if 'Column 1' in res_keys else None) or ""
-                        unit = (res['Unit'] if 'Unit' in res_keys else None) or (res['Column 3'] if 'Column 3' in res_keys else None) or ""
-                        
-                        item_data = {
-                            'rowid': res['rowid'],
-                            'name': desc,
-                            'unit': unit,
-                            'rate': float(res['PlugRate']) if res['PlugRate'] else 0.0,
-                            'formula': res['PlugFormula'] or "",
-                            'category': res['PlugCategory'] or "",
-                            'currency': res['PlugCurrency'] or "",
-                            'code': res['PlugCode'] or "",
-                            'factor': res['PlugFactor'] if 'PlugFactor' in res_keys else 1.0,
-                            'exchange_rates': json.loads(res['PlugExchangeRates'] or "{}")
-                        }
-                    conn.close()
-                except Exception as e:
-                    print(f"Error loading plug metadata: {e}")
-                
-                if not item_data:
-                    QMessageBox.warning(self, "Error", f"Could not find metadata for plug code '{rate_code}' in {os.path.basename(db_path)}")
-                    return
-                
-                # Determine project_dir from db_path
-                # db_path is .../Priced BOQs/file.db
-                project_dir = os.path.dirname(os.path.dirname(db_path))
-                
-                dialog = PlugRateBuilderDialog(item_data, project_dir, db_path, parent=self)
-                if dialog.exec():
-                    # If edited, reload to show new values
-                    if table == self.project_table:
-                        self.load_project_rates()
-                    else:
-                        self.load_rates()
-                return
-
+            db_id_str = val_str.split('|')[0]
             if db_id_str == "None":
-                QMessageBox.information(self, "No Build-up", 
-                    f"This {rate_type} entry is a reference from the bill. \n\n"
-                    "To create a formal build-up, right-click and select 'New Rate' or duplicate an existing one.")
+                QMessageBox.information(self, "No Build-up", "This discovered rate has no build-up. Price it manually or using tools.")
                 return
-                
             db_id = int(db_id_str)
+            db_path = val_str.split('|')[1]
             from database import DatabaseManager
             rates_db = DatabaseManager(db_path)
             estimate_obj = rates_db.load_estimate_details(db_id)
             if estimate_obj and self.main_window:
                 self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
             else:
-                from rate_buildup_dialog import RateBuildUpDialog
                 dialog = RateBuildUpDialog(estimate_obj, main_window=self.main_window, parent=self, db_path=db_path)
                 if table == self.project_table:
                     dialog.dataCommitted.connect(self.load_project_rates)
@@ -715,8 +648,15 @@ class RateManagerDialog(QDialog):
         
         selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
-            edit_action = QAction("Edit Rate", self)
-            edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
+            row = selected_indexes[0].row()
+            rate_type = table.item(row, 6).text() if table.columnCount() > 6 and table.item(row, 6) else ""
+            
+            if table == self.project_table and rate_type in ["Plug Rate", "Sub. Rate"]:
+                edit_action = QAction("Go-To", self)
+                edit_action.triggered.connect(lambda checked=False, t=table: self.goto_pboq_row(t))
+            else:
+                edit_action = QAction("Edit Rate", self)
+                edit_action.triggered.connect(lambda checked=False, t=table: self.edit_rate(t))
             menu.addAction(edit_action)
             
             if table == self.project_table:
@@ -746,6 +686,84 @@ class RateManagerDialog(QDialog):
         selected_indexes = table.selectionModel().selectedRows()
         if selected_indexes:
             self.open_rate_buildup(table, selected_indexes[0])
+
+    def goto_pboq_row(self, table):
+        """Finds the source PBOQ and row for the selected rate and navigates to it."""
+        selected_indexes = table.selectionModel().selectedRows()
+        if not selected_indexes or not self.main_window:
+            return
+            
+        row = selected_indexes[0].row()
+        lib_name = table.item(row, 0).text()  # The PBOQ file name
+        rate_code = table.item(row, 1).text()
+        
+        # 1. Find the project root to find the bill file
+        project_dir = ""
+        if hasattr(self, 'project_db_manager') and self.project_db_manager:
+            pdb_path = self.project_db_manager.db_file
+            project_dir = os.path.dirname(os.path.dirname(pdb_path))
+            
+        if not project_dir:
+            active_est = self.main_window._get_active_estimate_window()
+            if active_est and hasattr(active_est, 'db_path') and active_est.db_path:
+                project_dir = os.path.dirname(os.path.dirname(active_est.db_path))
+                
+        if not project_dir:
+            project_dir = self.main_window.db_manager.get_setting('last_project_dir', '')
+            
+        if not project_dir:
+            return
+            
+        bill_path = os.path.join(project_dir, "Priced BOQs", lib_name)
+        if not os.path.exists(bill_path):
+            # Try case-insensitive scan
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            if os.path.exists(pboq_dir):
+                for f in os.listdir(pboq_dir):
+                    if f.lower() == lib_name.lower():
+                        bill_path = os.path.join(pboq_dir, f)
+                        break
+        
+        if not os.path.exists(bill_path):
+             QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
+             return
+
+        # 2. Find or open the PBOQDialog
+        from pboq_viewer import PBOQDialog
+        target_viewer = None
+        for sub in self.main_window.mdi_area.subWindowList():
+            win = sub.widget()
+            if isinstance(win, PBOQDialog):
+                # Check if it has the right project_dir
+                if os.path.normpath(win.project_dir) == os.path.normpath(project_dir):
+                    target_viewer = win
+                    sub.setFocus()
+                    break
+        
+        if not target_viewer:
+            # Open new PBOQ viewer
+            self.main_window.open_pboq_dialog() # This typically opens the project's PBOQ
+            # Find the newly opened window
+            for sub in self.main_window.mdi_area.subWindowList():
+                win = sub.widget()
+                if isinstance(win, PBOQDialog):
+                    target_viewer = win
+                    break
+        
+        if target_viewer:
+            # 3. Ensure the correct bill is selected in the viewer
+            selector = target_viewer.pboq_file_selector
+            idx = selector.findText(lib_name)
+            if idx >= 0:
+                if selector.currentIndex() != idx:
+                    selector.setCurrentIndex(idx)
+                    target_viewer._load_pboq_db(idx)
+                
+                # 4. Highlight the row
+                if not target_viewer.highlight_code(rate_code):
+                    # Try finding it in description if rate_code not found
+                    desc = table.item(row, 2).text()
+                    target_viewer.highlight_code(desc)
 
     def new_rate(self, table=None):
         if table is None: table = self.table
