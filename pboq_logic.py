@@ -65,7 +65,7 @@ class PBOQLogic:
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
                       "Daywork", "DayworkCode", "DayworkFormula", "DayworkCategory", "DayworkCurrency", "DayworkExchangeRates",
                       "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes",
-                      "SubbeeCategory", "SubbeeCode"]
+                      "SubbeeCategory", "SubbeeCode", "IsFlagged"]
         
         for col_name in standard_cols + named_cols:
             if col_name not in db_columns:
@@ -165,6 +165,12 @@ class PBOQLogic:
             conn.close()
             return True
         except sqlite3.Error: return False
+
+    @staticmethod
+    def toggle_flag(file_path, rowid, current_state):
+        """Toggles the IsFlagged status for a specific row."""
+        new_state = 1 if not current_state else 0
+        return PBOQLogic.persist_batch_named_updates(file_path, "IsFlagged", [(rowid, new_state)]), new_state
 
     @staticmethod
     def persist_cell_formatting(file_path, global_row_idx, col_idx, bg_color=None, fg_color=None, bold=None):

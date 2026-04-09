@@ -210,12 +210,11 @@ class PBOQDialog(QDialog):
         cursor = conn.cursor()
         quoted_cols = [f'"{c}"' for c in self.db_columns]
         
-        # We fetch physical columns PLUS logical subbee columns for fallback/sync
         logical_cols = [
             "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeCategory", "SubbeeCode",
             "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
             "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
-            "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates", "PlugFactor"
+            "PlugRate", "PlugCode", "PlugFormula", "PlugCategory", "PlugCurrency", "PlugExchangeRates", "PlugFactor", "IsFlagged"
         ]
         query = f"SELECT rowid, {', '.join(quoted_cols)}, {', '.join(logical_cols)} FROM pboq_items"
         cursor.execute(query)
@@ -231,6 +230,7 @@ class PBOQDialog(QDialog):
             row_id = row[0]
             physical_data = list(row[1:logical_start_idx])
             logical_data = row[logical_start_idx:]
+            is_flagged = 1 if logical_data[25] in [1, '1', True, 'True'] else 0
             
             # --- Logic Layer MERGE ---
             # For subbee roles, prefer logical store values.
@@ -261,7 +261,7 @@ class PBOQDialog(QDialog):
 
             sheet_name = str(physical_data[0]) if physical_data[0] else "Sheet 1"
             if sheet_name not in sheet_groups: sheet_groups[sheet_name] = []
-            sheet_groups[sheet_name].append((g_idx, row_id, physical_data[1:]))
+            sheet_groups[sheet_name].append((g_idx, row_id, physical_data[1:], is_flagged))
             
         self.tools_pane.populate_column_combos(display_col_names)
         
@@ -281,7 +281,7 @@ class PBOQDialog(QDialog):
                 table.cellUpdated.connect(self._handle_cell_updated)
                 table.cellClicked.connect(self._on_table_cell_clicked)
                 
-                for r_idx, (global_row_idx, row_id, row_data) in enumerate(sheet_entries):
+                for r_idx, (global_row_idx, row_id, row_data, is_flagged) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
                         val = row_data[c_idx] if c_idx < len(row_data) else ""
                         m = self.tools_pane.get_mappings()
@@ -302,8 +302,13 @@ class PBOQDialog(QDialog):
 
                         if c_idx == 0:
                             item.setData(Qt.ItemDataRole.UserRole, row_id)
+                            item.setData(Qt.ItemDataRole.UserRole + 2, is_flagged) # Store flag state
                             self.rowid_to_item0[row_id] = item
                         item.setData(Qt.ItemDataRole.UserRole + 1, global_row_idx)
+
+                        # Apply Flagged Highlighting (Highest Priority Visual)
+                        if is_flagged and not self._is_pricing_column(c_idx):
+                            item.setBackground(const.COLOR_FLAGGED)
                         
                         # Apply Specific Saved Formatting (overwrites default)
                         fmt = formatting_data.get((global_row_idx, c_idx))
@@ -359,7 +364,9 @@ class PBOQDialog(QDialog):
 
     def _run_global_search(self, text):
         """Filters rows in all sheets based on the search text."""
-        text = text.lower()
+        text = text.lower().strip()
+        is_review_search = text in ["@review", "@flag", "@flagged"]
+        
         for i in range(self.tabs.count()):
             table = self.tabs.widget(i)
             if not isinstance(table, PBOQTable): continue
@@ -368,6 +375,10 @@ class PBOQDialog(QDialog):
                 match = False
                 if not text:
                     match = True
+                elif is_review_search:
+                    item0 = table.item(r, 0)
+                    if item0 and item0.data(Qt.ItemDataRole.UserRole + 2) == 1:
+                        match = True
                 else:
                     # Search in all visible columns
                     for c in range(table.columnCount()):
@@ -466,9 +477,24 @@ class PBOQDialog(QDialog):
             # Subbee Category/Code - allow recategorization and SR- code regeneration
             menu = QMenu(self)
             edit_act = menu.addAction("Change Category & Regenerate Code")
+            
             action = menu.exec(table.viewport().mapToGlobal(pos))
             if action == edit_act:
                 self._recategorize_item(table, row, rowid)
+
+        else:
+            # General column context menu - only show if NOT a pricing column
+            if self._is_pricing_column(col):
+                return
+
+            menu = QMenu(self)
+            item0 = table.item(row, 0)
+            is_f = item0.data(Qt.ItemDataRole.UserRole + 2) == 1
+            flag_act = menu.addAction("Remove Review Flag" if is_f else "Flag for Review")
+            
+            action = menu.exec(table.viewport().mapToGlobal(pos))
+            if action == flag_act:
+                self._toggle_row_flag(table, row, rowid)
 
     def _handle_subbee_assign_menu(self, table, pos, row, col, rowid):
         m = self.tools_pane.get_mappings()
@@ -1475,7 +1501,7 @@ class PBOQDialog(QDialog):
 
     def _update_stats(self):
         m = self.tools_pane.get_mappings()
-        total, priced = 0, 0
+        total, priced, flagged = 0, 0, 0
         
         # Guard against unmapped columns
         if m['qty'] < 0:
@@ -1487,6 +1513,11 @@ class PBOQDialog(QDialog):
             if not isinstance(t, PBOQTable): continue
             
             for r in range(t.rowCount()):
+                # Count Flagged
+                item0 = t.item(r, 0)
+                if item0 and item0.data(Qt.ItemDataRole.UserRole + 2) == 1:
+                    flagged += 1
+
                 qty_item = t.item(r, m['qty'])
                 if qty_item and qty_item.text().strip():
                     total += 1
@@ -1511,13 +1542,15 @@ class PBOQDialog(QDialog):
         # Format with HTML for colors
         blue = const.COLOR_STATS_BLUE.name()
         green = const.COLOR_STATS_GREEN.name()
-        red = const.COLOR_STATS_RED.name()
+        orange_color = "#FF8C00" # Dark Orange for Outstanding
+        red_color = "#FF0000"    # Bright Red for To Review
         
-        # User requested: Items: blue, Priced: green, Outstanding: red
+        # Outstanding: orange, To Review: red
         stats_text = (
             f"Items: <span style='color:{blue}'>{total}</span> | "
             f"Priced: <span style='color:{green}'>{priced}</span> | "
-            f"Outstanding: <span style='color:{red}'>{outstanding}</span>"
+            f"Outstanding: <span style='color:{orange_color}'>{outstanding}</span> | "
+            f"To Review: <span style='color:{red_color}'>{flagged}</span>"
         )
         self.stats_label.setText(stats_text)
 
@@ -3243,3 +3276,58 @@ class PBOQDialog(QDialog):
     def _clear_daywork_and_code(self):
         m = self.tools_pane.get_mappings()
         self._clear_columns([m.get('daywork', -1), m.get('daywork_code', -1)], "Daywork & Code")
+
+    def _is_pricing_column(self, col_idx):
+        """Returns True if the column is a pricing/logical mapping column that should avoid global row highlighting."""
+        m = self.tools_pane.get_mappings()
+        # All logical pricing columns
+        pricing_roles = [
+            'rate', 'bill_rate', 'bill_amount', 'rate_code', 
+            'plug_rate', 'plug_code', 
+            'prov_sum', 'prov_sum_code', 
+            'pc_sum', 'pc_sum_code', 
+            'daywork', 'daywork_code', 
+            'sub_package', 'sub_name', 'sub_rate', 'sub_markup', 'sub_category', 'sub_code'
+        ]
+        pricing_indices = [m.get(r, -1) for r in pricing_roles]
+        return col_idx in pricing_indices
+
+    def _toggle_row_flag(self, table, row, rowid):
+        """Toggles the 'Review' flag for selected row(s)."""
+        file_path = self.pboq_file_selector.currentData()
+        if not file_path: return
+        
+        item0 = table.item(row, 0)
+        current_state = item0.data(Qt.ItemDataRole.UserRole + 2) == 1
+        
+        # Handle multiple selection
+        selected_indexes = table.selectedIndexes()
+        selected_rows = sorted(list(set(idx.row() for idx in selected_indexes)))
+        if row not in selected_rows: selected_rows = [row]
+        
+        rows_to_toggle = []
+        for r in selected_rows:
+            rid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+            rows_to_toggle.append((r, rid))
+            
+        target_state = 0 if current_state else 1
+        updates = [(rid, target_state) for r, rid in rows_to_toggle]
+        
+        success = self.logic.persist_batch_named_updates(file_path, "IsFlagged", updates)
+        if success:
+            for r, rid in rows_to_toggle:
+                it0 = table.item(r, 0)
+                it0.setData(Qt.ItemDataRole.UserRole + 2, target_state)
+                
+                for c in range(table.columnCount()):
+                    it = table.item(r, c)
+                    if it:
+                        if target_state:
+                            if not self._is_pricing_column(c):
+                                it.setBackground(const.COLOR_FLAGGED)
+                        else:
+                            # Revert to default column color
+                            def_color = table.get_column_default_color(c)
+                            it.setBackground(def_color if def_color else QBrush(Qt.BrushStyle.NoBrush))
+            
+            self._update_stats()
