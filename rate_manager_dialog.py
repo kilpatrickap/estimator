@@ -490,14 +490,23 @@ class RateManagerDialog(QDialog):
         
         pboq_aggregated_data = []
         # Restore de-duplication for Project Library only
-        # We prioritize existing project Gross Rates over discovered PBOQ rates.
+        # We prioritize existing project Gross Rates. If a Gross Rate exists, 
+        # we do NOT show discovered Plug Rates for the same code.
         seen_project_codes = { (r.get('rate_code'), r.get('_type_val')) for r in all_project_rates }
+        gross_codes = { r.get('rate_code') for r in all_project_rates if r.get('_type_val') == "Gross Rate" }
         
         for manager in target_managers:
             lib_name = os.path.basename(manager.db_file)
             pboq_rates = self._extract_rates_from_db(manager, lib_name)
             for r in pboq_rates:
-                code_key = (r.get('rate_code'), r.get('_type_val'))
+                code = r.get('rate_code')
+                rtype = r.get('_type_val')
+                
+                # Rule: Do not show Plug/Sub discovery if a Gross Rate already exists for this code
+                if code in gross_codes and rtype != "Gross Rate":
+                    continue
+                    
+                code_key = (code, rtype)
                 if code_key not in seen_project_codes:
                     pboq_aggregated_data.append(r)
                     seen_project_codes.add(code_key)
