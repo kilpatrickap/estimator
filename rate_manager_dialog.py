@@ -714,6 +714,23 @@ class RateManagerDialog(QDialog):
         if not project_dir:
             return
             
+        # --- SMART REDIRECT ---
+        # If the source is the Project Database (e.g., Two.db), it won't have a bill view alone.
+        # We scan all PBOQs in the project to find where this rate is actually being used.
+        proj_db_name = getattr(self, 'project_db_name', "Two.db")
+        if lib_name.lower() == proj_db_name.lower():
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            if os.path.exists(pboq_dir):
+                from database import DatabaseManager as _DB
+                for f in os.listdir(pboq_dir):
+                    if f.lower().endswith('.db'):
+                        test_path = os.path.join(pboq_dir, f)
+                        temp_db = _DB(test_path)
+                        if rate_code in temp_db.get_pboq_rates_summary():
+                            lib_name = f # Redirect lib_name to the bill filename
+                            break
+        # ----------------------
+
         bill_path = os.path.join(project_dir, "Priced BOQs", lib_name)
         if not os.path.exists(bill_path):
             # Try case-insensitive scan in Priced BOQs
