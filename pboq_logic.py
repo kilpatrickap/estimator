@@ -51,7 +51,7 @@ class PBOQLogic:
         # Check for pboq_items table
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
         if not cursor.fetchone():
-            return False, "This database does not contain valid PBOQ data."
+            cursor.execute("CREATE TABLE pboq_items (Sheet TEXT)")
         
         # Get column info
         cursor.execute("PRAGMA table_info(pboq_items)")
@@ -59,7 +59,7 @@ class PBOQLogic:
         
         # Standard Columns and Named Columns in a fixed preferred order
         standard_cols = [f"Column {i}" for i in range(20)]
-        named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
+        named_cols = ["Description", "Unit", "GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
