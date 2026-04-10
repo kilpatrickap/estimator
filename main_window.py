@@ -30,9 +30,17 @@ class RestrictedSubWindow(QMdiSubWindow):
 class RestrictedMdiArea(QMdiArea):
     def addSubWindow(self, widget, flags=Qt.WindowType.SubWindow):
         if isinstance(widget, QMdiSubWindow):
+            widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             return super().addSubWindow(widget)
+        
+        # Ensure the internal widget is destroyed on close to trigger subwindow closure
+        widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        
         sub = RestrictedSubWindow()
         sub.setWidget(widget)
+        # Ensure the subwindow container itself is destroyed on close
+        sub.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        
         super().addSubWindow(sub)
         return sub
 
