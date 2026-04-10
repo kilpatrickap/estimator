@@ -872,6 +872,7 @@ class DatabaseManager:
                             summary[code] = {
                                 'curr': curr, 
                                 'cat': cat,
+                                'desc': desc,
                                 '_source_db': db_name,
                                 '_source_date': file_time,
                                 '_is_plug': False,

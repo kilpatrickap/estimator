@@ -164,7 +164,7 @@ class RateManagerDialog(QDialog):
 
         # Table
         self.table = QTableWidget()
-        headers = ["PBOQs", "Rate Code", "Description", "Unit", "Base Curr", "Rate", "Rate Type", "Date"]
+        headers = ["Library", "Rate Code", "Description", "Unit", "Base Curr", "Rate", "Rate Type", "Date"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
         
@@ -286,165 +286,66 @@ class RateManagerDialog(QDialog):
 
 
 
-    def load_rates(self):
-        """Loads data from construction_rates.db into the table."""
-        if not self.db_manager and not self.is_combined:
-            return
+    def _extract_rates_from_db(self, db_manager, lib_name):
+        """Standardized method to pull ALL rate types (Gross, Plug, Sub) from a database."""
+        if not db_manager:
+            return []
             
-        self.is_loading = True
-        self.table.setRowCount(0)
-        
-        all_rates = []
-        if self.is_combined:
-            for i in range(self.library_combo.count()):
-                lib_name = self.library_combo.itemText(i)
-                lib_path = self.library_combo.itemData(i)
-                if lib_path:
-                    db = DatabaseManager(lib_path)
-                    rates = db.get_rates_data()
-                    for r in rates:
-                        r['_library_name'] = lib_name
-                        r['_library_path'] = lib_path
-                    all_rates.extend(rates)
-        else:
-            if self.db_manager:
-                rates = self.db_manager.get_rates_data()
-                lib_name = self.library_combo.currentText()
-                lib_path = self.library_combo.currentData()
-                for r in rates:
-                    r['_library_name'] = lib_name
-                    r['_library_path'] = lib_path
-                all_rates.extend(rates)
-        
-        for row_data in all_rates:
-            rate_val = row_data.get('grand_total')
-            if rate_val is None or float(rate_val) == 0.0:
-                continue
-            
-            row_idx = self.table.rowCount()
-            self.table.insertRow(row_idx)
-            
-            columns = [
-                row_data.get('_library_name'),
-                row_data.get('rate_code'),
-                row_data.get('project_name'),
-                row_data.get('unit'),
-                row_data.get('currency'),
-                row_data.get('grand_total'),
-                "Gross Rate",
-                row_data.get('date_created')
-            ]
-            
-            for col_idx, data in enumerate(columns):
-                if col_idx == 5: # Rate
-                    display_text = f"{float(data):,.2f}" if data is not None else "0.00"
-                else:
-                    display_text = str(data) if data is not None else ""
-                
-                item = QTableWidgetItem(display_text)
-                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
-                
-                # Store metadata in Library column
-                if col_idx == 0:
-                    val_str = f"{row_data.get('id')}|{row_data.get('_library_path')}"
-                    item.setData(Qt.ItemDataRole.UserRole, val_str)
-                
-                if col_idx == 1: # Rate Code
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                
-                if col_idx == 5: # Rate
-                    font = item.font()
-                    font.setBold(True)
-                    item.setFont(font)
-                
-                if col_idx == 6: # Rate Type
-                    item.setForeground(Qt.GlobalColor.darkGreen)
-                
-                # Freeze all columns except Description
-                if col_idx != 2:
-                    item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                
-                self.table.setItem(row_idx, col_idx, item)
-        
-        # Initial fit for all columns
-        for i in range(self.table.columnCount()):
-            if i == 2:
-                self.table.setColumnWidth(i, 350)
-            else:
-                self.table.resizeColumnToContents(i)
-        
-        self.table.resizeRowsToContents()
-        
-        self.is_loading = False
-
-    def load_project_rates(self):
-        """Loads data from the Project Database into the table."""
-        if not self.project_db_manager:
-            return
-            
-        self.is_loading = True
-        self.project_table.setRowCount(0)
-        rates = self.project_db_manager.get_rates_data()
-        
-        # Aggregate Plug and Sub rates from ALL PBOQ databases found in the project
-        pboq_summary = {}
-        target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
-        # If no specific PBOQ managers, try the project DB manager as fallback
-        if not target_managers: target_managers = [self.project_db_manager]
-        
-        for manager in target_managers:
-            summary_data = manager.get_pboq_rates_summary()
-            pboq_summary.update(summary_data)
-        
-        db_name_str = getattr(self, 'project_db_name', "Project Database")
-        db_path_str = self.project_db_manager.db_file
-        
         import copy
         processed_data = []
-
+        
+        # 1. Formal Rates (from 'estimates' table)
+        formal_rates = db_manager.get_rates_data()
+        
+        # 2. PBOQ Discovery (from 'pboq_items' table)
+        pboq_summary = db_manager.get_pboq_rates_summary()
+        
         seen_codes = set()
-        # Process and split rows by Price Type
-        for r in rates:
+        
+        # Process Formal Rates first
+        for r in formal_rates:
             code = (r.get('rate_code') or "").strip()
             seen_codes.add(code)
             p_data = pboq_summary.get(code, {})
             
-            # 1. Gross Rate
+            # Gross Rate
             rate_g = r.get('grand_total')
             if rate_g is not None and float(rate_g) != 0.0:
                 gr = copy.deepcopy(r)
                 gr['_rate_val'] = rate_g
                 gr['_type_val'] = "Gross Rate"
-                # Link to PBOQ if found in summary
+                gr['_library_name'] = lib_name
+                gr['_library_path'] = db_manager.db_file
                 if p_data.get('_source_db'):
                     gr['_lib_override'] = p_data['_source_db']
                 processed_data.append(gr)
             
-            # 2. Plug Rate (if discovered)
-            p_val = p_data.get('plug_rate')
-            # Only show as a Plug Rate if it was specifically discovered via a Plug Code
-            # or if it's a formal item being overridden manually.
-            if p_val is not None and float(p_val) != 0.0 and p_data.get('_is_plug'):
-                pr = copy.deepcopy(r)
-                pr['_rate_val'] = p_val
-                pr['_type_val'] = "Plug Rate"
-                if p_data.get('_source_db'):
-                    pr['_lib_override'] = p_data['_source_db']
-                processed_data.append(pr)
-                
-            # 3. Sub. Rate (if discovered)
+            # Plug Rate (if overridden in this DB)
+            if p_data.get('_is_plug'):
+                p_val = p_data.get('plug_rate')
+                if p_val is not None and float(p_val) != 0.0:
+                    pr = copy.deepcopy(r)
+                    pr['_rate_val'] = p_val
+                    pr['_type_val'] = "Plug Rate"
+                    pr['_library_name'] = lib_name
+                    pr['_library_path'] = db_manager.db_file
+                    if p_data.get('_source_db'):
+                        pr['_lib_override'] = p_data['_source_db']
+                    processed_data.append(pr)
+
+            # Sub Rate (if exists in summary for this code)
             s_val = p_data.get('sub_rate')
             if s_val is not None and float(s_val) != 0.0:
                 sr = copy.deepcopy(r)
                 sr['_rate_val'] = s_val
                 sr['_type_val'] = "Sub. Rate"
+                sr['_library_name'] = lib_name
+                sr['_library_path'] = db_manager.db_file
                 if p_data.get('_source_db'):
                     sr['_lib_override'] = p_data['_source_db']
                 processed_data.append(sr)
 
-        # Discovery (No formal rate yet)
+        # 3. Discovery-only rates (Codes that don't exist in 'estimates' table yet)
         for code, data in pboq_summary.items():
             if code not in seen_codes:
                 p_val = data.get('plug_rate')
@@ -457,7 +358,9 @@ class RateManagerDialog(QDialog):
                         '_rate_val': p_val,
                         '_type_val': "Plug Rate",
                         'date_created': data.get('_source_date', 'From PBOQ'),
-                        'id': None
+                        'id': None,
+                        '_library_name': lib_name,
+                        '_library_path': db_manager.db_file
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
@@ -472,15 +375,26 @@ class RateManagerDialog(QDialog):
                         '_rate_val': s_val,
                         '_type_val': "Sub. Rate",
                         'date_created': data.get('_source_date', 'From PBOQ'),
-                        'id': None
+                        'id': None,
+                        '_library_name': lib_name,
+                        '_library_path': db_manager.db_file
                     }
                     if data.get('_source_db'): row['_lib_override'] = data['_source_db']
                     processed_data.append(row)
+                    
+        return processed_data
 
-        for row_idx, row_data in enumerate(processed_data):
-            self.project_table.insertRow(row_idx)
+    def _populate_table_with_rates(self, table, rates_data):
+        """Fills a QTableWidget with the standardized rates_data list."""
+        table.setRowCount(0)
+        from PyQt6.QtGui import QColor
+        
+        for row_data in rates_data:
+            row_idx = table.rowCount()
+            table.insertRow(row_idx)
             
-            lib_display = row_data.get('_lib_override', db_name_str)
+            # Determine display name for Library column
+            lib_display = row_data.get('_lib_override', row_data.get('_library_name', ""))
             
             columns = [
                 lib_display,
@@ -493,46 +407,97 @@ class RateManagerDialog(QDialog):
                 row_data.get('date_created')
             ]
             
+            db_path_str = row_data.get('_library_path', "")
+            
             for col_idx, data in enumerate(columns):
-                if col_idx == 5:
-                    display_text = f"{float(data):,.2f}" if data is not None else "0.00"
+                if col_idx == 5: # Rate
+                    try:
+                        display_text = f"{float(data):,.2f}" if data is not None else "0.00"
+                    except:
+                        display_text = str(data)
                 else:
                     display_text = str(data) if data is not None else ""
                 
                 item = QTableWidgetItem(display_text)
                 item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
                 
+                # Store metadata in Library column
                 if col_idx == 0:
                     val_str = f"{row_data.get('id')}|{db_path_str}"
                     item.setData(Qt.ItemDataRole.UserRole, val_str)
                 
-                if col_idx == 1: # Rate Code
-                    font = item.font(); font.setBold(True); item.setFont(font)
-
-                if col_idx == 5: # Rate
+                if col_idx == 1 or col_idx == 5: # Rate Code or Rate
                     font = item.font(); font.setBold(True); item.setFont(font)
                 
-                if col_idx == 6: # Rate Type
-                    from PyQt6.QtGui import QColor
+                if col_idx == 6: # Rate Type colors
                     tp = str(data)
                     if tp == "Gross Rate": item.setForeground(Qt.GlobalColor.darkGreen)
                     elif tp == "Plug Rate": item.setForeground(QColor("#7b1fa2"))
                     elif tp == "Sub. Rate": item.setForeground(QColor("#e65100"))
-
+                
+                # Freeze all columns except Description
                 if col_idx != 2:
                     item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
                 
-                self.project_table.setItem(row_idx, col_idx, item)
+                table.setItem(row_idx, col_idx, item)
         
-        for i in range(self.project_table.columnCount()):
-            if i == 2:
-                self.project_table.setColumnWidth(i, 350)
-            else:
-                self.project_table.resizeColumnToContents(i)
+        # Fit columns
+        for i in range(table.columnCount()):
+            if i == 2: table.setColumnWidth(i, 350)
+            else: table.resizeColumnToContents(i)
+        table.resizeRowsToContents()
+
+    def load_rates(self):
+        """Loads data from library databases into the table."""
+        if not self.db_manager and not self.is_combined:
+            return
+            
+        self.is_loading = True
+        all_rates = []
         
-        self.project_table.resizeRowsToContents()
+        if self.is_combined:
+            for i in range(self.library_combo.count()):
+                lib_name = self.library_combo.itemText(i)
+                lib_path = self.library_combo.itemData(i)
+                if lib_path:
+                    db = DatabaseManager(lib_path)
+                    all_rates.extend(self._extract_rates_from_db(db, lib_name))
+        else:
+            if self.db_manager:
+                lib_name = self.library_combo.currentText()
+                all_rates.extend(self._extract_rates_from_db(self.db_manager, lib_name))
         
+        # Sort by code for readability
+        all_rates.sort(key=lambda x: x.get('rate_code', ''))
+        
+        self._populate_table_with_rates(self.table, all_rates)
         self.is_loading = False
+
+    def load_project_rates(self):
+        """Loads data from the Project Database and all PBOQs into the table."""
+        if not self.project_db_manager:
+            return
+            
+        self.is_loading = True
+        all_project_rates = []
+        
+        # 1. Main Project Database
+        proj_lib_name = getattr(self, 'project_db_name', "Project Database")
+        all_project_rates.extend(self._extract_rates_from_db(self.project_db_manager, proj_lib_name))
+        
+        # 2. Priced PBOQs (Aggregate discovery from all bill files)
+        target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
+        
+        for manager in target_managers:
+            lib_name = os.path.basename(manager.db_file)
+            pboq_rates = self._extract_rates_from_db(manager, lib_name)
+            all_project_rates.extend(pboq_rates)
+
+        all_project_rates.sort(key=lambda x: x.get('rate_code', ''))
+        
+        self._populate_table_with_rates(self.project_table, all_project_rates)
+        self.is_loading = False
+
 
     def open_rate_buildup(self, table, index):
         """Loads and shows the build-up for the selected rate."""
@@ -732,7 +697,7 @@ class RateManagerDialog(QDialog):
             
         bill_path = os.path.join(project_dir, "Priced BOQs", lib_name)
         if not os.path.exists(bill_path):
-            # Try case-insensitive scan
+            # Try case-insensitive scan in Priced BOQs
             pboq_dir = os.path.join(project_dir, "Priced BOQs")
             if os.path.exists(pboq_dir):
                 for f in os.listdir(pboq_dir):
@@ -740,6 +705,15 @@ class RateManagerDialog(QDialog):
                         bill_path = os.path.join(pboq_dir, f)
                         break
         
+        if not os.path.exists(bill_path):
+            # Fallback: Try Imported Library folder
+            lib_dir = os.path.join(project_dir, "Imported Library")
+            if os.path.exists(lib_dir):
+                for f in os.listdir(lib_dir):
+                    if f.lower() == lib_name.lower():
+                        bill_path = os.path.join(lib_dir, f)
+                        break
+
         if not os.path.exists(bill_path):
              QMessageBox.warning(self, "Error", f"Could not find source bill file: {lib_name}")
              return
