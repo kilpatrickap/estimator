@@ -167,6 +167,90 @@ class PBOQLogic:
         except sqlite3.Error: return False
 
     @staticmethod
+    def sync_rate_to_master_lib(master_db_path, rate_data_list):
+        """
+        Synchronizes a list of rate snapshots to the master project library (pboq_items table).
+        rate_data_list is a list of dicts: [
+            {'code': '...', 'desc': '...', 'unit': '...', 'rate': 10.0, 'type': 'Plug Rate', 'curr': '...', 'cat': '...'}
+        ]
+        """
+        if not master_db_path or not os.path.exists(master_db_path) or not rate_data_list:
+            return False
+            
+        try:
+            conn = sqlite3.connect(master_db_path)
+            # Ensure schema exists in master lib (standardizing even if it's a fresh DB)
+            PBOQLogic.ensure_schema(conn)
+            
+            cursor = conn.cursor()
+            
+            # Map types to logical columns in pboq_items
+            # Plug Rate -> PlugRate / PlugCode
+            # Sub. Rate -> SubbeeRate / SubbeeCode
+            
+            for data in rate_data_list:
+                code = data.get('code')
+                desc = data.get('desc', '')
+                unit = data.get('unit', '')
+                rate = data.get('rate')
+                rtype = data.get('type', 'Plug Rate')
+                curr = data.get('curr', 'GHS (₵)')
+                cat = data.get('cat', 'Miscellaneous')
+                
+                # We use a combined key of Code + Type to avoid overwriting a Plug rate with a Sub rate of the same code
+                # or vice-versa. However, since the goal is a portable snapshot, we primarily want ONE record per code
+                # that represents the "best" known price.
+                
+                if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
+                    val_col, code_col = "SubbeeRate", "SubbeeCode"
+                    extra_fields = ", SubbeeName = ?, SubbeeCategory = ?"
+                    extra_params = (data.get('sub_name', 'Subcontractor'), cat)
+                else: # Plug Rate
+                    val_col, code_col = "PlugRate", "PlugCode"
+                    extra_fields = ", PlugCurrency = ?, PlugCategory = ?"
+                    extra_params = (curr, cat)
+
+                # Check if this code already exists in ANY of the code columns of the master pboq_items table
+                # If it does, we update it. If not, we insert a new row.
+                # To simplify, we'll try to find a row where Code matches.
+                cursor.execute(f"SELECT rowid FROM pboq_items WHERE {code_col} = ?", (code,))
+                res = cursor.fetchone()
+                
+                if res:
+                    rowid = res[0]
+                    cursor.execute(f"""
+                        UPDATE pboq_items 
+                        SET "{val_col}" = ?, "Description" = ?, "Unit" = ? {extra_fields}
+                        WHERE rowid = ?
+                    """, (rate, desc, unit) + extra_params + (rowid,))
+                else:
+                    # Insert new row
+                    cols = ["Description", "Unit", code_col, val_col]
+                    placeholders = ["?", "?", "?", "?"]
+                    params = [desc, unit, code, rate]
+                    
+                    if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
+                        cols.extend(["SubbeeName", "SubbeeCategory"])
+                        placeholders.extend(["?", "?"])
+                        params.extend([data.get('sub_name', 'Subcontractor'), cat])
+                    else:
+                        cols.extend(["PlugCurrency", "PlugCategory"])
+                        placeholders.extend(["?", "?"])
+                        params.extend([curr, cat])
+                        
+                    cursor.execute(f"""
+                        INSERT INTO pboq_items ({', '.join(cols)})
+                        VALUES ({', '.join(placeholders)})
+                    """, tuple(params))
+            
+            conn.commit()
+            conn.close()
+            return True
+        except Exception as e:
+            print(f"Master Lib Sync Error: {e}")
+            return False
+
+    @staticmethod
     def toggle_flag(file_path, rowid, current_state):
         """Toggles the IsFlagged status for a specific row."""
         new_state = 1 if not current_state else 0

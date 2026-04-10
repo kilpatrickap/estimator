@@ -1299,18 +1299,57 @@ class PBOQDialog(QDialog):
             'sub_package': 'SubbeePackage',
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
+            'sub_rate': 'SubbeeRate',
             'sub_markup': 'SubbeeMarkup',
             'plug_rate': 'PlugRate',
             'plug_code': 'PlugCode',
+            'rate': 'GrossRate',
+            'rate_code': 'RateCode',
             'prov_sum': 'ProvSum',
             'prov_sum_code': 'ProvSumCode',
             'pc_sum': 'PCSum',
             'pc_sum_code': 'PCSumCode'
         }
+        
+        # Determine the role for this column
+        role_match = None
         for role, logical_col in mirror_map.items():
             if display_col == m.get(role):
                 self.logic.persist_batch_named_updates(file_path, logical_col, updates)
+                role_match = role
                 break
+        
+        # --- AUTO-SYNC TO MASTER LIBRARY ---
+        # If we just updated a Plug or Sub rate, and we are NOT already in the master DB, sync it.
+        if role_match in ['plug_rate', 'sub_rate', 'rate']:
+            pdb_path = self._get_project_db_path()
+            if pdb_path and os.path.normpath(file_path) != os.path.normpath(pdb_path):
+                sync_items = []
+                for rowid, val in updates:
+                    # Resolve full context for this row
+                    item0 = self.rowid_to_item0.get(rowid)
+                    if not item0: continue
+                    r = item0.row()
+                    t = item0.tableWidget()
+                    
+                    code_role = 'plug_code' if role_match == 'plug_rate' else ('sub_code' if role_match == 'sub_rate' else 'rate_code')
+                    code_col = m.get(code_role, -1)
+                    code_val = t.item(r, code_col).text().strip() if code_col >= 0 and t.item(r, code_col) else ""
+                    if not code_val: continue
+                    
+                    desc_col = m.get('desc', -1)
+                    unit_col = m.get('unit', -1)
+                    
+                    sync_items.append({
+                        'code': code_val,
+                        'desc': t.item(r, desc_col).text().strip() if desc_col >= 0 and t.item(r, desc_col) else "",
+                        'unit': t.item(r, unit_col).text().strip() if unit_col >= 0 and t.item(r, unit_col) else "",
+                        'rate': val,
+                        'type': 'Plug Rate' if role_match == 'plug_rate' else ('Sub. Rate' if role_match == 'sub_rate' else 'Gross Rate'),
+                        'sub_name': t.item(r, m.get('sub_name', -1)).text().strip() if role_match == 'sub_rate' and m.get('sub_name', -1) >= 0 else ""
+                    })
+                if sync_items:
+                    self.logic.sync_rate_to_master_lib(pdb_path, sync_items)
 
         # --- LIVE RECALCULATION ENGINE ---
         if trigger_recalc and not self.is_updating_logic:
@@ -1768,9 +1807,12 @@ class PBOQDialog(QDialog):
             'sub_package': 'SubbeePackage',
             'sub_category': 'SubbeeCategory',
             'sub_code': 'SubbeeCode',
+            'sub_rate': 'SubbeeRate',
             'sub_markup': 'SubbeeMarkup',
             'plug_rate': 'PlugRate',
             'plug_code': 'PlugCode',
+            'rate': 'GrossRate',
+            'rate_code': 'RateCode',
             'prov_sum': 'ProvSum',
             'prov_sum_code': 'ProvSumCode',
             'pc_sum': 'PCSum',
@@ -1796,6 +1838,45 @@ class PBOQDialog(QDialog):
         for role, upd_list in updates.items():
             if upd_list:
                 self.logic.persist_batch_named_updates(file_path, sync_map[role], upd_list)
+
+        # --- AUTO-SYNC TO MASTER LIBRARY (BACKFILL) ---
+        pdb_path = self._get_project_db_path()
+        if pdb_path and os.path.normpath(file_path) != os.path.normpath(pdb_path):
+            sync_roles = ['plug_rate', 'sub_rate', 'rate']
+            all_sync_items = []
+            
+            # We aggregate across the roles that were actually mapped
+            active_sync_roles = [r for r in sync_roles if r in active]
+            if active_sync_roles:
+                for i in range(self.tabs.count()):
+                    table = self.tabs.widget(i)
+                    if not isinstance(table, PBOQTable): continue
+                    for r in range(table.rowCount()):
+                        rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                        for role in active_sync_roles:
+                            col_idx = active[role]
+                            val = table.item(r, col_idx).text().strip() if table.item(r, col_idx) else ""
+                            if not val or val == "0.00": continue
+                            
+                            code_role = 'plug_code' if role == 'plug_rate' else ('sub_code' if role == 'sub_rate' else 'rate_code')
+                            code_col = active.get(code_role, -1)
+                            code_val = table.item(r, code_col).text().strip() if code_col >= 0 and table.item(r, code_col) else ""
+                            if not code_val: continue
+                            
+                            desc_col = active.get('desc', m.get('desc', -1))
+                            unit_col = active.get('unit', m.get('unit', -1))
+                            
+                            all_sync_items.append({
+                                'code': code_val,
+                                'desc': table.item(r, desc_col).text().strip() if desc_col >= 0 and table.item(r, desc_col) else "",
+                                'unit': table.item(r, unit_col).text().strip() if unit_col >= 0 and table.item(r, unit_col) else "",
+                                'rate': val,
+                                'type': 'Plug Rate' if role == 'plug_rate' else ('Sub. Rate' if role == 'sub_rate' else 'Gross Rate'),
+                                'sub_name': table.item(r, active.get('sub_name', -1)).text().strip() if role == 'sub_rate' and active.get('sub_name', -1) >= 0 else ""
+                            })
+            
+            if all_sync_items:
+                self.logic.sync_rate_to_master_lib(pdb_path, all_sync_items)
 
     # --- Worker Logic Methods ---
 
@@ -2564,6 +2645,15 @@ class PBOQDialog(QDialog):
             except RuntimeError:
                 pass
 
+    def _get_project_db_path(self):
+        """Locates the primary project database file (e.g. Two.db)."""
+        pdb_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(pdb_dir):
+            for f in os.listdir(pdb_dir):
+                if f.endswith('.db'):
+                    return os.path.join(pdb_dir, f)
+        return None
+
     # --- Subcontractor Adjudicator Handlers ---
     def _assign_package_to_selected(self, package_name):
         if not package_name:
@@ -3008,6 +3098,36 @@ class PBOQDialog(QDialog):
                 
                 conn.commit()
                 conn.close()
+                
+                # --- AUTO-SYNC AWARD TO MASTER LIBRARY ---
+                pdb_path = self._get_project_db_path()
+                if pdb_path and os.path.normpath(file_path) != os.path.normpath(pdb_path):
+                    sync_items = []
+                    for up in db_updates:
+                        # Extract data from logical tuple
+                        s_name, s_rate, s_markup, s_cat, s_code = up['logical']
+                        
+                        # Find row in UI to get description and unit (if possible)
+                        desc, unit = "", ""
+                        item0 = self.rowid_to_item0.get(up['rowid'])
+                        if item0:
+                            r = item0.row()
+                            t = item0.tableWidget()
+                            desc = t.item(r, m.get('desc', -1)).text().strip() if m.get('desc', -1) >= 0 else ""
+                            unit = t.item(r, m.get('unit', -1)).text().strip() if m.get('unit', -1) >= 0 else ""
+                            
+                        sync_items.append({
+                            'code': s_code,
+                            'desc': desc,
+                            'unit': unit,
+                            'rate': s_rate,
+                            'type': 'Sub. Rate',
+                            'sub_name': s_name,
+                            'cat': s_cat
+                        })
+                    if sync_items:
+                        self.logic.sync_rate_to_master_lib(pdb_path, sync_items)
+
                 self._update_stats()
                 QMessageBox.information(self, "Applied", f"Applied winning quotes from {winner_name} for package '{pkg}'.\nGenerated {len(db_updates)} SR- codes.")
             except Exception as e:
