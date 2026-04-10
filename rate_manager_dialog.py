@@ -198,8 +198,9 @@ class RateManagerDialog(QDialog):
         bottom_layout = QVBoxLayout(bottom_widget)
         bottom_layout.setContentsMargins(0, 0, 0, 15)
         
-        proj_label = QLabel("Project Rates")
-        proj_label.setStyleSheet("font-weight: bold; color: blue; margin-top: 10px;")
+        self.project_label = QLabel("Project Library")
+        self.project_label.setStyleSheet("font-weight: bold; font-size: 14px; color: blue;")
+        bottom_layout.addWidget(self.project_label)
         
         self.project_search_input = QLineEdit()
         self.project_search_input.setPlaceholderText("Search for Project Rates by Rate Code or Description")
@@ -207,7 +208,6 @@ class RateManagerDialog(QDialog):
         self.project_search_input.textChanged.connect(self.filter_project_rates)
         
         proj_header_layout = QHBoxLayout()
-        proj_header_layout.addWidget(proj_label)
         proj_header_layout.addStretch()
         proj_header_layout.addWidget(self.project_search_input)
         
@@ -488,11 +488,21 @@ class RateManagerDialog(QDialog):
         # 2. Priced PBOQs (Aggregate discovery from all bill files)
         target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
         
+        pboq_aggregated_data = []
+        # Restore de-duplication for Project Library only
+        # We prioritize existing project Gross Rates over discovered PBOQ rates.
+        seen_project_codes = { (r.get('rate_code'), r.get('_type_val')) for r in all_project_rates }
+        
         for manager in target_managers:
             lib_name = os.path.basename(manager.db_file)
             pboq_rates = self._extract_rates_from_db(manager, lib_name)
-            all_project_rates.extend(pboq_rates)
+            for r in pboq_rates:
+                code_key = (r.get('rate_code'), r.get('_type_val'))
+                if code_key not in seen_project_codes:
+                    pboq_aggregated_data.append(r)
+                    seen_project_codes.add(code_key)
 
+        all_project_rates.extend(pboq_aggregated_data)
         all_project_rates.sort(key=lambda x: x.get('rate_code', ''))
         
         self._populate_table_with_rates(self.project_table, all_project_rates)
@@ -706,12 +716,21 @@ class RateManagerDialog(QDialog):
                         break
         
         if not os.path.exists(bill_path):
-            # Fallback: Try Imported Library folder
+            # Fallback 1: Try Imported Library folder
             lib_dir = os.path.join(project_dir, "Imported Library")
             if os.path.exists(lib_dir):
                 for f in os.listdir(lib_dir):
                     if f.lower() == lib_name.lower():
                         bill_path = os.path.join(lib_dir, f)
+                        break
+        
+        if not os.path.exists(bill_path):
+            # Fallback 2: Try Project Database folder (for main files like Two.db)
+            db_dir = os.path.join(project_dir, "Project Database")
+            if os.path.exists(db_dir):
+                for f in os.listdir(db_dir):
+                    if f.lower() == lib_name.lower():
+                        bill_path = os.path.join(db_dir, f)
                         break
 
         if not os.path.exists(bill_path):
