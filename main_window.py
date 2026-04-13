@@ -1019,14 +1019,14 @@ class MainWindow(QMainWindow):
                     db.bulk_update_estimate_margins(new_overhead, new_profit)
                     db.bulk_update_estimate_factor(new_factor)
 
-        # Update Imported Library Databases
-        if os.path.exists(lib_dir):
-            for f in os.listdir(lib_dir):
-                if f.lower().endswith('.db'):
-                    db = DatabaseManager(os.path.join(lib_dir, f))
-                    db.bulk_update_estimate_currency(new_currency)
-                    db.bulk_update_estimate_margins(new_overhead, new_profit)
-                    db.bulk_update_estimate_factor(new_factor)
+        # Update Imported Library Databases (Disabled - Historical data remains untouched)
+        # if os.path.exists(lib_dir):
+        #     for f in os.listdir(lib_dir):
+        #         if f.lower().endswith('.db'):
+        #             db = DatabaseManager(os.path.join(lib_dir, f))
+        #             db.bulk_update_estimate_currency(new_currency)
+        #             db.bulk_update_estimate_margins(new_overhead, new_profit)
+        #             db.bulk_update_estimate_factor(new_factor)
 
         # Update Priced BOQ Databases
         if os.path.exists(pboq_dir):

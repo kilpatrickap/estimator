@@ -49,7 +49,6 @@ class MarginMigrationWorker(QThread):
         
         target_dirs = []
         if os.path.exists(sor_dir): target_dirs.append(sor_dir)
-        if os.path.exists(lib_dir): target_dirs.append(lib_dir)
         
         native_rates = {}
         # Scan ALL db files in Imported Library, SOR, and Project Database for rate buildups
