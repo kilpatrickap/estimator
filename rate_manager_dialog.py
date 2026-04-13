@@ -325,6 +325,25 @@ class RateManagerDialog(QDialog):
                 if p_data.get('_source_db'):
                     gr['_lib_override'] = p_data['_source_db']
                 processed_data.append(gr)
+            elif r.get('rate_type') == "Plug Rate" and code:
+                # Fallback: Synced Plug/Sub entries stored with zero grand_total.
+                # These are rate references from PBOQs — show them even without
+                # build-up data so they remain visible in imported libraries.
+                if code.startswith('SR-'):
+                    type_val = "Sub. Rate"
+                    rate_val = p_data.get('sub_rate') or 0.0
+                else:
+                    type_val = "Plug Rate"
+                    rate_val = p_data.get('plug_rate') or 0.0
+                entry = copy.deepcopy(r)
+                entry['_rate_val'] = rate_val
+                entry['_type_val'] = type_val
+                entry['_library_name'] = lib_name
+                entry['_library_path'] = db_manager.db_file
+                if p_data.get('_source_db'):
+                    entry['_lib_override'] = p_data['_source_db']
+                processed_data.append(entry)
+                continue
             
             # Plug Rate (if overridden in this DB)
             if p_data.get('_is_plug'):
