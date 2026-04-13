@@ -368,7 +368,10 @@ class RateManagerDialog(QDialog):
                 if not entry.get('unit'):
                     entry['unit'] = p_data.get('unit') or unit_map.get(base_code, '')
                 if not entry.get('currency'):
-                    entry['currency'] = p_data.get('curr') or curr_map.get(base_code, '')
+                    fallback_curr = p_data.get('curr') or curr_map.get(base_code, '')
+                    if not fallback_curr and hasattr(self, 'project_db_manager') and self.project_db_manager:
+                        fallback_curr = self.project_db_manager.get_setting('currency', '')
+                    entry['currency'] = fallback_curr
                 processed_data.append(entry)
                 continue
             
