@@ -485,39 +485,38 @@ class RateManagerDialog(QDialog):
             return
             
         self.is_loading = True
-        all_project_rates = []
         
-        # 1. Main Project Database
+        # 1. Gather all raw rates from Main Project DB
+        raw_rates = []
         proj_lib_name = getattr(self, 'project_db_name', "Project Database")
-        all_project_rates.extend(self._extract_rates_from_db(self.project_db_manager, proj_lib_name))
+        raw_rates.extend(self._extract_rates_from_db(self.project_db_manager, proj_lib_name))
         
-        # 2. Priced PBOQs (Aggregate discovery from all bill files)
+        # 2. Gather all raw rates from Priced PBOQs
         target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
-        
-        pboq_aggregated_data = []
-        # Restore de-duplication for Project Library only
-        # We prioritize existing project Gross Rates. If a Gross Rate exists, 
-        # we do NOT show discovered Plug Rates for the same code.
-        seen_project_codes = { (r.get('rate_code'), r.get('_type_val')) for r in all_project_rates }
-        gross_codes = { r.get('rate_code') for r in all_project_rates if r.get('_type_val') == "Gross Rate" }
-        
         for manager in target_managers:
             lib_name = os.path.basename(manager.db_file)
-            pboq_rates = self._extract_rates_from_db(manager, lib_name)
-            for r in pboq_rates:
-                code = r.get('rate_code')
-                rtype = r.get('_type_val')
+            raw_rates.extend(self._extract_rates_from_db(manager, lib_name))
+            
+        # 3. Apply Unified De-duplication
+        # We prioritize existing project Gross Rates. If a Gross Rate exists, 
+        # we do NOT show discovered Plug/Sub Rates for the same code.
+        gross_codes = { r.get('rate_code') for r in raw_rates if r.get('_type_val') == "Gross Rate" }
+        seen_project_codes = set()
+        
+        all_project_rates = []
+        for r in raw_rates:
+            code = r.get('rate_code')
+            rtype = r.get('_type_val')
+            
+            # Rule: Do not show Plug/Sub discovery if a Gross Rate already exists for this code
+            if code in gross_codes and rtype != "Gross Rate":
+                continue
                 
-                # Rule: Do not show Plug/Sub discovery if a Gross Rate already exists for this code
-                if code in gross_codes and rtype != "Gross Rate":
-                    continue
-                    
-                code_key = (code, rtype)
-                if code_key not in seen_project_codes:
-                    pboq_aggregated_data.append(r)
-                    seen_project_codes.add(code_key)
+            code_key = (code, rtype)
+            if code_key not in seen_project_codes:
+                all_project_rates.append(r)
+                seen_project_codes.add(code_key)
 
-        all_project_rates.extend(pboq_aggregated_data)
         all_project_rates.sort(key=lambda x: x.get('rate_code', ''))
         
         self._populate_table_with_rates(self.project_table, all_project_rates)
