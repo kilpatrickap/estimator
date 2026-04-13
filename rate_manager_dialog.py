@@ -84,7 +84,8 @@ class RateManagerDialog(QDialog):
         
         import os
         
-        main_label = QLabel("Library(ies) :")
+        main_label = QLabel("Imported Library(ies) :")
+        main_label.setStyleSheet("font-weight: bold;")
         header_layout.addWidget(main_label)
         
         self.library_combo = QComboBox()
@@ -160,6 +161,11 @@ class RateManagerDialog(QDialog):
         top_widget = QWidget()
         top_layout = QVBoxLayout(top_widget)
         top_layout.setContentsMargins(0, 0, 0, 0)
+        
+        historical_label = QLabel("Historical Data")
+        historical_label.setStyleSheet("font-weight: bold; font-size: 14px; color: blue;")
+        top_layout.addWidget(historical_label)
+        
         top_layout.addWidget(header_widget)
 
         # Table
