@@ -871,6 +871,7 @@ class DatabaseManager:
 
                             summary[code] = {
                                 'curr': curr, 
+                                'unit': unit,
                                 'cat': cat,
                                 'desc': desc,
                                 '_source_db': db_name,

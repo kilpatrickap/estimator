@@ -308,6 +308,23 @@ class RateManagerDialog(QDialog):
         
         seen_codes = set()
         
+        # Pre-build a unit/currency lookup from formal rates that have values.
+        # This lets us fill missing unit/currency for PR-/SR- prefixed entries
+        # by inheriting from the corresponding base rate code.
+        unit_map = {}
+        curr_map = {}
+        for r in formal_rates:
+            rc = (r.get('rate_code') or "").strip()
+            base = rc
+            for pfx in ('PR-', 'SR-'):
+                if base.startswith(pfx):
+                    base = base[len(pfx):]
+                    break
+            if base and r.get('unit') and base not in unit_map:
+                unit_map[base] = r['unit']
+            if base and r.get('currency') and base not in curr_map:
+                curr_map[base] = r['currency']
+        
         # Process Formal Rates first
         for r in formal_rates:
             code = (r.get('rate_code') or "").strip()
@@ -342,6 +359,16 @@ class RateManagerDialog(QDialog):
                 entry['_library_path'] = db_manager.db_file
                 if p_data.get('_source_db'):
                     entry['_lib_override'] = p_data['_source_db']
+                # Inherit missing unit/currency from the base code's formal rate
+                base_code = code
+                for pfx in ('PR-', 'SR-'):
+                    if base_code.startswith(pfx):
+                        base_code = base_code[len(pfx):]
+                        break
+                if not entry.get('unit'):
+                    entry['unit'] = p_data.get('unit') or unit_map.get(base_code, '')
+                if not entry.get('currency'):
+                    entry['currency'] = p_data.get('curr') or curr_map.get(base_code, '')
                 processed_data.append(entry)
                 continue
             
@@ -492,10 +519,24 @@ class RateManagerDialog(QDialog):
                 lib_name = self.library_combo.currentText()
                 all_rates.extend(self._extract_rates_from_db(self.db_manager, lib_name))
         
-        # Sort by code for readability
-        all_rates.sort(key=lambda x: x.get('rate_code', ''))
+        # De-duplicate: If a Gross Rate exists for a code, suppress Plug/Sub for same code
+        gross_codes = { r.get('rate_code') for r in all_rates if r.get('_type_val') == "Gross Rate" }
+        seen_keys = set()
+        deduped = []
+        for r in all_rates:
+            code = r.get('rate_code')
+            rtype = r.get('_type_val')
+            if code in gross_codes and rtype != "Gross Rate":
+                continue
+            key = (code, rtype)
+            if key not in seen_keys:
+                deduped.append(r)
+                seen_keys.add(key)
         
-        self._populate_table_with_rates(self.table, all_rates)
+        # Sort by code for readability
+        deduped.sort(key=lambda x: x.get('rate_code', ''))
+        
+        self._populate_table_with_rates(self.table, deduped)
         self.is_loading = False
 
     def load_project_rates(self):
