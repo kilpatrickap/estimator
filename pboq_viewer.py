@@ -1101,8 +1101,14 @@ class PBOQDialog(QDialog):
         code_col = m.get(code_role, -1)
         rate_col = m.get(rate_role, -1)
         
+        ref_col = m.get('ref', -1)
+        qty_col = m.get('qty', -1)
+        
         desc = table.item(row, desc_col).text().strip() if desc_col >= 0 and table.item(row, desc_col) else "New Rate"
         unit = table.item(row, unit_col).text().strip() if unit_col >= 0 and table.item(row, unit_col) else "m"
+        ref = table.item(row, ref_col).text().strip() if ref_col >= 0 and table.item(row, ref_col) else ""
+        qty = table.item(row, qty_col).text().strip() if qty_col >= 0 and table.item(row, qty_col) else ""
+        
         rate_code = table.item(row, code_col).text().strip() if code_col >= 0 and table.item(row, code_col) else ""
         file_path = self.pboq_file_selector.currentData()
         
@@ -1249,32 +1255,59 @@ class PBOQDialog(QDialog):
                     self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
                 return
 
-        cat = "Miscellaneous"
-        new_est = Estimate(project_name=desc, client_name="", overhead=15.0, profit=10.0, unit=unit)
-        new_est.category = cat
-        new_est.rate_code = db.generate_next_rate_code(cat)
+        sor_dialog = None
+        if self.main_window:
+            for sub in self.main_window.mdi_area.subWindowList():
+                w = sub.widget()
+                if getattr(w, '__class__', None).__name__ == 'SORDialog':
+                    sor_dialog = w
+                    break
+                    
+        # Automatically open the SOR if not opened
+        if not sor_dialog and self.main_window and hasattr(self.main_window, 'open_sor_dialog'):
+            self.main_window.open_sor_dialog()
+            for sub in self.main_window.mdi_area.subWindowList():
+                w = sub.widget()
+                if getattr(w, '__class__', None).__name__ == 'SORDialog':
+                    sor_dialog = w
+                    break
         
-        dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
-        if dialog.exec():
-            totals = dialog.estimate.calculate_totals()
-            gross_rate = f"{totals.get('grand_total', 0.0):,.2f}"
-            new_code = str(dialog.estimate.rate_code)
-            
-            if rate_col >= 0:
-                it = table.item(row, rate_col)
-                if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
-                it.setText(gross_rate)
-                self._persist_updates(rate_col, [(rowid, gross_rate)])
-            
-            if code_col >= 0:
-                it = table.item(row, code_col)
-                if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
-                it.setText(new_code)
-                self._persist_updates(code_col, [(rowid, new_code)])
-                
-            self._update_stats()
-            # Automate Link to Bill Rate to skip manual process
-            self._link_item_to_bill(table, row, rowid)
+        if sor_dialog:
+            result = sor_dialog.highlight_and_build(ref, desc, qty, unit)
+            if result is not None:
+                gross_rate, new_code = result
+                # Persist the newly generated rate back to the PBOQ row ONLY if a rate was actually generated
+                if gross_rate and new_code:
+                    if rate_col >= 0:
+                        it = table.item(row, rate_col)
+                        if not it: it = QTableWidgetItem(); table.setItem(row, rate_col, it)
+                        it.setText(gross_rate)
+                        self._persist_updates(rate_col, [(rowid, gross_rate)])
+                    
+                    if code_col >= 0:
+                        it = table.item(row, code_col)
+                        if not it: it = QTableWidgetItem(); table.setItem(row, code_col, it)
+                        it.setText(new_code)
+                        self._persist_updates(code_col, [(rowid, new_code)])
+                        
+                    self._update_stats()
+                    # Automate Link to Bill Rate to skip manual process
+                    self._link_item_to_bill(table, row, rowid)
+
+                # Bring SOR dialog to front
+                if self.main_window:
+                    for sub in self.main_window.mdi_area.subWindowList():
+                        if sub.widget() == sor_dialog:
+                            self.main_window.mdi_area.setActiveSubWindow(sub)
+                            # Remove focus highlight from table so the yellow background is bright
+                            if hasattr(sor_dialog, 'table_widget'):
+                                from PyQt6.QtCore import QTimer
+                                QTimer.singleShot(0, lambda: sor_dialog.table_widget.clearFocus())
+                            break
+            else:
+                QMessageBox.warning(self, "Not Found", f"Item '{desc}' could not be found in the loaded Schedule of Rates (SOR).\n\nPlease load the correct SOR to build this rate.")
+        else:
+            QMessageBox.warning(self, "SOR Not Open", "The Schedule of Rates (SOR) window is not open.\n\nPlease open the SOR window to build gross rates.")
 
 
 

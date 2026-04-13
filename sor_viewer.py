@@ -681,6 +681,81 @@ class SORDialog(QDialog):
             self.table_widget.resizeColumnToContents(7)
         return found_count
 
+    def highlight_and_build(self, ref, desc, qty, unit):
+        """Highlights a matching item based on combination of keys, and triggers build."""
+        from PyQt6.QtGui import QBrush
+        from PyQt6.QtCore import Qt
+
+        desc_lower = desc.strip().lower()
+        ref_lower = ref.strip().lower()
+        qty_lower = qty.strip().lower()
+        unit_lower = unit.strip().lower()
+        
+        found_row = -1
+        
+        # Pass 1: Try strict matching on all provided parameters
+        for row in range(self.table_widget.rowCount()):
+            c_ref = (self.table_widget.item(row, 2).text().strip().lower() if self.table_widget.item(row, 2) else "")
+            c_desc = (self.table_widget.item(row, 3).text().strip().lower() if self.table_widget.item(row, 3) else "")
+            c_qty = (self.table_widget.item(row, 4).text().strip().lower() if self.table_widget.item(row, 4) else "")
+            c_unit = (self.table_widget.item(row, 5).text().strip().lower() if self.table_widget.item(row, 5) else "")
+            
+            # Since SOR descriptions often contain hierarchical concatenated text, check if PBOQ desc is IN it.
+            if desc_lower and desc_lower in c_desc:
+                if (not ref_lower or c_ref == ref_lower) and \
+                   (not qty_lower or c_qty == qty_lower) and \
+                   (not unit_lower or c_unit == unit_lower):
+                    found_row = row
+                    break
+                    
+        # Pass 2: Fallback to just Description substring match if strict match fails
+        if found_row == -1:
+            for row in range(self.table_widget.rowCount()):
+                c_desc = (self.table_widget.item(row, 3).text().strip().lower() if self.table_widget.item(row, 3) else "")
+                if desc_lower and desc_lower in c_desc:
+                    found_row = row
+                    break
+                
+        if found_row >= 0:
+            # Highlight row in BRIGHT yellow
+            for col in range(self.table_widget.columnCount()):
+                cell = self.table_widget.item(found_row, col)
+                if cell:
+                    cell.setBackground(QBrush(Qt.GlobalColor.yellow))
+                    cell.setForeground(QBrush(Qt.GlobalColor.black))
+            
+            # Scroll to make it visible
+            item_to_scroll = self.table_widget.item(found_row, 0)
+            if item_to_scroll:
+                self.table_widget.scrollToItem(item_to_scroll)
+            
+            # Force selection removal and repaint so the yellow background shines through immediately
+            from PyQt6.QtCore import QTimer
+            from PyQt6.QtWidgets import QApplication
+            
+            self.table_widget.clearSelection()
+            self.table_widget.clearFocus()
+            
+            # Use a timer to double-ensure selection is cleared after any potential UI focus shifts
+            QTimer.singleShot(0, lambda: (self.table_widget.clearSelection(), self.table_widget.clearFocus()))
+            
+            QApplication.processEvents() 
+            
+            # Trigger build
+            index = self.table_widget.model().index(found_row, 0)
+            self._build_rate(index)
+            
+            # Extract updated info
+            gross_item = self.table_widget.item(found_row, 6)
+            code_item = self.table_widget.item(found_row, 7)
+            
+            g_rate = gross_item.text().strip() if gross_item else ""
+            r_code = code_item.text().strip() if code_item else ""
+            
+            return g_rate, r_code
+            
+        return None
+
     def _on_mdi_subwindow_activated(self, sub):
         """Toggle dock visibility based on whether THIS window is active."""
         if not hasattr(self, 'tools_dock') or not self.tools_dock:
