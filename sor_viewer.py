@@ -745,6 +745,13 @@ class SORDialog(QDialog):
             index = self.table_widget.model().index(found_row, 0)
             self._build_rate(index)
             
+            # Clear highlight after build dialog is closed/done
+            for col in range(self.table_widget.columnCount()):
+                cell = self.table_widget.item(found_row, col)
+                if cell:
+                    cell.setData(Qt.ItemDataRole.BackgroundRole, None)
+                    cell.setData(Qt.ItemDataRole.ForegroundRole, None)
+            
             # Extract updated info
             gross_item = self.table_widget.item(found_row, 6)
             code_item = self.table_widget.item(found_row, 7)
