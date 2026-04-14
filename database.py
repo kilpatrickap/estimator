@@ -816,6 +816,50 @@ class DatabaseManager:
                 idx_unit = get_idx(['Unit', 'Column 3']) # Prioritize Unit column
                 idx_curr = get_idx(['PlugCurrency', 'Currency'])
                 idx_cat = get_idx(['SubbeeCategory', 'Category'])
+                idx_sheet = get_idx(['Sheet'])
+                idx_ref = get_idx(['Ref', 'Item', 'Column 0'])
+
+                # --- Pre-cache SOR Descriptions ---
+                sor_desc_map = {} # (sheet, ref) -> desc
+                sor_ratecode_map = {} # rate_code -> desc
+                try:
+                    import os
+                    import sqlite3
+                    db_dir = os.path.dirname(self.db_file)
+                    sor_dir = os.path.join(db_dir, "SOR")
+                    if os.path.exists(sor_dir):
+                        for f in os.listdir(sor_dir):
+                            if f.lower().endswith('.db'):
+                                sor_path = os.path.join(sor_dir, f)
+                                try:
+                                    temp_conn = sqlite3.connect(sor_path)
+                                    temp_cursor = temp_conn.cursor()
+                                    temp_cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sor_items'")
+                                    if temp_cursor.fetchone():
+                                        temp_cursor.execute("PRAGMA table_info(sor_items)")
+                                        sor_cols = [c[1] for c in temp_cursor.fetchall()]
+                                        
+                                        has_rc = "RateCode" in sor_cols
+                                        q = "SELECT Sheet, Ref, Description"
+                                        if has_rc:
+                                            q += ", RateCode"
+                                        q += " FROM sor_items"
+                                        
+                                        temp_cursor.execute(q)
+                                        for row_t in temp_cursor.fetchall():
+                                            s, r, d = row_t[0], row_t[1], row_t[2]
+                                            if s is not None and r is not None and d:
+                                                sor_desc_map[(str(s).strip(), str(r).strip())] = d
+                                            if has_rc and len(row_t) > 3 and row_t[3]:
+                                                rc = row_t[3]
+                                                if rc and str(rc).strip() and d:
+                                                    sor_ratecode_map[str(rc).strip()] = d
+                                    temp_conn.close()
+                                except Exception:
+                                    pass
+                except Exception:
+                    pass
+                # ----------------------------------
                 
                 for r in rows:
                     def get_v(idx): return r[idx] if idx != -1 else None
@@ -836,6 +880,22 @@ class DatabaseManager:
                             d_val = alt_desc
                     
                     desc = d_val if d_val else ""
+                    
+                    # --- Override truncated Description with SOR Description ---
+                    sheet_val = get_v(idx_sheet)
+                    ref_val = get_v(idx_ref)
+                    if sheet_val is not None and ref_val is not None:
+                        k = (str(sheet_val).strip(), str(ref_val).strip())
+                        if k in sor_desc_map and sor_desc_map[k].strip():
+                            desc = sor_desc_map[k]
+                    
+                    # Fallback to rate code lookup if still too short or missing
+                    if not desc or len(desc) < 15:
+                        for code_val in [r_code, p_code, s_code]:
+                            if code_val and str(code_val).strip() in sor_ratecode_map:
+                                desc = sor_ratecode_map[str(code_val).strip()]
+                                break
+                                
                     unit = get_v(idx_unit)
                     curr = get_v(idx_curr)
                     cat = get_v(idx_cat)
