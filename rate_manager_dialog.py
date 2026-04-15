@@ -563,28 +563,26 @@ class RateManagerDialog(QDialog):
             return
             
         self.is_loading = True
-        
-        # 1. Gather all raw rates from Main Project DB
         raw_rates = []
+        # 1. Gather all raw rates from Main Project DB (OWNER/MASTER)
         proj_lib_name = getattr(self, 'project_db_name', "Project Database")
         raw_rates.extend(self._extract_rates_from_db(self.project_db_manager, proj_lib_name))
-        
-        # 2. Gather all raw rates from Priced PBOQs
+
+        # 2. Gather all raw rates from Priced PBOQs (DISCOVERY/UPDATES)
         target_managers = self.pboq_db_managers if hasattr(self, 'pboq_db_managers') and self.pboq_db_managers else []
         for manager in target_managers:
             lib_name = os.path.basename(manager.db_file)
             raw_rates.extend(self._extract_rates_from_db(manager, lib_name))
             
-        # 3. Apply Unified De-duplication
-        # We prioritize existing project Gross Rates. If a Gross Rate exists, 
-        # we do NOT show discovered Plug/Sub Rates for the same code.
+        # 3. Apply Unified De-duplication and Smart Merging
         gross_codes = { r.get('rate_code') for r in raw_rates if r.get('_type_val') == "Gross Rate" }
-        seen_project_codes = set()
+        seen_project_codes = {} # (code, rtype) -> data_dict
         
         all_project_rates = []
         for r in raw_rates:
             code = r.get('rate_code')
             rtype = r.get('_type_val')
+            if not code or not rtype: continue
             
             # Rule: Do not show Plug/Sub discovery if a Gross Rate already exists for this code
             if code in gross_codes and rtype != "Gross Rate":
@@ -592,8 +590,27 @@ class RateManagerDialog(QDialog):
                 
             code_key = (code, rtype)
             if code_key not in seen_project_codes:
+                seen_project_codes[code_key] = r
                 all_project_rates.append(r)
-                seen_project_codes.add(code_key)
+            else:
+                # Merge Logic: If we already have a record (likely from Project DB),
+                # update it if the new one (from a PBOQ) has more complete data.
+                existing = seen_project_codes[code_key]
+                new_rate = r.get('_rate_val')
+                
+                # Update rate if existing is 0 or less than new (prefer marked-up bill rate)
+                if new_rate and (not existing.get('_rate_val') or float(new_rate) > float(existing.get('_rate_val', 0))):
+                    existing['_rate_val'] = new_rate
+                    # Inherit date from the updated version if it's more recent?
+                    existing['date_created'] = r.get('date_created', existing['date_created'])
+                
+                # Update description if existing is missing/short
+                if r.get('project_name') and (not existing.get('project_name') or len(str(r['project_name'])) > len(str(existing['project_name']))):
+                    existing['project_name'] = r['project_name']
+                
+                # Update unit if missing
+                if r.get('unit') and not existing.get('unit'):
+                    existing['unit'] = r['unit']
 
         all_project_rates.sort(key=lambda x: x.get('rate_code', ''))
         

@@ -3154,6 +3154,7 @@ class PBOQDialog(QDialog):
                             'desc': desc,
                             'unit': unit,
                             'rate': s_rate,
+                            'markup': s_markup,
                             'type': 'Sub. Rate',
                             'sub_name': s_name,
                             'cat': s_cat

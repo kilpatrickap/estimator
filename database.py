@@ -812,8 +812,14 @@ class DatabaseManager:
                 idx_pr = get_idx(['PlugRate', 'Plug Rate'])
                 idx_sr = get_idx(['SubbeeRate', 'Sub. Rate', 'SubRate'])
                 idx_bill = get_idx(['BillRate', 'Bill Rate', 'Column 4']) # Marked up rate
+                idx_sm = get_idx(['SubbeeMarkup', 'Sub. Markup', 'Markup'])
                 idx_desc = get_idx(['Description', 'Column 1', 'Column 2']) # Prioritize Description or Column 1
                 idx_unit = get_idx(['Unit', 'Column 3']) # Prioritize Unit column
+                idx_c1 = get_idx(['Column 1'])
+                idx_c2 = get_idx(['Column 2'])
+                idx_c3 = get_idx(['Column 3'])
+                idx_d = get_idx(['Description'])
+                idx_u = get_idx(['Unit'])
                 idx_curr = get_idx(['PlugCurrency', 'Currency'])
                 idx_cat = get_idx(['SubbeeCategory', 'Category'])
                 idx_sheet = get_idx(['Sheet'])
@@ -871,13 +877,15 @@ class DatabaseManager:
                     s_rate = get_v(idx_sr)
                     b_rate = get_v(idx_bill)
                     
-                    # Better Description Fallback
+                    # Robust Description fallback: if primary is empty or numeric, try alternatives
                     d_val = get_v(idx_desc)
-                    # If Description is a number (like a quantity), try checking if the OTHER column has text
-                    if d_val is None or str(d_val).replace('.','').isdigit():
-                        alt_desc = get_v(get_idx(['Description']) if 'Description' in keys else -1)
-                        if alt_desc and not str(alt_desc).replace('.','').isdigit():
-                            d_val = alt_desc
+                    if d_val is None or str(d_val).strip() == "" or str(d_val).replace('.','').isdigit():
+                        for alt_idx in [idx_d, idx_c1, idx_c2]:
+                            if alt_idx != -1:
+                                v = get_v(alt_idx)
+                                if v and str(v).strip() and not str(v).replace('.', '').isdigit():
+                                    d_val = v
+                                    break
                     
                     desc = d_val if d_val else ""
                     
@@ -896,7 +904,16 @@ class DatabaseManager:
                                 desc = sor_ratecode_map[str(code_val).strip()]
                                 break
                                 
-                    unit = get_v(idx_unit)
+                    # Robust Unit fallback
+                    u_val = get_v(idx_unit)
+                    if u_val is None or str(u_val).strip() == "":
+                        for alt_idx in [idx_u, idx_c3]:
+                            if alt_idx != -1:
+                                v = get_v(alt_idx)
+                                if v and str(v).strip():
+                                    u_val = v
+                                    break
+                    unit = u_val
                     curr = get_v(idx_curr)
                     cat = get_v(idx_cat)
 
@@ -909,6 +926,7 @@ class DatabaseManager:
                     pr = clean_f(p_rate)
                     sr = clean_f(s_rate)
                     br = clean_f(b_rate)
+                    sm = clean_f(get_v(idx_sm))
                     
                     # Map to different codes
                     targets = []
@@ -955,7 +973,10 @@ class DatabaseManager:
                                 summary[code]['_is_plug'] = True
                             
                         if s_code and code == str(s_code).strip():
-                            val = br if br is not None else sr
+                            val = br
+                            if val is None and sr is not None:
+                                # Fallback: Apply markup to SubbeeRate if BillRate is missing
+                                val = sr * (1 + (sm / 100.0)) if sm else sr
                             if val is not None: 
                                 summary[code]['sub_rate'] = val
                                 summary[code]['_is_sub'] = True

@@ -203,8 +203,8 @@ class PBOQLogic:
                 
                 if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
                     val_col, code_col = "SubbeeRate", "SubbeeCode"
-                    extra_fields = ", SubbeeName = ?, SubbeeCategory = ?"
-                    extra_params = (data.get('sub_name', 'Subcontractor'), cat)
+                    extra_fields = ", SubbeeName = ?, SubbeeCategory = ?, SubbeeMarkup = ?"
+                    extra_params = (data.get('sub_name', 'Subcontractor'), cat, data.get('markup'))
                 else: # Plug Rate
                     val_col, code_col = "PlugRate", "PlugCode"
                     extra_fields = ", PlugCurrency = ?, PlugCategory = ?"
@@ -230,9 +230,9 @@ class PBOQLogic:
                     params = [desc, unit, code, rate]
                     
                     if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
-                        cols.extend(["SubbeeName", "SubbeeCategory"])
-                        placeholders.extend(["?", "?"])
-                        params.extend([data.get('sub_name', 'Subcontractor'), cat])
+                        cols.extend(["SubbeeName", "SubbeeCategory", "SubbeeMarkup"])
+                        placeholders.extend(["?", "?", "?"])
+                        params.extend([data.get('sub_name', 'Subcontractor'), cat, data.get('markup')])
                     else:
                         cols.extend(["PlugCurrency", "PlugCategory"])
                         placeholders.extend(["?", "?"])
