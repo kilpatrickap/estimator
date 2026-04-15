@@ -3058,14 +3058,6 @@ class PBOQDialog(QDialog):
         
         # Format markup string
         markup_str = "{:,.2f}%".format(markup) if markup else ""
-        
-        # Fetch Project Currency for syncing
-        project_currency = ""
-        pdb_path = self._get_project_db_path()
-        if pdb_path:
-            project_currency = DatabaseManager(pdb_path).get_setting('currency', "")
-        if not project_currency:
-            project_currency = "GHS (₵)" # Fallback
 
         current_item_index = 0
         for i in range(self.tabs.count()):
@@ -3114,7 +3106,7 @@ class PBOQDialog(QDialog):
 
                         db_updates.append({
                             'rowid': row_id,
-                            'logical': (winner_name, rate_str, markup_str, category, sub_code, project_currency),
+                            'logical': (winner_name, rate_str, markup_str, category, sub_code),
                             'physical': physical_updates
                         })
                         current_item_index += 1
@@ -3129,7 +3121,7 @@ class PBOQDialog(QDialog):
                     cursor.execute("""
                         UPDATE pboq_items 
                         SET SubbeeName = ?, SubbeeRate = ?, SubbeeMarkup = ?, 
-                            SubbeeCategory = ?, SubbeeCode = ?, SubbeeCurrency = ?
+                            SubbeeCategory = ?, SubbeeCode = ?
                         WHERE rowid = ?
                     """, up['logical'] + (up['rowid'],))
                     
@@ -3146,7 +3138,7 @@ class PBOQDialog(QDialog):
                     sync_items = []
                     for up in db_updates:
                         # Extract data from logical tuple
-                        s_name, s_rate, s_markup, s_cat, s_code, _curr = up['logical']
+                        s_name, s_rate, s_markup, s_cat, s_code = up['logical']
                         
                         # Find row in UI to get description and unit (if possible)
                         desc, unit = "", ""
@@ -3154,26 +3146,16 @@ class PBOQDialog(QDialog):
                         if item0:
                             r = item0.row()
                             t = item0.tableWidget()
-                            m = self.tools_pane.get_mappings()
                             desc = t.item(r, m.get('desc', -1)).text().strip() if m.get('desc', -1) >= 0 else ""
                             unit = t.item(r, m.get('unit', -1)).text().strip() if m.get('unit', -1) >= 0 else ""
-
-                        # Calculate marked-up rate for librarians (so they see the project cost 11.00 and not the net 10.00)
-                        try:
-                            f_rate = float(str(s_rate).replace(',', ''))
-                            f_markup = float(str(s_markup).replace(',', '').replace('%', '')) / 100 if s_markup else 0.0
-                            calc_rate = round(f_rate * (1 + f_markup), 2)
-                        except:
-                            calc_rate = s_rate
                             
                         sync_items.append({
                             'code': s_code,
                             'desc': desc,
                             'unit': unit,
-                            'rate': calc_rate,
+                            'rate': s_rate,
                             'type': 'Sub. Rate',
                             'sub_name': s_name,
-                            'curr': project_currency,
                             'cat': s_cat
                         })
                     if sync_items:

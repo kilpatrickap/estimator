@@ -815,7 +815,6 @@ class DatabaseManager:
                 idx_desc = get_idx(['Description', 'Column 1', 'Column 2']) # Prioritize Description or Column 1
                 idx_unit = get_idx(['Unit', 'Column 3']) # Prioritize Unit column
                 idx_curr = get_idx(['PlugCurrency', 'Currency'])
-                idx_sub_curr = get_idx(['SubbeeCurrency'])
                 idx_cat = get_idx(['SubbeeCategory', 'Category'])
                 idx_sheet = get_idx(['Sheet'])
                 idx_ref = get_idx(['Ref', 'Item', 'Column 0'])
@@ -898,12 +897,7 @@ class DatabaseManager:
                                 break
                                 
                     unit = get_v(idx_unit)
-                    
-                    # Currency Priority: SubbeeCurrency for Sub rates, PlugCurrency for Plugs, then fallback
-                    p_curr = get_v(idx_curr)
-                    s_curr = get_v(idx_sub_curr)
-                    curr = s_curr if (s_code and s_curr) else p_curr
-                    
+                    curr = get_v(idx_curr)
                     cat = get_v(idx_cat)
 
                     def clean_f(val):

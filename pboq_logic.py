@@ -1,135 +1,161 @@
+import os
 import sqlite3
 import json
-import os
 import re
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor
 
 class PBOQLogic:
-    """Core business logic for PBOQ management, database sync, and calculations."""
+    """Handles database interactions and business logic for the PBOQ viewer."""
+
+    @staticmethod
+    def evaluate_formula(formula_text):
+        """Evaluates a multi-line PBOQ formula string to a single float value."""
+        if not formula_text: return 0.0
+        lines = formula_text.split('\n')
+        total_sum = 0
+        for line in lines:
+            val = PBOQLogic.parse_single_line(line)
+            if val is not None:
+                total_sum += val
+        return total_sum
+
+    @staticmethod
+    def parse_single_line(text):
+        trimmed = text.strip()
+        if not trimmed: return None
+        is_formula = trimmed.startswith('=')
+        segment = text.split(';')[0]
+        if not is_formula:
+            try: return float(segment.strip().replace(',',''))
+            except ValueError: return None
+        term = segment.replace('=', '', 1)
+        term = re.sub(r'"[^"]*"', '', term)
+        term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
+        term = re.sub(r'/\s*[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
+        term = re.sub(r'[a-zA-Z\u00b2\u00b3]+[a-zA-Z\u00b2\u00b3\d]*', '', term)
+        try:
+            cleaned_term = re.sub(r'[^0-9+\-*/(). ]', '', term)
+            return float(eval(cleaned_term, {"__builtins__": None}, {}))
+        except: return None
     
     @staticmethod
     def connect_db(file_path):
-        try:
-            conn = sqlite3.connect(file_path)
-            return conn
-        except sqlite3.Error:
+        if not file_path or not os.path.exists(file_path):
             return None
+        return sqlite3.connect(file_path)
 
     @staticmethod
     def ensure_schema(conn):
-        """Ensures the PBOQ database has the required pboq_items table and logical columns."""
         cursor = conn.cursor()
-        try:
-            # Check if pboq_items exists
-            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-            if not cursor.fetchone():
-                return False, "Table 'pboq_items' not found in database."
+        # Check for pboq_items table
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items';")
+        if not cursor.fetchone():
+            cursor.execute("CREATE TABLE pboq_items (Sheet TEXT)")
+        
+        # Get column info
+        cursor.execute("PRAGMA table_info(pboq_items)")
+        db_columns = [info[1] for info in cursor.fetchall()]
+        
+        # Standard Columns and Named Columns in a fixed preferred order
+        standard_cols = [f"Column {i}" for i in range(20)]
+        named_cols = ["Description", "Unit", "GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
+                      "PlugCategory", "PlugCurrency", "PlugExchangeRates",
+                      "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
+                      "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
+                      "Daywork", "DayworkCode", "DayworkFormula", "DayworkCategory", "DayworkCurrency", "DayworkExchangeRates",
+                      "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup", "SubbeeNotes",
+                      "SubbeeCategory", "SubbeeCode", "IsFlagged"]
+        
+        for col_name in standard_cols + named_cols:
+            if col_name not in db_columns:
+                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
+                db_columns.append(col_name)
 
-            # Get physical columns (excluding logical ones we add)
-            cursor.execute("PRAGMA table_info(pboq_items)")
-            existing_cols = [row[1] for row in cursor.fetchall()]
-            
-            logical_cols = [
-                ("SubbeePackage", "TEXT"), ("SubbeeName", "TEXT"), ("SubbeeRate", "FLOAT"), 
-                ("SubbeeMarkup", "TEXT"), ("SubbeeCategory", "TEXT"), ("SubbeeCode", "TEXT"),
-                ("ProvSum", "FLOAT"), ("ProvSumCode", "TEXT"), ("ProvSumFormula", "TEXT"), 
-                ("ProvSumCategory", "TEXT"), ("ProvSumCurrency", "TEXT"), ("ProvSumExchangeRates", "TEXT"),
-                ("PCSum", "FLOAT"), ("PCSumCode", "TEXT"), ("PCSumFormula", "TEXT"), 
-                ("PCSumCategory", "TEXT"), ("PCSumCurrency", "TEXT"), ("PCSumExchangeRates", "TEXT"),
-                ("PlugRate", "FLOAT"), ("PlugCode", "TEXT"), ("PlugFormula", "TEXT"), 
-                ("PlugCategory", "TEXT"), ("PlugCurrency", "TEXT"), ("PlugExchangeRates", "TEXT"), 
-                ("PlugFactor", "FLOAT"), ("GrossRate", "FLOAT"), ("RateCode", "TEXT"), ("IsFlagged", "INTEGER")
-            ]
-            
-            for col_name, col_type in logical_cols:
-                if col_name not in existing_cols:
-                    cursor.execute(f'ALTER TABLE pboq_items ADD COLUMN "{col_name}" {col_type}')
-            
-            # Ensure pboq_formatting table exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pboq_formatting (
-                    global_row_idx INTEGER,
-                    col_idx INTEGER,
-                    format_json TEXT,
-                    PRIMARY KEY (global_row_idx, col_idx)
-                )
-            """)
-
-            # Ensure subcontractor_quotes table exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subcontractor_quotes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    package_name TEXT,
-                    row_idx INTEGER,
-                    subcontractor_name TEXT,
-                    rate FLOAT
-                )
-            """)
-
-            # Ensure subcontractor_details table exists
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS subcontractor_details (
-                    name TEXT PRIMARY KEY,
-                    phone TEXT,
-                    email TEXT
-                )
-            """)
-
-            conn.commit()
-            
-            # Re-fetch all columns to determine which are "Physical"
-            cursor.execute("PRAGMA table_info(pboq_items)")
-            all_cols = [row[1] for row in cursor.fetchall()]
-            
-            # We want to return only the "Physical" columns (those that aren't in logical_cols)
-            logical_names = [c[0] for c in logical_cols]
-            physical_cols = [c for c in all_cols if c not in logical_names]
-            
-            return True, physical_cols
-            
-        except sqlite3.Error as e:
-            return False, str(e)
+        
+        # Ensure Formatting table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pboq_formatting (
+                row_idx INTEGER,
+                col_idx INTEGER,
+                fmt_json TEXT,
+                PRIMARY KEY (row_idx, col_idx)
+            )
+        """)
+        
+        # Ensure Subcontractor Quotes table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_quotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                package_name TEXT,
+                row_idx INTEGER,
+                subcontractor_name TEXT,
+                rate REAL,
+                FOREIGN KEY(row_idx) REFERENCES pboq_items(rowid)
+            )
+        """)
+        
+        # Ensure Subcontractor Package Metadata Table exists
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_package_settings (
+                package_name TEXT PRIMARY KEY,
+                category_name TEXT,
+                markup_default REAL,
+                notes TEXT
+            )
+        """)
+        
+        # Ensure Subcontractor Details table exists for contact info
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS subcontractor_details (
+                name TEXT PRIMARY KEY,
+                phone TEXT,
+                email TEXT
+            )
+        """)
+        
+        conn.commit()
+        return True, db_columns
 
     @staticmethod
     def load_formatting(conn):
+        formatting_data = {}
         cursor = conn.cursor()
-        try:
-            cursor.execute("SELECT global_row_idx, col_idx, format_json FROM pboq_formatting")
-            rows = cursor.fetchall()
-            return {(row[0], row[1]): json.loads(row[2]) for row in rows}
-        except:
-            return {}
+        cursor.execute("SELECT row_idx, col_idx, fmt_json FROM pboq_formatting")
+        for row_idx, col_idx, fmt_json in cursor.fetchall():
+            formatting_data[(row_idx, col_idx)] = json.loads(fmt_json)
+        return formatting_data
+
+
 
     @staticmethod
-    def clear_cell_formatting(file_path, g_idx, col_idx):
+    def persist_batch_updates(file_path, db_cols, col_idx_in_display, updates):
+        """Helper to batch update PBOQ items in the database by rowid."""
+        if not file_path or not os.path.exists(file_path): return False
+        
         try:
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
-            cursor.execute("DELETE FROM pboq_formatting WHERE global_row_idx=? AND col_idx=?", (g_idx, col_idx))
-            conn.commit()
-            conn.close()
-        except:
-            pass
-
-    @staticmethod
-    def persist_batch_cell_formatting(file_path, col_idx, updates):
-        """Saves a batch of cell formatting data."""
-        try:
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
-            for g_idx, fmt in updates:
-                cursor.execute("""
-                    INSERT OR REPLACE INTO pboq_formatting (global_row_idx, col_idx, format_json)
-                    VALUES (?, ?, ?)
-                """, (g_idx, col_idx, json.dumps(fmt)))
-            conn.commit()
+            
+            # col_idx_in_display is 0-based index of the column in the displayed table (e.g., 0-7)
+            # db_cols includes 'Sheet' at index 0, then 'Column 0', 'Column 1', etc.
+            db_col_index = col_idx_in_display + 1 
+            db_col_to_update = db_cols[db_col_index] if db_col_index < len(db_cols) else None
+            
+            if db_col_to_update:
+                for rowid, val in updates:
+                    cursor.execute(f'UPDATE pboq_items SET "{db_col_to_update}" = ? WHERE rowid = ?', (val, rowid))
+                conn.commit()
             conn.close()
             return True
-        except:
+        except sqlite3.Error as e:
+            print(f"Update Error: {e}")
             return False
 
     @staticmethod
     def persist_batch_named_updates(file_path, col_name, updates):
-        """Updates a specific named logical column for multiple rows."""
+        """Updates a named column (like SubbeeName) directly by rowid."""
+        if not file_path or not os.path.exists(file_path): return False
         try:
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
@@ -138,123 +164,211 @@ class PBOQLogic:
             conn.commit()
             conn.close()
             return True
-        except:
-            return False
+        except sqlite3.Error: return False
 
     @staticmethod
-    def persist_batch_updates(file_path, db_columns, col_idx, updates):
-        """Updates a physical column by index for multiple rows."""
-        try:
-            # col_idx in the UI corresponds to db_columns[col_idx + 1] in many cases,
-            # but we assume the caller provides the correct physical column index if needed.
-            # Based on pboq_viewer mapping:
-            col_name = db_columns[col_idx + 1]
-            conn = sqlite3.connect(file_path)
-            cursor = conn.cursor()
-            for rowid, val in updates:
-                cursor.execute(f'UPDATE pboq_items SET "{col_name}" = ? WHERE rowid = ?', (val, rowid))
-            conn.commit()
-            conn.close()
-            return True
-        except:
+    def sync_rate_to_master_lib(master_db_path, rate_data_list):
+        """
+        Synchronizes a list of rate snapshots to the master project library (pboq_items table).
+        rate_data_list is a list of dicts: [
+            {'code': '...', 'desc': '...', 'unit': '...', 'rate': 10.0, 'type': 'Plug Rate', 'curr': '...', 'cat': '...'}
+        ]
+        """
+        if not master_db_path or not os.path.exists(master_db_path) or not rate_data_list:
             return False
-
-    @staticmethod
-    def sync_rate_to_master_lib(pdb_path, items):
-        """Syncs Plug, Sub, and Gross rates into the master project database."""
-        if not pdb_path or not os.path.exists(pdb_path): return
+            
         try:
-            conn = sqlite3.connect(pdb_path)
+            conn = sqlite3.connect(master_db_path)
+            # Ensure schema exists in master lib (standardizing even if it's a fresh DB)
+            PBOQLogic.ensure_schema(conn)
+            
             cursor = conn.cursor()
-            # Ensure table exists in master
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS pboq_items (
-                    Description TEXT,
-                    Unit TEXT,
-                    RateCode TEXT,
-                    GrossRate FLOAT,
-                    PlugCode TEXT,
-                    PlugRate FLOAT,
-                    SubbeeCode TEXT,
-                    SubbeeRate FLOAT,
-                    SubbeeName TEXT,
-                    PRIMARY KEY (Description, Unit)
-                )
-            """)
-            for item in items:
-                desc = item.get('desc')
-                unit = item.get('unit')
-                code = item.get('code')
-                rate = item.get('rate')
-                type_ = item.get('type')
-                sub_name = item.get('sub_name', '')
+            
+            # Map types to logical columns in pboq_items
+            # Plug Rate -> PlugRate / PlugCode
+            # Sub. Rate -> SubbeeRate / SubbeeCode
+            
+            for data in rate_data_list:
+                code = data.get('code')
+                desc = data.get('desc', '')
+                unit = data.get('unit', '')
+                rate = data.get('rate')
+                rtype = data.get('type', 'Plug Rate')
+                curr = data.get('curr', 'GHS (₵)')
+                cat = data.get('cat', 'Miscellaneous')
                 
-                try:
-                    r_float = float(str(rate).replace(',', ''))
-                except:
-                    r_float = 0.0
+                # We use a combined key of Code + Type to avoid overwriting a Plug rate with a Sub rate of the same code
+                # or vice-versa. However, since the goal is a portable snapshot, we primarily want ONE record per code
+                # that represents the "best" known price.
+                
+                if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
+                    val_col, code_col = "SubbeeRate", "SubbeeCode"
+                    extra_fields = ", SubbeeName = ?, SubbeeCategory = ?"
+                    extra_params = (data.get('sub_name', 'Subcontractor'), cat)
+                else: # Plug Rate
+                    val_col, code_col = "PlugRate", "PlugCode"
+                    extra_fields = ", PlugCurrency = ?, PlugCategory = ?"
+                    extra_params = (curr, cat)
 
-                if type_ == 'Plug Rate':
-                    cursor.execute("""
-                        INSERT INTO pboq_items (Description, Unit, PlugCode, PlugRate) 
-                        VALUES(?, ?, ?, ?) 
-                        ON CONFLICT(Description, Unit) DO UPDATE SET PlugCode=excluded.PlugCode, PlugRate=excluded.PlugRate
-                    """, (desc, unit, code, r_float))
-                elif type_ == 'Sub. Rate':
-                    cursor.execute("""
-                        INSERT INTO pboq_items (Description, Unit, SubbeeCode, SubbeeRate, SubbeeName) 
-                        VALUES(?, ?, ?, ?, ?) 
-                        ON CONFLICT(Description, Unit) DO UPDATE SET SubbeeCode=excluded.SubbeeCode, SubbeeRate=excluded.SubbeeRate, SubbeeName=excluded.SubbeeName
-                    """, (desc, unit, code, r_float, sub_name))
-                elif type_ == 'Gross Rate':
-                    cursor.execute("""
-                        INSERT INTO pboq_items (Description, Unit, RateCode, GrossRate) 
-                        VALUES(?, ?, ?, ?) 
-                        ON CONFLICT(Description, Unit) DO UPDATE SET RateCode=excluded.RateCode, GrossRate=excluded.GrossRate
-                    """, (desc, unit, code, r_float))
+                # Check if this code already exists in ANY of the code columns of the master pboq_items table
+                # If it does, we update it. If not, we insert a new row.
+                # To simplify, we'll try to find a row where Code matches.
+                cursor.execute(f"SELECT rowid FROM pboq_items WHERE {code_col} = ?", (code,))
+                res = cursor.fetchone()
+                
+                if res:
+                    rowid = res[0]
+                    cursor.execute(f"""
+                        UPDATE pboq_items 
+                        SET "{val_col}" = ?, "Description" = ?, "Unit" = ? {extra_fields}
+                        WHERE rowid = ?
+                    """, (rate, desc, unit) + extra_params + (rowid,))
+                else:
+                    # Insert new row
+                    cols = ["Description", "Unit", code_col, val_col]
+                    placeholders = ["?", "?", "?", "?"]
+                    params = [desc, unit, code, rate]
+                    
+                    if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
+                        cols.extend(["SubbeeName", "SubbeeCategory"])
+                        placeholders.extend(["?", "?"])
+                        params.extend([data.get('sub_name', 'Subcontractor'), cat])
+                    else:
+                        cols.extend(["PlugCurrency", "PlugCategory"])
+                        placeholders.extend(["?", "?"])
+                        params.extend([curr, cat])
+                        
+                    cursor.execute(f"""
+                        INSERT INTO pboq_items ({', '.join(cols)})
+                        VALUES ({', '.join(placeholders)})
+                    """, tuple(params))
+            
             conn.commit()
             conn.close()
-        except:
+            return True
+        except Exception as e:
+            print(f"Master Lib Sync Error: {e}")
+            return False
+
+    @staticmethod
+    def toggle_flag(file_path, rowid, current_state):
+        """Toggles the IsFlagged status for a specific row."""
+        new_state = 1 if not current_state else 0
+        return PBOQLogic.persist_batch_named_updates(file_path, "IsFlagged", [(rowid, new_state)]), new_state
+
+    @staticmethod
+    def persist_cell_formatting(file_path, global_row_idx, col_idx, bg_color=None, fg_color=None, bold=None):
+        """Persists cell-level formatting (colors, bold) to the pboq_formatting table."""
+        if not file_path or not os.path.exists(file_path): return
+        
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT fmt_json FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
+            row = cursor.fetchone()
+            fmt = json.loads(row[0]) if row else {}
+            
+            if bg_color: fmt['bg_color'] = bg_color if isinstance(bg_color, str) else bg_color.name()
+            if fg_color: fmt['font_color'] = fg_color if isinstance(fg_color, str) else fg_color.name()
+            if bold is not None: fmt['bold'] = bold
+            
+            cursor.execute("INSERT OR REPLACE INTO pboq_formatting (row_idx, col_idx, fmt_json) VALUES (?, ?, ?)", 
+                         (global_row_idx, col_idx, json.dumps(fmt)))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error persisting cell formatting: {e}")
+
+    @staticmethod
+    def persist_batch_cell_formatting(file_path, col_idx, updates):
+        """Batch persist formatting for multiple rows in one column. 
+        Updates is a list of (global_row_idx, {fmt_dict})"""
+        if not file_path or not os.path.exists(file_path): return
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            
+            for g_idx, fmt in updates:
+                cursor.execute("SELECT fmt_json FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (g_idx, col_idx))
+                row = cursor.fetchone()
+                existing_fmt = json.loads(row[0]) if row else {}
+                existing_fmt.update(fmt)
+                
+                cursor.execute("INSERT OR REPLACE INTO pboq_formatting (row_idx, col_idx, fmt_json) VALUES (?, ?, ?)", 
+                             (g_idx, col_idx, json.dumps(existing_fmt)))
+            
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error batch persisting formatting: {e}")
+
+    @staticmethod
+    def clear_cell_formatting(file_path, global_row_idx, col_idx):
+        if not file_path or not os.path.exists(file_path): return
+        try:
+            conn = sqlite3.connect(file_path)
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM pboq_formatting WHERE row_idx=? AND col_idx=?", (global_row_idx, col_idx))
+            conn.commit()
+            conn.close()
+        except Exception:
             pass
 
+
     @staticmethod
-    def parse_single_line(text):
-        """Parses a single line of formula text."""
-        trimmed = text.strip()
-        if not trimmed:
-            return None
-            
-        is_formula = trimmed.startswith('=')
-        segment = text.split(';')[0]
-        
-        if not is_formula:
-            try:
-                val = segment.strip().replace(',', '')
-                return float(val)
-            except ValueError:
-                return None
-        
-        term = segment.replace('=', '', 1)
-        term = re.sub(r'"[^"]*"', '', term)
-        term = term.replace('x', '*').replace('X', '*').replace('%', '/100')
-        term = re.sub(r'/\s*[a-zA-Z²³]+[a-zA-Z²³\d]*', '', term)
-        term = re.sub(r'[a-zA-Z²³]+[a-zA-Z²³\d]*', '', term)
-        
+    def get_package_settings(db_path):
+        """Loads all package-specific settings (categories/markups) from the DB."""
+        if not db_path or not os.path.exists(db_path): return {}
+        settings = {}
         try:
-            cleaned_term = re.sub(r'[^0-9+\-*/(). ]', '', term)
-            return float(eval(cleaned_term, {"__builtins__": None}, {}))
-        except:
-            return None
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT package_name, category_name, markup_default, notes FROM subcontractor_package_settings")
+            for pkg, cat, mk, notes in cursor.fetchall():
+                settings[pkg] = {'category': cat, 'markup': mk, 'notes': notes}
+            conn.close()
+        except: pass
+        return settings
+
+    @staticmethod
+    def save_package_settings(db_path, settings_dict):
+        """Bulk saves package meta-data like category mappings."""
+        if not db_path or not os.path.exists(db_path): return
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            for pkg, data in settings_dict.items():
+                cursor.execute("""
+                    INSERT OR REPLACE INTO subcontractor_package_settings (package_name, category_name, markup_default, notes)
+                    VALUES (?, ?, ?, ?)
+                """, (pkg, data.get('category', ''), data.get('markup', 0.0), data.get('notes', '')))
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Error saving package settings: {e}")
 
     @staticmethod
     def bulk_update_currencies(file_path, new_currency):
-        """Standardized bulk update for PBOQ DBs."""
+        """Updates all logical currency columns in the PBOQ database."""
+        if not file_path or not os.path.exists(file_path): return
         try:
             conn = sqlite3.connect(file_path)
             cursor = conn.cursor()
-            cursor.execute('UPDATE pboq_items SET "PlugCurrency" = ?, "ProvSumCurrency" = ?, "PCSumCurrency" = ?', 
-                           (new_currency, new_currency, new_currency))
-            conn.commit()
+            cols = ["PlugCurrency", "ProvSumCurrency", "PCSumCurrency", "DayworkCurrency"]
+            
+            cursor.execute(f"PRAGMA table_info(pboq_items)")
+            db_cols = [info[1] for info in cursor.fetchall()]
+            
+            update_frags = []
+            for col in cols:
+                if col in db_cols:
+                    update_frags.append(f'"{col}" = ?')
+            
+            if update_frags:
+                cursor.execute(f'UPDATE pboq_items SET {", ".join(update_frags)}', [new_currency] * len(update_frags))
+                conn.commit()
             conn.close()
-        except:
-            pass
+        except Exception as e:
+            print(f"PBOQ Currency Update Error: {e}")
