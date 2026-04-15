@@ -300,6 +300,11 @@ class RateManagerDialog(QDialog):
         import copy
         processed_data = []
         
+        # Get Project Currency as a top-level fallback
+        project_currency = ""
+        if hasattr(self, 'project_db_manager') and self.project_db_manager:
+            project_currency = self.project_db_manager.get_setting('currency', '')
+        
         # 1. Formal Rates (from 'estimates' table)
         formal_rates = db_manager.get_rates_data()
         
@@ -386,6 +391,11 @@ class RateManagerDialog(QDialog):
                     pr['_library_path'] = db_manager.db_file
                     if p_data.get('_source_db'):
                         pr['_lib_override'] = p_data['_source_db']
+                    
+                    # Currency fallback
+                    if not pr.get('currency'):
+                        pr['currency'] = p_data.get('curr') or project_currency
+                        
                     processed_data.append(pr)
 
             # Sub Rate (if exists in summary for this code)
@@ -398,6 +408,11 @@ class RateManagerDialog(QDialog):
                 sr['_library_path'] = db_manager.db_file
                 if p_data.get('_source_db'):
                     sr['_lib_override'] = p_data['_source_db']
+                
+                # Currency fallback
+                if not sr.get('currency'):
+                    sr['currency'] = p_data.get('curr') or project_currency
+                    
                 processed_data.append(sr)
 
         # 3. Discovery-only rates (Codes that don't exist in 'estimates' table yet)
@@ -409,7 +424,7 @@ class RateManagerDialog(QDialog):
                         'rate_code': code,
                         'project_name': data.get('desc', ''),
                         'unit': data.get('unit', ''),
-                        'currency': data.get('curr', ''),
+                        'currency': data.get('curr') or project_currency,
                         '_rate_val': p_val,
                         '_type_val': "Plug Rate",
                         'date_created': data.get('_source_date', 'From PBOQ'),
@@ -426,7 +441,7 @@ class RateManagerDialog(QDialog):
                         'rate_code': code,
                         'project_name': data.get('desc', ''),
                         'unit': data.get('unit', ''),
-                        'currency': data.get('curr', ''),
+                        'currency': data.get('curr') or project_currency,
                         '_rate_val': s_val,
                         '_type_val': "Sub. Rate",
                         'date_created': data.get('_source_date', 'From PBOQ'),
