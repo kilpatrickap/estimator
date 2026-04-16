@@ -920,7 +920,9 @@ class DatabaseManager:
                     def clean_f(val):
                         try:
                             if val is None or str(val).strip() == "": return None
-                            return float(str(val).replace(',', ''))
+                            # Clean currency symbols and percent signs
+                            s_val = str(val).replace(',', '').replace('%', '').replace('\u20b5', '').strip()
+                            return float(s_val)
                         except: return None
                         
                     pr = clean_f(p_rate)

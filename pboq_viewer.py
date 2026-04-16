@@ -1354,7 +1354,7 @@ class PBOQDialog(QDialog):
         
         # --- AUTO-SYNC TO MASTER LIBRARY ---
         # If we just updated a Plug or Sub rate, and we are NOT already in the master DB, sync it.
-        if role_match in ['plug_rate', 'sub_rate', 'rate']:
+        if role_match in ['plug_rate', 'sub_rate', 'rate', 'bill_rate']:
             pdb_path = self._get_project_db_path()
             if pdb_path and os.path.normpath(file_path) != os.path.normpath(pdb_path):
                 sync_items = []
@@ -1373,13 +1373,29 @@ class PBOQDialog(QDialog):
                     desc_col = m.get('desc', -1)
                     unit_col = m.get('unit', -1)
                     
+                    # Fetch logical context from DB to ensure we have non-visible fields like Markup/Category
+                    try:
+                        conn = sqlite3.connect(file_path)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT SubbeeMarkup, SubbeeCategory, PlugCategory, PlugCurrency FROM pboq_items WHERE rowid=?", (rowid,))
+                        l_row = cursor.fetchone()
+                        conn.close()
+                    except: l_row = None
+
+                    l_markup = l_row[0] if l_row else ""
+                    l_cat = l_row[1] if l_row and l_row[1] else (l_row[2] if l_row else "")
+                    l_curr = l_row[3] if l_row else ""
+
                     sync_items.append({
                         'code': code_val,
                         'desc': t.item(r, desc_col).text().strip() if desc_col >= 0 and t.item(r, desc_col) else "",
                         'unit': t.item(r, unit_col).text().strip() if unit_col >= 0 and t.item(r, unit_col) else "",
                         'rate': val,
-                        'type': 'Plug Rate' if role_match == 'plug_rate' else ('Sub. Rate' if role_match == 'sub_rate' else 'Gross Rate'),
-                        'sub_name': t.item(r, m.get('sub_name', -1)).text().strip() if role_match == 'sub_rate' and m.get('sub_name', -1) >= 0 else ""
+                        'markup': l_markup,
+                        'cat': l_cat,
+                        'curr': l_curr,
+                        'type': 'Plug Rate' if role_match == 'plug_rate' else ('Sub. Rate' if role_match in ['sub_rate', 'bill_rate'] else 'Gross Rate'),
+                        'sub_name': t.item(r, m.get('sub_name', -1)).text().strip() if m.get('sub_name', -1) >= 0 else ""
                     })
                 if sync_items:
                     self.logic.sync_rate_to_master_lib(pdb_path, sync_items)
