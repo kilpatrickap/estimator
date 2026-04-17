@@ -962,13 +962,20 @@ class DatabaseManager:
                             }
                         
                         # Logic: Use Bill Rate (br) as primary if available, fall back to specific type
-                        if r_code and code == str(r_code).strip():
+                        is_sr_prefix = str(code).startswith('SR-')
+                        
+                        if (r_code and code == str(r_code).strip()) or is_sr_prefix:
                             val = br if br is not None else pr
                             if val is not None: 
-                                summary[code]['plug_rate'] = val
-                                summary[code]['_is_gross_usage'] = True
+                                if is_sr_prefix:
+                                    summary[code]['sub_rate'] = val
+                                    summary[code]['_is_sub'] = True
+                                else:
+                                    summary[code]['plug_rate'] = val
+                                    summary[code]['_is_gross_usage'] = True
                                 
                         if p_code and code == str(p_code).strip():
+
                             val = br if br is not None else pr
                             if val is not None: 
                                 summary[code]['plug_rate'] = val

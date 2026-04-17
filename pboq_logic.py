@@ -59,7 +59,7 @@ class PBOQLogic:
         
         # Standard Columns and Named Columns in a fixed preferred order
         standard_cols = [f"Column {i}" for i in range(20)]
-        named_cols = ["Description", "Unit", "GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
+        named_cols = ["Description", "Unit", "Bill Rate", "Bill Amount", "GrossRate", "RateCode", "Rate Code", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
@@ -69,8 +69,13 @@ class PBOQLogic:
         
         for col_name in standard_cols + named_cols:
             if col_name not in db_columns:
-                cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
-                db_columns.append(col_name)
+                try:
+                    cursor.execute(f"ALTER TABLE pboq_items ADD COLUMN \"{col_name}\" TEXT")
+                    db_columns.append(col_name)
+                except sqlite3.OperationalError:
+                    pass # Probably already exists but missed by table_info
+        
+        conn.commit()
 
         
         # Ensure Formatting table exists
@@ -197,46 +202,86 @@ class PBOQLogic:
                 curr = data.get('curr', 'GHS (₵)')
                 cat = data.get('cat', 'Miscellaneous')
                 
-                # We use a combined key of Code + Type to avoid overwriting a Plug rate with a Sub rate of the same code
-                # or vice-versa. However, since the goal is a portable snapshot, we primarily want ONE record per code
-                # that represents the "best" known price.
+                # Determine the final "Bill Rate" (Marked-up rate)
+
+                base_rate = float(str(rate).replace(',', '')) if rate else 0.0
+                markup_val = data.get('markup', 0.0)
+                if isinstance(markup_val, str):
+                    try: markup_val = float(markup_val.replace('%', '').replace(',', ''))
+                    except: markup_val = 0.0
                 
+                # If we were already passed a value that is intended to be the final bill rate
+                # (e.g. from baking logic), we shouldn't markup again if the source says so.
+                is_final = data.get('is_final', False)
+                if is_final:
+                    final_bill_rate = base_rate
+                    # If it's final, we actually want the base_rate in SubbeeRate column to be the 
+                    # rate minus markup if we wanted to be perfect, but usually for baked rates 
+                    # we just store the final rate in both to be safe.
+                else:
+                    final_bill_rate = base_rate * (1 + (markup_val / 100.0)) if markup_val else base_rate
+
                 if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
                     val_col, code_col = "SubbeeRate", "SubbeeCode"
-                    extra_fields = ", SubbeeName = ?, SubbeeCategory = ?, SubbeeMarkup = ?"
-                    extra_params = (data.get('sub_name', 'Subcontractor'), cat, data.get('markup'))
+                    extra_fields = "SubbeeName = ?, SubbeeCategory = ?, SubbeeMarkup = ?"
+                    extra_params = (data.get('sub_name', 'Subcontractor'), cat, markup_val)
                 else: # Plug Rate
                     val_col, code_col = "PlugRate", "PlugCode"
-                    extra_fields = ", PlugCurrency = ?, PlugCategory = ?"
+                    extra_fields = "PlugCurrency = ?, PlugCategory = ?"
                     extra_params = (curr, cat)
 
                 # Check if this code already exists in ANY of the code columns of the master pboq_items table
-                # If it does, we update it. If not, we insert a new row.
-                # To simplify, we'll try to find a row where Code matches.
-                cursor.execute(f"SELECT rowid FROM pboq_items WHERE {code_col} = ?", (code,))
+                # Search across all possible historical code columns to avoid duplicate rows.
+                cursor.execute("""
+                    SELECT rowid FROM pboq_items 
+                    WHERE PlugCode = ? OR SubbeeCode = ? OR "Rate Code" = ? OR RateCode = ?
+                """, (code, code, code, code))
                 res = cursor.fetchone()
-                
                 if res:
+                    # Detect which 'Bill Rate' variants exist to avoid crashes
+                    cursor.execute("PRAGMA table_info(pboq_items)")
+                    actual_cols = [c[1] for c in cursor.fetchall()]
+                    
+                    # Construct smart SET clause for Bill Rate
+                    br_sets = []
+                    br_params = []
+                    for variant in ["Bill Rate", "BillRate", "Bill Rate "]:
+                        if variant in actual_cols:
+                            br_sets.append(f"\"{variant}\" = ?")
+                            br_params.append(final_bill_rate)
+                    
+                    br_clause = ", " + ", ".join(br_sets) if br_sets else ""
+
                     rowid = res[0]
                     cursor.execute(f"""
                         UPDATE pboq_items 
-                        SET "{val_col}" = ?, "Description" = ?, "Unit" = ? {extra_fields}
+                        SET "{val_col}" = ?, "Description" = ?, "Unit" = ? {br_clause},
+                            {extra_fields},
+                            "Rate Code" = NULL, RateCode = NULL
                         WHERE rowid = ?
-                    """, (rate, desc, unit) + extra_params + (rowid,))
+                    """, (base_rate, desc, unit) + tuple(br_params) + extra_params + (rowid,))
+
+
+
+
+
                 else:
                     # Insert new row
-                    cols = ["Description", "Unit", code_col, val_col]
-                    placeholders = ["?", "?", "?", "?"]
-                    params = [desc, unit, code, rate]
+                    cols = ["Description", "Unit", code_col, val_col, "\"Bill Rate\""]
+                    placeholders = ["?", "?", "?", "?", "?"]
+                    params = [desc, unit, code, base_rate, final_bill_rate]
+
                     
                     if rtype == "Sub. Rate" or rtype == "Subcontractor Rate":
                         cols.extend(["SubbeeName", "SubbeeCategory", "SubbeeMarkup"])
                         placeholders.extend(["?", "?", "?"])
-                        params.extend([data.get('sub_name', 'Subcontractor'), cat, data.get('markup')])
+                        params.extend([data.get('sub_name', 'Subcontractor'), cat, markup_val])
                     else:
                         cols.extend(["PlugCurrency", "PlugCategory"])
                         placeholders.extend(["?", "?"])
                         params.extend([curr, cat])
+
+
                         
                     cursor.execute(f"""
                         INSERT INTO pboq_items ({', '.join(cols)})

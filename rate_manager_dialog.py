@@ -133,9 +133,19 @@ class RateManagerDialog(QDialog):
                 pboq_dir = os.path.join(project_dir, "Priced BOQs")
             
             if os.path.exists(pboq_dir):
+                from pboq_logic import PBOQLogic
                 for f in sorted(os.listdir(pboq_dir)):
                     if f.lower().endswith('.db'):
-                        self.pboq_db_managers.append(DatabaseManager(os.path.join(pboq_dir, f)))
+                        db_path = os.path.join(pboq_dir, f)
+                        mgr = DatabaseManager(db_path)
+                        # Ensure background libraries have correct schema for syncing
+                        try:
+                            conn = sqlite3.connect(db_path)
+                            PBOQLogic.ensure_schema(conn)
+                            conn.close()
+                        except: pass
+                        self.pboq_db_managers.append(mgr)
+
 
         self.library_combo.currentIndexChanged.connect(self._change_library)
         header_layout.addWidget(self.library_combo)
@@ -601,8 +611,10 @@ class RateManagerDialog(QDialog):
                 # Update rate if existing is 0 or less than new (prefer marked-up bill rate)
                 if new_rate and (not existing.get('_rate_val') or float(new_rate) > float(existing.get('_rate_val', 0))):
                     existing['_rate_val'] = new_rate
+                    existing['_needs_bake'] = True # Mark for updated persistence
                     # Inherit date from the updated version if it's more recent?
                     existing['date_created'] = r.get('date_created', existing['date_created'])
+
                 
                 # Update description if existing is missing/short
                 if r.get('project_name') and (not existing.get('project_name') or len(str(r['project_name'])) > len(str(existing['project_name']))):
@@ -614,8 +626,122 @@ class RateManagerDialog(QDialog):
 
         all_project_rates.sort(key=lambda x: x.get('rate_code', ''))
         
+        # --- AUTOMATION: Bake discovered rates into Project DB ---
+        self._auto_bake_rates(all_project_rates)
+        # ---------------------------------------------------------
+        
         self._populate_table_with_rates(self.project_table, all_project_rates)
         self.is_loading = False
+
+    def _auto_bake_rates(self, all_rates):
+        """Automatically persists discovered sub-rates from PBOQs into the Project Database."""
+        if not self.project_db_manager:
+            return
+            
+        rates_to_bake = []
+        proj_db_file = os.path.normpath(self.project_db_manager.db_file)
+        
+        for r in all_rates:
+            code = r.get('rate_code', '')
+            # Only bake Subcontractor Rates that come from a DIFFERENT file (a PBOQ)
+            # Bake if it comes from an external file OR if it has been updated from a PBOQ (flagged)
+            # We explicitly bake anything starting with SR- to handle legacy PBOQ discovery
+            if code.startswith('SR-'):
+                source_path = r.get('_library_path')
+                if (source_path and os.path.normpath(source_path) != proj_db_file) or r.get('_needs_bake'):
+                    rates_to_bake.append(r)
+
+
+        
+        if not rates_to_bake:
+            return
+
+        import sqlite3
+        from pboq_logic import PBOQLogic
+        try:
+            conn = sqlite3.connect(proj_db_file)
+            cursor = conn.cursor()
+            
+            # Ensure pboq_items table exists in project DB using standard schema
+            PBOQLogic.ensure_schema(conn)
+
+            
+            for r in rates_to_bake:
+                code = r.get('rate_code')
+                desc = r.get('project_name', '')
+                unit = r.get('unit', '')
+                curr = r.get('currency', '')
+                rate = r.get('_rate_val', 0.0)
+                
+                # 1. Update/Ensure estimates entry
+                cursor.execute("SELECT id, project_name, unit FROM estimates WHERE rate_code = ?", (code,))
+                est_record = cursor.fetchone()
+                if not est_record:
+                    cursor.execute("""
+                        INSERT INTO estimates (project_name, rate_code, unit, currency, rate_type, grand_total, net_total, date_created)
+                        VALUES (?, ?, ?, ?, 'Plug Rate', 0.0, 0.0, ?)
+                    """, (desc, code, unit, curr, r.get('date_created', 'From PBOQ')))
+                else:
+                    eid, old_desc, old_unit = est_record
+                    if desc and (not old_desc or desc != old_desc):
+                        cursor.execute("UPDATE estimates SET project_name = ? WHERE id = ?", (desc, eid))
+                    if unit and (not old_unit or unit != old_unit):
+                        cursor.execute("UPDATE estimates SET unit = ? WHERE id = ?", (unit, eid))
+                
+                # 2. Update/Insert in pboq_items using standard logical columns.
+                # Search across all possible historical code columns to avoid duplicate rows.
+                cursor.execute("""
+                    SELECT rowid FROM pboq_items 
+                    WHERE PlugCode = ? OR SubbeeCode = ? OR "Rate Code" = ? OR RateCode = ?
+                """, (code, code, code, code))
+                pboq_record = cursor.fetchone()
+                
+                if pboq_record:
+                    # Detect which 'Bill Rate' variants exist to avoid crashes
+                    cursor.execute("PRAGMA table_info(pboq_items)")
+                    actual_cols = [c[1] for c in cursor.fetchall()]
+                    
+                    br_sets = []
+                    br_params = []
+                    for variant in ["Bill Rate", "BillRate", "Bill Rate "]:
+                        if variant in actual_cols:
+                            br_sets.append(f"\"{variant}\" = ?")
+                            br_params.append(rate)
+                    
+                    br_clause = ", " + ", ".join(br_sets) if br_sets else ""
+
+                    # Perform a clean migration/update to the standard columns
+                    cursor.execute(f"""
+                        UPDATE pboq_items 
+                        SET "Description" = ?, "Unit" = ?, PlugRate = ?, SubbeeRate = ? {br_clause},
+                            PlugCode = CASE WHEN ? NOT LIKE 'SR-%' THEN ? ELSE PlugCode END,
+                            SubbeeCode = CASE WHEN ? LIKE 'SR-%' THEN ? ELSE SubbeeCode END,
+                            "Rate Code" = NULL, RateCode = NULL
+                        WHERE rowid = ?
+                    """, (desc, unit, rate, rate) + tuple(br_params) + (code, code, code, code, pboq_record[0]))
+
+                else:
+                    target_col = "SubbeeCode" if code.startswith('SR-') else "PlugCode"
+                    cursor.execute(f"""
+                        INSERT INTO pboq_items ({target_col}, "Description", "Unit", "Bill Rate", PlugRate, SubbeeRate) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (code, desc, unit, rate, rate, rate))
+
+
+            
+            conn.commit()
+            conn.close()
+            
+            # Update the source metadata so the UI immediately reflects the baked status
+            proj_lib_name = getattr(self, 'project_db_name', "Project Database")
+            for r in rates_to_bake:
+                r['_library_name'] = proj_lib_name
+                r['_library_path'] = proj_db_file
+                if '_lib_override' in r: del r['_lib_override']
+                
+        except Exception as e:
+            print(f"Auto-Bake Error: {e}")
+
 
 
     def open_rate_buildup(self, table, index):
