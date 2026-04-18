@@ -276,7 +276,7 @@ class MainWindow(QMainWindow):
                 color: #ffff00;
                 border: none;
                 font-weight: 600;
-                padding: 5px 15px;
+                padding: 5px 7px; /* Reduced from 15px to 7px to prevent truncation on smaller screens */
                 border-radius: 6px;
             }
             QPushButton:hover {
@@ -288,7 +288,7 @@ class MainWindow(QMainWindow):
             QPushButton#ActionBtn {
                 background-color: rgba(255, 255, 255, 0.15);
                 border: 1px solid rgba(255, 255, 255, 0.3);
-                padding: 5px 8px; /* Reduced from 15px to 8px (~20% total width reduction) */
+                padding: 5px 6px; /* Optimized for narrow screens */
             }
             QPushButton#ActionBtn:hover {
                 background-color: rgba(255, 255, 255, 0.25);
@@ -302,7 +302,7 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(self.navbar)
         # Reduced margins
         layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(10)
+        layout.setSpacing(5) # Reduced from 10 to fit more buttons
 
         # Branding
         branding_label = QLabel("Estimator Pro")
@@ -992,7 +992,7 @@ class MainWindow(QMainWindow):
         dialog = AnalyticsDashboard(project_dir, self)
         dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(1150, 800)
+        sub.resize(1050, 600)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 

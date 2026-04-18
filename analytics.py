@@ -12,7 +12,7 @@ class MetricCard(QFrame):
     """A premium, styled card for displaying KPI headline metrics."""
     def __init__(self, title, value, subtext="", color="#2e7d32", parent=None):
         super().__init__(parent)
-        self.setFixedSize(260, 140)
+        self.setFixedSize(240, 110)
         self.setObjectName("MetricCard")
         
         # Enhanced Styling
@@ -40,7 +40,7 @@ class MetricCard(QFrame):
         self.title_label.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 11px; letter-spacing: 1px;")
         
         self.value_label = QLabel(value)
-        self.value_label.setStyleSheet("color: #212121; font-weight: 800; font-size: 24px;")
+        self.value_label.setStyleSheet("color: #212121; font-weight: 800; font-size: 20px;")
         self.value_label.setWordWrap(True)
         
         self.subtext_label = QLabel(subtext)
@@ -69,13 +69,13 @@ class AnalyticsDashboard(QWidget):
 
     def _init_ui(self):
         self.layout = QVBoxLayout(self)
-        self.layout.setContentsMargins(30, 30, 30, 30)
-        self.layout.setSpacing(25)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
         
         # Header
         header_layout = QHBoxLayout()
         title_label = QLabel("Project Performance Analytics")
-        title_label.setStyleSheet("font-size: 28px; font-weight: 800; color: #1b5e20;")
+        title_label.setStyleSheet("font-size: 22px; font-weight: 800; color: #1b5e20;")
         header_layout.addWidget(title_label)
         header_layout.addStretch()
         
