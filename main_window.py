@@ -288,6 +288,7 @@ class MainWindow(QMainWindow):
             QPushButton#ActionBtn {
                 background-color: rgba(255, 255, 255, 0.15);
                 border: 1px solid rgba(255, 255, 255, 0.3);
+                padding: 5px 8px; /* Reduced from 15px to 8px (~20% total width reduction) */
             }
             QPushButton#ActionBtn:hover {
                 background-color: rgba(255, 255, 255, 0.25);
@@ -323,7 +324,8 @@ class MainWindow(QMainWindow):
             ("Settings", self.open_settings),
             ("BOQ Setup", self.open_boq_setup),
             ("SOR", self.open_sor_dialog),
-            ("PBOQ", self.open_pboq_dialog)
+            ("PBOQ", self.open_pboq_dialog),
+            ("Analytics", self.open_analytics_dashboard)
         ]
 
         for text, slot in nav_items:
@@ -950,29 +952,50 @@ class MainWindow(QMainWindow):
                 from PyQt6.QtWidgets import QFileDialog
                 project_dir = QFileDialog.getExistingDirectory(self, "Select Project Directory", "")
                 if not project_dir: return
-            
-        if project_dir and os.path.basename(project_dir) == "Project Database":
-            project_dir = os.path.dirname(project_dir)
-            
-        if not project_dir or not os.path.exists(project_dir):
-            QMessageBox.warning(self, "Error", "Project directory is invalid.")
+        project_dir = self.db_manager.get_setting('last_project_dir', '')
+        if not project_dir:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
             return
             
         from pboq_viewer import PBOQDialog
+        # Check if already open
         for sub in self.mdi_area.subWindowList():
             if isinstance(sub.widget(), PBOQDialog) and sub.widget().project_dir == project_dir:
                 sub.showNormal()
-                sub.show()
-                sub.widget().show()
                 sub.raise_()
                 self.mdi_area.setActiveSubWindow(sub)
                 return
                 
         dialog = PBOQDialog(project_dir, self)
+        # Ensure it's treated like a window in the MDI area
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         sub = self.mdi_area.addSubWindow(dialog)
-        sub.resize(1050, 500)
+        sub.resize(1100, 750)
         self._apply_zoom_to_subwindow(sub)
         sub.show()
+
+    def open_analytics_dashboard(self):
+        project_dir = self.db_manager.get_setting('last_project_dir', '')
+        if not project_dir:
+            QMessageBox.warning(self, "No Project", "Please load a project first.")
+            return
+            
+        from analytics import AnalyticsDashboard
+        # Check if already open
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), AnalyticsDashboard) and sub.widget().project_dir == project_dir:
+                sub.showNormal()
+                sub.raise_()
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = AnalyticsDashboard(project_dir, self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(1150, 800)
+        self._apply_zoom_to_subwindow(sub)
+        sub.show()
+
 
     # --- Global Action Handlers ---
     
