@@ -1821,14 +1821,25 @@ class PBOQDialog(QDialog):
             for i in range(table.columnCount()):
                 item = table.horizontalHeaderItem(i)
                 if item:
-                    item.setBackground(const.COLOR_HEADING)
-                    # Only use blue (COLOR_HEADER_TEXT) for mapped columns
-                    if map_inv.get(i) is not None:
+                    role = map_inv.get(i)
+                    
+                    # Use role-specific flavor color for background
+                    role_color = table.get_role_color(role)
+                    if role_color:
+                        item.setBackground(role_color)
+                        item.setForeground(const.COLOR_HEADER_TEXT)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    elif role is not None:
+                        # Standard mapped columns (Ref, Desc, etc.) use default heading color
+                        item.setBackground(const.COLOR_HEADING)
                         item.setForeground(const.COLOR_HEADER_TEXT)
                         font = item.font()
                         font.setBold(True)
                         item.setFont(font)
                     else:
+                        item.setBackground(const.COLOR_HEADING)
                         item.setForeground(Qt.GlobalColor.black)
             
             # Update columns identifying colors across sheets

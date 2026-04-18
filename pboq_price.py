@@ -1,5 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox
 from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
+import pboq_constants as const
 from pboq_tools_gross_rate import GrossRateTool
 from pboq_tools_plug_rate import PlugRateTool
 from pboq_tools_prov_sum import ProvSumTool
@@ -160,6 +162,35 @@ class PBOQPricePane(QWidget):
         
         # Emit visibility of current selection
         self.rateVisibilityChanged.emit(self.get_rate_visibility())
+        
+        # Update dropdown styling to match price type
+        self._update_combo_style()
+
+    def _update_combo_style(self):
+        text = self.price_type_combo.currentText()
+        color = self._get_type_color(text)
+        if color:
+            self.price_type_combo.setStyleSheet(f"""
+                QComboBox {{ 
+                    background-color: {color.name()}; 
+                    color: black;
+                    font-weight: bold;
+                    border: 1px solid #ccc;
+                    border-radius: 3px;
+                    padding: 1px 5px;
+                }}
+            """)
+        else:
+            self.price_type_combo.setStyleSheet("")
+
+    def _get_type_color(self, type_text):
+        if type_text == "Gross Rate": return const.COL_COLOR_GREEN
+        if type_text == "Plug Rate": return const.COL_COLOR_PURPLE
+        if type_text == "Subcontractor Rate": return const.COL_COLOR_ORANGE
+        if type_text == "Prov Sum": return const.COLOR_PROV_SUM
+        if type_text == "PC Sum": return const.COL_COLOR_LIME
+        if type_text == "Dayworks": return const.COL_COLOR_BROWN
+        return None
 
     def get_rate_visibility(self):
         text = self.price_type_combo.currentText()
