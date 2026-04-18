@@ -194,7 +194,8 @@ class AnalyticsDashboard(QWidget):
                         
                         or_parts = []
                         if qty_col >= 0:
-                            or_parts.append(f"(TRIM(\"Column {qty_col}\") != '' AND \"Column {qty_col}\" IS NOT NULL)")
+                            # Only count if quantity is a non-zero number
+                            or_parts.append(f"(CAST(\"Column {qty_col}\" AS REAL) != 0)")
                         if unit_col >= 0:
                             or_parts.append(f"(TRIM(\"Column {unit_col}\") != '' AND \"Column {unit_col}\" IS NOT NULL)")
                         
