@@ -7,6 +7,7 @@ from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QFont, QPainter, QLinearGradient
 
 import pboq_constants as const
+from pboq_logic import PBOQLogic
 
 class MetricCard(QFrame):
     """A premium, styled card for displaying KPI headline metrics."""
@@ -149,12 +150,72 @@ class AnalyticsDashboard(QWidget):
         for f in os.listdir(self.pboq_folder):
             if f.lower().endswith('.db'):
                 db_path = os.path.join(self.pboq_folder, f)
+                
+                # Load mappings from state file if it exists
+                qty_col = -1
+                unit_col = -1
+                desc_col = -1
+                state_file = os.path.join(self.project_dir, "PBOQ States", f + ".json")
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file, 'r') as sf:
+                            state = json.load(sf)
+                            m = state.get('mappings', {})
+                            qty_col = m.get('qty', -1)
+                            unit_col = m.get('unit', -1)
+                            desc_col = m.get('desc', -1)
+                    except: pass
+                
+                # Smart-Detection Fallback: If not mapped, try to find them by name
                 try:
                     conn = sqlite3.connect(db_path)
+                    PBOQLogic.ensure_schema(conn)
                     cursor = conn.cursor()
                     
+                    if qty_col < 0 or unit_col < 0 or desc_col < 0:
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        cols = [info[1] for info in cursor.fetchall()]
+                        for i, name in enumerate(cols):
+                            clean_name = name.lower().replace(" ", "").replace("_", "")
+                            if qty_col < 0 and clean_name in ["quantity", "qty"]:
+                                qty_col = i - 1 # Adjusted because index 0 is Sheet
+                            if unit_col < 0 and clean_name == "unit":
+                                unit_col = i - 1
+                            if desc_col < 0 and clean_name in ["description", "desc"]:
+                                desc_col = i - 1
+                    
+                    # Construct dynamic item detection clause based on user definition:
+                    # An item MUST have a Description AND (Quantity OR Unit OR Price).
+                    # This firmly filters out headings (Description only) and rogue numbers (No description).
+                    item_clause = "(1=0)" # Default to none if no useful columns found
+                    req_parts = []
+                    if desc_col >= 0:
+                        desc_check = f"(TRIM(\"Column {desc_col}\") != '' AND \"Column {desc_col}\" IS NOT NULL)"
+                        
+                        or_parts = []
+                        if qty_col >= 0:
+                            or_parts.append(f"(TRIM(\"Column {qty_col}\") != '' AND \"Column {qty_col}\" IS NOT NULL)")
+                        if unit_col >= 0:
+                            or_parts.append(f"(TRIM(\"Column {unit_col}\") != '' AND \"Column {unit_col}\" IS NOT NULL)")
+                        
+                        # Check for any valid price in any typical 'Bill Amount' variant
+                        price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
+                        for pv in price_variants:
+                            or_parts.append(f"(\"{pv}\" > 0 AND \"{pv}\" != '' AND \"{pv}\" IS NOT NULL)")
+                            
+                        if or_parts:
+                            item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}))"
+
                     # 1. Sheet Summaries
-                    cursor.execute("SELECT Sheet, COUNT(*), SUM(CASE WHEN \"Bill Amount\" > 0 THEN 1 ELSE 0 END), SUM(CAST(\"Bill Amount\" AS REAL)) FROM pboq_items GROUP BY Sheet")
+                    q1 = f"""
+                        SELECT Sheet, 
+                               SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
+                               SUM(CASE WHEN {item_clause} AND "Bill Amount" > 0 THEN 1 ELSE 0 END), 
+                               SUM(CAST("Bill Amount" AS REAL)) 
+                        FROM pboq_items 
+                        GROUP BY Sheet
+                    """
+                    cursor.execute(q1)
                     for sheet, count, priced, amt in cursor.fetchall():
                         sheet_data.append({
                             'name': f"{f.replace('.db','')} - {sheet}",
@@ -164,7 +225,13 @@ class AnalyticsDashboard(QWidget):
                         })
                     
                     # 2. General Aggregates
-                    cursor.execute("SELECT SUM(CAST(\"Bill Amount\" AS REAL)), COUNT(*), SUM(IsFlagged) FROM pboq_items")
+                    q2 = f"""
+                        SELECT SUM(CAST("Bill Amount" AS REAL)), 
+                               SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
+                               SUM(IsFlagged) 
+                        FROM pboq_items
+                    """
+                    cursor.execute(q2)
                     row = cursor.fetchone()
                     if row:
                         total_bid += (row[0] or 0.0)
