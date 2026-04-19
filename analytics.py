@@ -189,23 +189,33 @@ class AnalyticsDashboard(QWidget):
                     # This firmly filters out headings (Description only) and rogue numbers (No description).
                     item_clause = "(1=0)" # Default to none if no useful columns found
                     req_parts = []
-                    if desc_col >= 0:
-                        desc_check = f"(TRIM(\"Column {desc_col}\") != '' AND \"Column {desc_col}\" IS NOT NULL)"
+                    if desc_col >= 0 or unit_col >= 0 or qty_col >= 0:
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        actual_cols = [info[1] for info in cursor.fetchall()]
                         
-                        or_parts = []
-                        if qty_col >= 0:
-                            # Only count if quantity is a non-zero number
-                            or_parts.append(f"(CAST(\"Column {qty_col}\" AS REAL) != 0)")
-                        if unit_col >= 0:
-                            or_parts.append(f"(TRIM(\"Column {unit_col}\") != '' AND \"Column {unit_col}\" IS NOT NULL)")
+                        desc_name = actual_cols[desc_col+1] if desc_col >= 0 and (desc_col+1) < len(actual_cols) else None
+                        qty_name = actual_cols[qty_col+1] if qty_col >= 0 and (qty_col+1) < len(actual_cols) else None
+                        unit_name = actual_cols[unit_col+1] if unit_col >= 0 and (unit_col+1) < len(actual_cols) else None
                         
-                        # Check for any valid price in any typical 'Bill Amount' variant
-                        price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
-                        for pv in price_variants:
-                            or_parts.append(f"(\"{pv}\" > 0 AND \"{pv}\" != '' AND \"{pv}\" IS NOT NULL)")
+                        if desc_name:
+                            desc_check = f"(TRIM(\"{desc_name}\") != '' AND \"{desc_name}\" IS NOT NULL)"
                             
-                        if or_parts:
-                            item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}))"
+                            # Mandatory Combination: Description + (Non-Zero Numeric Quantity AND Non-Empty Unit) OR Price
+                            or_parts = []
+                            if qty_name and unit_name:
+                                # Strict check for numeric quantity and a legitimate unit
+                                qty_check = f"(TYPEOF(CAST(\"{qty_name}\" AS REAL)) = 'real' AND CAST(\"{qty_name}\" AS REAL) != 0)"
+                                unit_check = f"(TRIM(\"{unit_name}\") != '' AND \"{unit_name}\" IS NOT NULL)"
+                                or_parts.append(f"({qty_check} AND {unit_check})")
+                            
+                            # Check for any valid price in any typical 'Bill Amount' variant
+                            price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
+                            for pv in price_variants:
+                                if pv in actual_cols:
+                                    or_parts.append(f"(\"{pv}\" > 0 AND \"{pv}\" != '' AND \"{pv}\" IS NOT NULL)")
+                                    
+                            if or_parts:
+                                item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}))"
 
                     # 1. Sheet Summaries
                     q1 = f"""
