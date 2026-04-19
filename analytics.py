@@ -298,7 +298,7 @@ class AnalyticsDashboard(QWidget):
         self.card_total_bid.update_value(f"${total_bid:,.2f}", f"Total cross-project value")
         
         progress_pct = (priced_items / total_items * 100) if total_items > 0 else 0
-        self.card_progress.update_value(f"{progress_pct:.1f}%", f"{priced_items} of {total_items} items priced")
+        self.card_progress.update_value(f"{progress_pct:.2f}%", f"{priced_items} of {total_items} items priced")
         
         self.card_risk.update_value(str(flagged_items), "Items flagged for review")
         
