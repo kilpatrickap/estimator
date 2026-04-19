@@ -1596,49 +1596,100 @@ class PBOQDialog(QDialog):
             self.stats_label.setText("Map 'Quantity' column to see stats")
             return
 
+        # Colors that indicate a tool has been used for pricing
+        pricing_hexes = [
+            const.COL_COLOR_GREEN.name().lower(),
+            const.COL_COLOR_PURPLE.name().lower(),
+            const.COL_COLOR_ORANGE.name().lower(),
+            const.COLOR_PROV_SUM.name().lower(),
+            const.COL_COLOR_LIME.name().lower(),
+            const.COL_COLOR_BROWN.name().lower(),
+            const.COLOR_LINK_CYAN.name().lower()
+        ]
+
+        # Mirror the 'Extend' tool's criteria selection and dummy rate value
+        dummy_rate = self.tools_pane.dummy_rate_spin.value()
+        checked_cols = []
+        if self.tools_pane.extend_cb0.isChecked(): checked_cols.append(0)
+        if self.tools_pane.extend_cb1.isChecked(): checked_cols.append(1)
+        if self.tools_pane.extend_cb2.isChecked(): checked_cols.append(2)
+        if self.tools_pane.extend_cb3.isChecked(): checked_cols.append(3)
+
         for i in range(self.tabs.count()):
             t = self.tabs.widget(i)
             if not isinstance(t, PBOQTable): continue
             
             for r in range(t.rowCount()):
-                # Count Flagged
+                # Count Flagged items (independent of validity)
                 item0 = t.item(r, 0)
                 if item0 and item0.data(Qt.ItemDataRole.UserRole + 2) == 1:
                     flagged += 1
 
-                # Item Detection: Has quantity OR Unit is 'Item' OR is already priced via tools
+                # 1. Alignment Check (Mirroring the Extend Tool's gatekeeper)
+                if not checked_cols: continue
+                is_aligned = all(t.item(r, c) and t.item(r, c).text().strip() for c in checked_cols)
+                if not is_aligned: continue
+
+                # 2. Quantity Check (Mirroring the Extend Tool's logic)
                 qty_item = t.item(r, m['qty'])
-                unit_item = t.item(r, m['unit'])
-                has_qty = qty_item and qty_item.text().strip()
-                is_lump_sum = unit_item and unit_item.text().strip().lower() == "item"
-                
-                # Colors that indicate a tool has been used for pricing
-                pricing_hexes = [
-                    const.COL_COLOR_GREEN.name().lower(),
-                    const.COL_COLOR_PURPLE.name().lower(),
-                    const.COL_COLOR_ORANGE.name().lower(),
-                    const.COLOR_PROV_SUM.name().lower(),
-                    const.COL_COLOR_LIME.name().lower(),
-                    const.COL_COLOR_BROWN.name().lower(),
-                    const.COLOR_LINK_CYAN.name().lower()
-                ]
-                
+                if not qty_item or not qty_item.text().strip(): continue
+                try:
+                    qty_val = float(qty_item.text().replace(',', ''))
+                    if qty_val <= 0: continue
+                except (ValueError, TypeError): continue
+
+                # If it passes the above, it is a valid priceable item for stats
+                total += 1
+
+                # 3. Pricing Detection (Total vs Priced)
                 is_row_priced = False
-                price_indices = [m.get('bill_rate', -1), m.get('bill_amount', -1)]
-                for c_idx in price_indices:
+                rate_col = m.get('bill_rate', -1)
+                amt_col = m.get('bill_amount', -1)
+                
+                # Manual pricing check with dummy rate filter (following user request)
+                if rate_col >= 0:
+                    it = t.item(r, rate_col)
+                    val_str = it.text().replace(',', '').strip() if it else ""
+                    if val_str:
+                        try:
+                            val_f = float(val_str)
+                            # Only count as priced if it's not the dummy rate
+                            if val_f > 0 and abs(val_f - dummy_rate) > 0.0001:
+                                is_row_priced = True
+                        except: pass
+
+                # If rate didn't confirm priced, check amount (lump sums) 
+                # but only if the rate isn't currently set to the dummy value
+                if not is_row_priced and amt_col >= 0:
+                    it = t.item(r, amt_col)
+                    val_str = it.text().replace(',', '').strip() if it else ""
+                    if val_str:
+                        try:
+                            if float(val_str) > 0:
+                                r_it = t.item(r, rate_col) if rate_col >= 0 else None
+                                is_dummy = False
+                                if r_it:
+                                    try: 
+                                        if abs(float(r_it.text().replace(',','').strip()) - dummy_rate) < 0.0001:
+                                            is_dummy = True
+                                    except: pass
+                                
+                                if not is_dummy:
+                                    is_row_priced = True
+                        except: pass
+
+                # OVERRIDE: Any Tool-based background color always counts as priced regardless of value
+                for c_idx in [rate_col, amt_col]:
                     if c_idx < 0: continue
                     it = t.item(r, c_idx)
-                    if it and it.text().strip():
+                    if it:
                         bg_color = it.background().color()
                         if bg_color.isValid() and bg_color.name().lower() in pricing_hexes:
                             is_row_priced = True
                             break
-
-                # Count as a valid item if it has quantity, is a lump sum, or is actually priced
-                if has_qty or is_lump_sum or is_row_priced:
-                    total += 1
-                    if is_row_priced:
-                        priced += 1
+                
+                if is_row_priced:
+                    priced += 1
         
         outstanding = total - priced
         
