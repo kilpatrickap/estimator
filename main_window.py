@@ -44,86 +44,6 @@ class RestrictedMdiArea(QMdiArea):
         super().addSubWindow(sub)
         return sub
 
-class AnalyticsPane(QWidget):
-    """Left-hand sidebar pane for Project Analytics navigation."""
-    def __init__(self, owner=None):
-        super().__init__(owner)
-        self.owner = owner
-        self.setFixedWidth(290)
-        self._init_ui()
-
-    def _init_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(4)
-        
-        # Header with icon-like styling
-        header_layout = QHBoxLayout()
-        icon_label = QLabel("📊") # Analytics icon
-        icon_label.setStyleSheet("font-size: 14pt;")
-        
-        title_label = QLabel("ANALYTICS HUB")
-        title_label.setStyleSheet("font-weight: bold; color: #1b5e20; font-size: 10pt; letter-spacing: 1px;")
-        
-        header_layout.addWidget(icon_label)
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        layout.addLayout(header_layout)
-        
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setFrameShadow(QFrame.Shadow.Sunken)
-        line.setStyleSheet("background-color: #2e7d32; min-height: 1px;")
-        layout.addWidget(line)
-        
-        # Roadmap Headings as Navigation Buttons
-        headings = [
-            "Financial & Executive Dashboards",
-            "Pricing Confidence & Risk Assurance",
-            "Operational & Procurement Logistics",
-            "Strategic Bidding & 'What-If' Analysis",
-            "Adjudication & Supply Chain Intelligence",
-            "Sustainability & Compliance (ESG)",
-            "Historical Benchmarking",
-            "Automated Value Engineering (VE) Finder"
-        ]
-        
-        for i, text in enumerate(headings, 1):
-            btn = QPushButton(f"{i}. {text}")
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: white;
-                    border: 1px solid #e0e0e0;
-                    border-left: 3px solid #2e7d32;
-                    border-radius: 3px;
-                    padding: 5px 8px;
-                    text-align: left;
-                    font-weight: 500;
-                    color: #333;
-                    font-size: 8.5pt;
-                }
-                QPushButton:hover {
-                    background-color: #f1f8e9;
-                    border-color: #2e7d32;
-                    color: #1b5e20;
-                }
-                QPushButton:pressed {
-                    background-color: #c8e6c9;
-                }
-            """)
-            if self.owner:
-                btn.clicked.connect(self.owner.show_analytics_dashboard_mdi)
-            layout.addWidget(btn)
-            
-        layout.addStretch()
-        
-        # Bottom Tip
-        tip = QLabel("Select a category to view detailed reports.")
-        tip.setWordWrap(True)
-        tip.setStyleSheet("color: #666; font-style: italic; font-size: 8pt; margin-top: 10px;")
-        layout.addWidget(tip)
-
 class MainWindow(QMainWindow):
     """Main application window using MDI architecture."""
     def __init__(self):
@@ -225,24 +145,6 @@ class MainWindow(QMainWindow):
         # Reduced height by 65% to make room for other tools (like PBOQ tools)
         self.project_dock.setMaximumHeight(250)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
-
-    def _setup_analytics_pane(self):
-        """Creates the Analytics sidebar dock beneath Project Explorer."""
-        self.analytics_dock = QDockWidget("Analytics Hub", self)
-        self.analytics_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
-        
-        self.analytics_view = AnalyticsPane(self)
-        self.analytics_dock.setWidget(self.analytics_view)
-        self.analytics_dock.setFixedWidth(290)
-        
-        # Ensure it's added to the left area
-        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.analytics_dock)
-        
-        # Force a vertical split to stack them (even if hidden, it establishes the relation)
-        # Note: We show it briefly to ensure the layout engine registers the split correctly
-        self.analytics_dock.show()
-        self.splitDockWidget(self.project_dock, self.analytics_dock, Qt.Orientation.Vertical)
-        self.analytics_dock.hide()
 
     def _update_project_pane_directory(self, project_dir):
         import os
@@ -1076,21 +978,38 @@ class MainWindow(QMainWindow):
         sub.show()
 
     def open_analytics_dashboard(self):
-        """Toggles the Analytics sidebar and optionally opens the dashboard."""
-        if not hasattr(self, 'analytics_dock'):
-            self._setup_analytics_pane()
+        """Creates or shows the Analytics Dashboard for the active project."""
+        win = self._get_active_estimate_window()
+        project_dir = None
         
-        if self.analytics_dock.isHidden():
-            self.analytics_dock.show()
-        else:
-            self.analytics_dock.hide()
+        if win:
+            if hasattr(win, 'project_dir'):
+                project_dir = win.project_dir
+            elif hasattr(win, 'db_path'):
+                import os
+                # db_path is usually in ProjectName/Project Database/project.db
+                pdir = os.path.dirname(win.db_path)
+                if os.path.basename(pdir) == "Project Database":
+                    project_dir = os.path.dirname(pdir)
+                else:
+                    project_dir = pdir
+        
+        # Fallback to the last used project directory if no active window provides one
+        if not project_dir:
+            project_dir = self.db_manager.get_setting('last_project_dir', '')
             
-        # Trigger the dashboard display as well for immediate feedback
-        self.show_analytics_dashboard_mdi()
+        import os
+        if not project_dir or not os.path.exists(project_dir):
+            QMessageBox.warning(self, "Warning", "Please load a project first to view analytics.")
+            return
 
-    def show_analytics_dashboard_mdi(self):
+        self.show_analytics_dashboard_mdi(project_dir)
+
+    def show_analytics_dashboard_mdi(self, project_dir=None):
         """Opens the main Analytics dashboard in the MDI area."""
-        project_dir = self.db_manager.get_setting('last_project_dir', '')
+        if project_dir is None:
+            project_dir = self.db_manager.get_setting('last_project_dir', '')
+            
         if not project_dir:
             QMessageBox.warning(self, "No Project", "Please load a project first.")
             return
@@ -1483,15 +1402,6 @@ class MainWindow(QMainWindow):
                 
                 if self.project_dock.isHidden():
                     self.project_dock.show()
-        
-        # Update Analytics Pane visibility (Show only when Analytics Dashboard is active)
-        if hasattr(self, 'analytics_dock'):
-            if active_sub and active_sub.widget() and type(active_sub.widget()).__name__ == "AnalyticsDashboard":
-                if self.analytics_dock.isHidden():
-                    self.analytics_dock.show()
-            else:
-                if not self.analytics_dock.isHidden():
-                    self.analytics_dock.hide()
 
 
 class NewEstimateDialog(QDialog):

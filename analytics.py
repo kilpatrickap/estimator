@@ -2,7 +2,8 @@ import os
 import sqlite3
 import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFrame, QGridLayout, QScrollArea, QGraphicsDropShadowEffect)
+                             QFrame, QGridLayout, QScrollArea, QGraphicsDropShadowEffect,
+                             QPushButton, QSpacerItem, QSizePolicy, QDockWidget)
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QColor, QFont, QPainter, QLinearGradient
 
@@ -57,16 +58,137 @@ class MetricCard(QFrame):
         if subtext is not None:
             self.subtext_label.setText(subtext)
 
+class AnalyticsPane(QWidget):
+    """Left-hand sidebar pane for Project Analytics navigation."""
+    def __init__(self, owner=None):
+        super().__init__()
+        self.owner = owner
+        self.setFixedWidth(290)
+        self._init_ui()
+
+    def _init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(4)
+        
+        # Header with icon-like styling
+        header_layout = QHBoxLayout()
+        icon_label = QLabel("📊") # Analytics icon
+        icon_label.setStyleSheet("font-size: 14pt;")
+        
+        title_label = QLabel("ANALYTICS HUB")
+        title_label.setStyleSheet("font-weight: bold; color: #1b5e20; font-size: 10pt; letter-spacing: 1px;")
+        
+        header_layout.addWidget(icon_label)
+        header_layout.addWidget(title_label)
+        header_layout.addStretch()
+        layout.addLayout(header_layout)
+        
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setFrameShadow(QFrame.Shadow.Sunken)
+        line.setStyleSheet("background-color: #2e7d32; min-height: 1px;")
+        layout.addWidget(line)
+        
+        # Roadmap Headings as Navigation Buttons
+        headings = [
+            "Financial & Executive Dashboards",
+            "Pricing Confidence & Risk Assurance",
+            "Operational & Procurement Logistics",
+            "Strategic Bidding & 'What-If' Analysis",
+            "Adjudication & Supply Chain Intelligence",
+            "Sustainability & Compliance (ESG)",
+            "Historical Benchmarking",
+            "Automated Value Engineering (VE) Finder"
+        ]
+        
+        for i, text in enumerate(headings, 1):
+            btn = QPushButton(f"{i}. {text}")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: white;
+                    border: 1px solid #e0e0e0;
+                    border-left: 3px solid #2e7d32;
+                    border-radius: 3px;
+                    padding: 5px 8px;
+                    text-align: left;
+                    font-weight: 500;
+                    color: #333;
+                    font-size: 8.5pt;
+                }
+                QPushButton:hover {
+                    background-color: #f1f8e9;
+                    border-color: #2e7d32;
+                    color: #1b5e20;
+                }
+                QPushButton:pressed {
+                    background-color: #c8e6c9;
+                }
+            """)
+            # For now they just refresh the dashboard
+            if self.owner:
+                btn.clicked.connect(self.owner.refresh_data)
+            layout.addWidget(btn)
+            
+        layout.addStretch()
+        
+        # Bottom Tip
+        tip = QLabel("Select a category to view detailed reports.")
+        tip.setWordWrap(True)
+        tip.setStyleSheet("color: #666; font-style: italic; font-size: 8pt; margin-top: 10px;")
+        layout.addWidget(tip)
+
 class AnalyticsDashboard(QWidget):
     """The central hub for project-wide financial and progress analytics."""
     def __init__(self, project_dir, parent=None):
         super().__init__(parent)
+        self.main_window = parent
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         self.setWindowTitle("Project Analytics Dashboard")
         
         self._init_ui()
         self.refresh_data()
+        
+        # Setup Analytics Hub Sidebar (Matching PBOQ/SOR pattern)
+        self.tools_pane = AnalyticsPane(self)
+        if self.main_window:
+            self.tools_dock = QDockWidget("Analytics Hub", self.main_window)
+            self.tools_dock.setWidget(self.tools_pane)
+            self.tools_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+            
+            self.main_window.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.tools_dock)
+            
+            # Establish vertical split relationship immediately
+            if hasattr(self.main_window, 'project_dock'):
+                self.main_window.splitDockWidget(self.main_window.project_dock, self.tools_dock, Qt.Orientation.Vertical)
+            
+            self.tools_dock.show()
+            self.main_window.mdi_area.subWindowActivated.connect(self._on_mdi_subwindow_activated)
+            self.destroyed.connect(self._cleanup_tools_dock)
+            
+    def _on_mdi_subwindow_activated(self, sub):
+        """Toggle dock visibility based on whether THIS dashboard is active."""
+        if not hasattr(self, 'tools_dock') or not self.tools_dock:
+            return
+            
+        if sub and sub.widget() == self:
+            self.tools_dock.show()
+            self.tools_dock.raise_()
+        else:
+            self.tools_dock.hide()
+
+    def _cleanup_tools_dock(self):
+        """Standard cleanup of the dock widget when the dashboard is closed."""
+        if self.main_window:
+            try:
+                if hasattr(self, 'tools_dock') and self.tools_dock:
+                    self.main_window.removeDockWidget(self.tools_dock)
+                    self.tools_dock.deleteLater()
+                    self.tools_dock = None
+            except RuntimeError:
+                pass
 
     def _init_ui(self):
         self.layout = QVBoxLayout(self)
