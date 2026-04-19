@@ -185,10 +185,12 @@ class AnalyticsDashboard(QWidget):
                                 desc_col = i - 1
                     
                     # Construct dynamic item detection clause based on user definition:
-                    # An item MUST have a Description AND (Quantity OR Unit OR Price).
+                    # An item MUST have a Description AND (Quantity OR Price).
                     # This firmly filters out headings (Description only) and rogue numbers (No description).
                     item_clause = "(1=0)" # Default to none if no useful columns found
-                    req_parts = []
+                    priced_clause = "(1=0)"
+                    amt_sum_expr = "0.0"
+                    
                     if desc_col >= 0 or unit_col >= 0 or qty_col >= 0:
                         cursor.execute("PRAGMA table_info(pboq_items)")
                         actual_cols = [info[1] for info in cursor.fetchall()]
@@ -197,60 +199,78 @@ class AnalyticsDashboard(QWidget):
                         qty_name = actual_cols[qty_col+1] if qty_col >= 0 and (qty_col+1) < len(actual_cols) else None
                         unit_name = actual_cols[unit_col+1] if unit_col >= 0 and (unit_col+1) < len(actual_cols) else None
                         
+                        # Robust Amount Summation (Handling commas and spaces in TEXT columns)
+                        bill_amt_name = next((pv for pv in ["Bill Amount", "BillAmount"] if pv in actual_cols), None)
+                        if bill_amt_name:
+                            amt_sum_expr = f"SUM(CAST(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', '') AS REAL))"
+                        
                         if desc_name:
                             desc_check = f"(TRIM(\"{desc_name}\") != '' AND \"{desc_name}\" IS NOT NULL)"
                             
-                            # Mandatory Combination: Description + (Non-Zero Numeric Quantity AND Non-Empty Unit) OR Price
+                            # 1. Item Clause (is it a valid priceable work item?)
                             or_parts = []
-                            if qty_name and unit_name:
-                                # Strict check for numeric quantity and a legitimate unit
-                                qty_check = f"(TYPEOF(CAST(\"{qty_name}\" AS REAL)) = 'real' AND CAST(\"{qty_name}\" AS REAL) != 0)"
-                                unit_check = f"(TRIM(\"{unit_name}\") != '' AND \"{unit_name}\" IS NOT NULL)"
-                                or_parts.append(f"({qty_check} AND {unit_check})")
+                            if qty_name:
+                                # Use REPLACE to handle commas in Quantity
+                                qty_check = f"(CAST(REPLACE(\"{qty_name}\", ',', '') AS REAL) != 0)"
+                                if unit_name:
+                                    unit_check = f"(TRIM(\"{unit_name}\") != '' AND \"{unit_name}\" IS NOT NULL)"
+                                    or_parts.append(f"({qty_check} AND {unit_check})")
+                                else:
+                                    or_parts.append(qty_check)
                             
-                            # Check for any valid price in any typical 'Bill Amount' variant
+                            # 2. Priced Check Clause (Matching PBOQ Viewer stats)
+                            # Includes any row with a Price (excluding 25.00 dummy rate) OR any assigned logical source
+                            priced_parts = []
                             price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
                             for pv in price_variants:
                                 if pv in actual_cols:
-                                    or_parts.append(f"(\"{pv}\" > 0 AND \"{pv}\" != '' AND \"{pv}\" IS NOT NULL)")
-                                    
+                                    # Clean value for numeric comparison
+                                    pv_clean = f"CAST(REPLACE(REPLACE(IFNULL(\"{pv}\", '0'), ',', ''), ' ', '') AS REAL)"
+                                    # Items with any price count as valid for item_clause
+                                    or_parts.append(f"({pv_clean} > 0)")
+                                    # Items priced with non-dummy value (25.00 default) are "Priced"
+                                    priced_parts.append(f"({pv_clean} > 0 AND ABS({pv_clean} - 25.00) > 0.0001)")
+                            
+                            # Logic Source check
+                            src_cols = ["GrossRate", "PlugRate", "SubbeeRate", "ProvSum", "PCSum", "Daywork"]
+                            for sc in src_cols:
+                                if sc in actual_cols:
+                                    priced_parts.append(f"(\"{sc}\" != '' AND \"{sc}\" IS NOT NULL)")
+
                             if or_parts:
                                 item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}))"
+                            if priced_parts:
+                                priced_clause = f"({desc_check} AND ({' OR '.join(priced_parts)}))"
 
                     # 1. Sheet Summaries
                     q1 = f"""
                         SELECT Sheet, 
                                SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
-                               SUM(CASE WHEN {item_clause} AND "Bill Amount" > 0 THEN 1 ELSE 0 END), 
-                               SUM(CAST("Bill Amount" AS REAL)) 
+                               SUM(CASE WHEN {item_clause} AND {priced_clause} THEN 1 ELSE 0 END), 
+                               {amt_sum_expr}
                         FROM pboq_items 
                         GROUP BY Sheet
                     """
                     cursor.execute(q1)
-                    for sheet, count, priced, amt in cursor.fetchall():
+                    rows = cursor.fetchall()
+                    for sheet, count, priced, amt in rows:
                         sheet_data.append({
                             'name': f"{f.replace('.db','')} - {sheet}",
                             'total': count,
                             'priced': priced,
                             'amount': amt or 0.0
                         })
+                        # Accumulate global card stats from sheet summaries for consistency
+                        total_items += count
+                        priced_items += priced
+                        total_bid += (amt or 0.0)
                     
-                    # 2. General Aggregates
-                    q2 = f"""
-                        SELECT SUM(CAST("Bill Amount" AS REAL)), 
-                               SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
-                               SUM(IsFlagged) 
-                        FROM pboq_items
-                    """
-                    cursor.execute(q2)
-                    row = cursor.fetchone()
-                    if row:
-                        total_bid += (row[0] or 0.0)
-                        total_items += (row[1] or 0)
-                        flagged_items += (row[2] or 0)
+                    # 2. Risk Flags
+                    cursor.execute("SELECT SUM(IsFlagged) FROM pboq_items")
+                    flagged_items += (cursor.fetchone()[0] or 0)
                         
-                    # 3. Source Analysis (PCI)
-                    # We check logical columns to see which source was used.
+                    # 3. Source Analysis (PCI Breakdown)
+                    # This remains for the confidence index logic
                     cursor.execute("""
                         SELECT 
                             SUM(CASE WHEN GrossRate != '' AND GrossRate IS NOT NULL THEN 1 ELSE 0 END),
@@ -270,8 +290,9 @@ class AnalyticsDashboard(QWidget):
                 except Exception as e:
                     print(f"Error reading {f}: {e}")
 
-        # Final Counts
-        priced_items = sources['library'] + sources['manual'] + sources['sub'] + sources['provisional']
+        # Final Counts (Priced items already summed from sheets above)
+        # We also calculate source-based priced items for the Confidence Index breakdown
+        lib_priced = sources['library'] + sources['sub'] + sources['provisional']
         
         # Update Cards
         self.card_total_bid.update_value(f"${total_bid:,.2f}", f"Total cross-project value")
