@@ -148,6 +148,7 @@ class AnalyticsDashboard(QWidget):
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         self.setWindowTitle("Project Analytics Dashboard")
         
+        self.currency_symbol = "$" # Default
         self._init_ui()
         self.refresh_data()
         
@@ -212,7 +213,7 @@ class AnalyticsDashboard(QWidget):
         self.cards_layout = QGridLayout()
         self.cards_layout.setSpacing(20)
         
-        self.card_total_bid = MetricCard("Total Bid Value", "$0.00", "0 items priced", color="#1b5e20")
+        self.card_total_bid = MetricCard("Total Bid Value", f"{self.currency_symbol}0.00", "0 items priced", color="#1b5e20")
         self.card_progress = MetricCard("Pricing Progress", "0%", "0 of 0 completed", color="#0277bd")
         self.card_risk = MetricCard("Review Flags", "0", "High risk items detected", color="#c62828")
         self.card_confidence = MetricCard("Confidence Index", "N/A", "Pricing source analysis", color="#ef6c00")
@@ -240,7 +241,8 @@ class AnalyticsDashboard(QWidget):
         
         self.breakdown_container = QWidget()
         self.breakdown_list = QVBoxLayout(self.breakdown_container)
-        self.breakdown_list.setSpacing(10)
+        self.breakdown_list.setSpacing(4)
+        self.breakdown_list.setContentsMargins(0, 5, 0, 5)
         self.breakdown_list.addStretch()
         
         self.scroll_area.setWidget(self.breakdown_container)
@@ -250,8 +252,39 @@ class AnalyticsDashboard(QWidget):
         
         self.layout.addStretch()
 
+    def _load_currency(self):
+        """Discovers the project-wide currency symbol from the master project database."""
+        self.currency_symbol = "$" # Default fallback
+        try:
+            pj_db_dir = os.path.join(self.project_dir, "Project Database")
+            if os.path.exists(pj_db_dir):
+                dbs = [f for f in os.listdir(pj_db_dir) if f.lower().endswith('.db')]
+                if dbs:
+                    db_path = os.path.join(pj_db_dir, dbs[0])
+                    import sqlite3
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    # Check if 'settings' table exists
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+                    if cursor.fetchone():
+                        cursor.execute("SELECT value FROM settings WHERE key='currency'")
+                        row = cursor.fetchone()
+                        if row:
+                            curr_str = row[0]
+                            if '(' in curr_str:
+                                # Converts "USD ($)" -> "USD $"
+                                code = curr_str.split('(')[0].strip()
+                                symbol = curr_str.split('(')[-1].strip(')')
+                                self.currency_symbol = f"{code} {symbol} "
+                            else:
+                                self.currency_symbol = f"{curr_str} "
+                    conn.close()
+        except Exception as e:
+            print(f"Analytics: Currency detection error: {e}")
+
     def refresh_data(self):
         """Aggregates data across all PBOQ databases in the project folder."""
+        self._load_currency()
         if not os.path.exists(self.pboq_folder):
             return
 
@@ -417,7 +450,7 @@ class AnalyticsDashboard(QWidget):
         lib_priced = sources['library'] + sources['sub'] + sources['provisional']
         
         # Update Cards
-        self.card_total_bid.update_value(f"${total_bid:,.2f}", f"Total cross-project value")
+        self.card_total_bid.update_value(f"{self.currency_symbol}{total_bid:,.2f}", f"Total cross-project value")
         
         progress_pct = (priced_items / total_items * 100) if total_items > 0 else 0
         self.card_progress.update_value(f"{progress_pct:.2f}%", f"{priced_items} of {total_items} items priced")
@@ -446,22 +479,34 @@ class AnalyticsDashboard(QWidget):
 
     def _add_sheet_row(self, data):
         row = QFrame()
-        row.setStyleSheet("background-color: #f5f5f5; border-radius: 6px; border: none; padding: 5px;")
+        row.setStyleSheet("""
+            QFrame {
+                background-color: #f9f9f9; 
+                border-radius: 4px; 
+                border: 1px solid #f0f0f0;
+            }
+            QFrame:hover {
+                background-color: #f1f8e9;
+                border-color: #c8e6c9;
+            }
+        """)
         l = QHBoxLayout(row)
+        l.setContentsMargins(12, 4, 12, 4)
+        l.setSpacing(10)
         
         name = QLabel(data['name'])
-        name.setStyleSheet("font-weight: bold; color: #444;")
+        name.setStyleSheet("font-weight: 600; color: #2c3e50; font-size: 9pt;")
         
         progress = QLabel(f"{data['priced']}/{data['total']} items")
-        progress.setStyleSheet("color: #666;")
+        progress.setStyleSheet("color: #666; font-size: 8.5pt; font-style: italic;")
         
-        amount = QLabel(f"${data['amount']:,.2f}")
-        amount.setStyleSheet("font-weight: 800; color: #2e7d32;")
+        amount = QLabel(f"{self.currency_symbol}{data['amount']:,.2f}")
+        amount.setStyleSheet("font-weight: 800; color: #2e7d32; font-size: 9.5pt;")
         
         l.addWidget(name)
         l.addStretch()
         l.addWidget(progress)
-        l.addSpacing(20)
+        l.addSpacing(10)
         l.addWidget(amount)
         
         self.breakdown_list.insertWidget(self.breakdown_list.count() - 1, row)

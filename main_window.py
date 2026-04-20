@@ -1144,6 +1144,11 @@ class MainWindow(QMainWindow):
                         win.load_rates()
                     if hasattr(win, 'load_project_rates'):
                         win.load_project_rates()
+                
+                # Update Analytics Dashboard
+                elif win_type == "AnalyticsDashboard":
+                    if hasattr(win, 'refresh_data'):
+                        win.refresh_data()
 
     def _apply_zoom_to_subwindow(self, sub):
         """Applies the current global zoom scale to a newly added subwindow."""
