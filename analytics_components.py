@@ -1,5 +1,13 @@
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLabel, QGraphicsDropShadowEffect)
 from PyQt6.QtGui import QColor
+from PyQt6.QtCore import pyqtSignal
+
+class SelectionFrame(QFrame):
+    """A frame that emits a clicked signal, used for row selection in analytics tables."""
+    clicked = pyqtSignal()
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
 class MetricCard(QFrame):
     """A premium, styled card for displaying KPI headline metrics."""

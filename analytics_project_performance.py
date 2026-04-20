@@ -5,14 +5,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from analytics_components import MetricCard
+from analytics_components import MetricCard, SelectionFrame
 from pboq_logic import PBOQLogic
-
-class SelectionFrame(QFrame):
-    clicked = pyqtSignal()
-    def mousePressEvent(self, event):
-        self.clicked.emit()
-        super().mousePressEvent(event)
 
 class ProjectPerformanceAnalytic(QWidget):
     """Analytic view for Project Performance."""
