@@ -122,6 +122,7 @@ class ProjectPerformanceAnalytic(QWidget):
                 qty_col = -1
                 unit_col = -1
                 desc_col = -1
+                bill_amt_col = -1
                 state_file = os.path.join(self.project_dir, "PBOQ States", f + ".json")
                 if os.path.exists(state_file):
                     try:
@@ -131,6 +132,7 @@ class ProjectPerformanceAnalytic(QWidget):
                             qty_col = m.get('qty', -1)
                             unit_col = m.get('unit', -1)
                             desc_col = m.get('desc', -1)
+                            bill_amt_col = m.get('bill_amount', -1)
                     except: pass
                 
                 try:
@@ -162,9 +164,23 @@ class ProjectPerformanceAnalytic(QWidget):
                         qty_name = actual_cols[qty_col+1] if qty_col >= 0 and (qty_col+1) < len(actual_cols) else None
                         unit_name = actual_cols[unit_col+1] if unit_col >= 0 and (unit_col+1) < len(actual_cols) else None
                         
-                        bill_amt_name = next((pv for pv in ["Bill Amount", "BillAmount"] if pv in actual_cols), None)
+                        # Detect Bill Amount column: Use mapping first
+                        bill_amt_name = None
+                        if bill_amt_col >= 0 and (bill_amt_col + 1) < len(actual_cols):
+                            bill_amt_name = actual_cols[bill_amt_col + 1]
+                        
+                        if not bill_amt_name:
+                            bill_amt_name = next((pv for pv in ["Bill Amount", "BillAmount"] if pv in actual_cols), None)
+                            
+                        if not bill_amt_name and "Column 5" in actual_cols:
+                            bill_amt_name = "Column 5"
+                        
+                        sani = "'0'"
                         if bill_amt_name:
-                            amt_sum_expr = f"SUM(CAST(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', '') AS REAL))"
+                            # Sanitize: Strip symbols (GH¢, GHC, GHS, ¢, ₵), commas, spaces
+                            sani = f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', '')"
+                        
+                        amt_sum_expr = f"SUM(CAST({sani} AS REAL))"
                         
                         if desc_name:
                             desc_check = f"(TRIM(\"{desc_name}\") != '' AND \"{desc_name}\" IS NOT NULL)"
@@ -178,12 +194,17 @@ class ProjectPerformanceAnalytic(QWidget):
                                     or_parts.append(qty_check)
                             
                             priced_parts = []
+                            # Include the detected bill_amt_name (which might be Column 5) in price variants
                             price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
+                            if bill_amt_name and bill_amt_name not in price_variants:
+                                price_variants.append(bill_amt_name)
+                                
                             for pv in price_variants:
                                 if pv in actual_cols:
-                                    pv_clean = f"CAST(REPLACE(REPLACE(IFNULL(\"{pv}\", '0'), ',', ''), ' ', '') AS REAL)"
+                                    pv_clean = f"CAST(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{pv}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', '') AS REAL)"
                                     or_parts.append(f"({pv_clean} > 0)")
-                                    priced_parts.append(f"({pv_clean} > 0 AND ABS({pv_clean} - 25.00) > 0.0001)")
+                                    # Removed original Bill Amount from priced_parts to honor user requirement:
+                                    # "only bill amounts with price types have to be considered"
                             
                             src_cols = ["GrossRate", "PlugRate", "SubbeeRate", "ProvSum", "PCSum", "Daywork"]
                             for sc in src_cols:
@@ -191,7 +212,7 @@ class ProjectPerformanceAnalytic(QWidget):
                                     priced_parts.append(f"(\"{sc}\" != '' AND \"{sc}\" IS NOT NULL)")
  
                             if or_parts:
-                                item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}))"
+                                item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}) AND (LOWER(\"{desc_name}\") NOT LIKE '%collection%' AND LOWER(\"{desc_name}\") NOT LIKE '%summary%'))"
                             if priced_parts:
                                 priced_clause = f"({desc_check} AND ({' OR '.join(priced_parts)}))"
  
@@ -199,7 +220,7 @@ class ProjectPerformanceAnalytic(QWidget):
                         SELECT Sheet, 
                                SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
                                SUM(CASE WHEN {item_clause} AND {priced_clause} THEN 1 ELSE 0 END), 
-                               {amt_sum_expr}
+                               SUM(CASE WHEN {item_clause} AND {priced_clause} THEN CAST({sani} AS REAL) ELSE 0.0 END)
                         FROM pboq_items 
                         GROUP BY Sheet
                     """
