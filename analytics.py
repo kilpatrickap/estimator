@@ -43,7 +43,6 @@ class AnalyticsPane(QWidget):
         headings = [
             "Project Performance",
             "Financial & Executive Dashboards",
-            "Pricing Confidence & Risk Assurance",
             "Operational & Procurement Logistics",
             "Strategic Bidding & 'What-If' Analysis",
             "Adjudication & Supply Chain Intelligence",
@@ -182,7 +181,7 @@ class AnalyticsDashboard(QWidget):
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Financial Dashboard: {e}")
         elif index == 2:
-            widget = PlaceholderAnalytic("Pricing Confidence & Risk Assurance")
+            widget = PlaceholderAnalytic("Operational & Procurement Logistics")
         elif index == 3:
             widget = PlaceholderAnalytic("Strategic Bidding & 'What-If' Analysis")
         elif index == 4:
