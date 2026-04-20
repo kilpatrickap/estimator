@@ -203,12 +203,18 @@ class PBOQLogic:
                 cat = data.get('cat', 'Miscellaneous')
                 
                 # Determine the final "Bill Rate" (Marked-up rate)
+                try:
+                    # Remove commas and spaces, then convert to float
+                    base_rate = float(str(rate).replace(',', '').replace(' ', '').strip()) if rate else 0.0
+                except (ValueError, TypeError):
+                    base_rate = 0.0
 
-                base_rate = float(str(rate).replace(',', '')) if rate else 0.0
                 markup_val = data.get('markup', 0.0)
                 if isinstance(markup_val, str):
-                    try: markup_val = float(markup_val.replace('%', '').replace(',', ''))
-                    except: markup_val = 0.0
+                    try: 
+                        markup_val = float(markup_val.replace('%', '').replace(',', '').replace(' ', '').strip())
+                    except (ValueError, TypeError): 
+                        markup_val = 0.0
                 
                 # If we were already passed a value that is intended to be the final bill rate
                 # (e.g. from baking logic), we shouldn't markup again if the source says so.
@@ -292,7 +298,8 @@ class PBOQLogic:
             conn.close()
             return True
         except Exception as e:
-            print(f"Master Lib Sync Error: {e}")
+            item_desc = data.get('desc', 'Unknown') if 'data' in locals() else 'Unknown'
+            print(f"Master Lib Sync Error [{item_desc}]: {e}")
             return False
 
     @staticmethod
