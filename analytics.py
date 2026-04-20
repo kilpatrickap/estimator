@@ -170,7 +170,11 @@ class AnalyticsDashboard(QWidget):
             current.deleteLater()
 
         if index == 0:
-            widget = PlaceholderAnalytic("Project Performance")
+            try:
+                from analytics_project_performance import ProjectPerformanceAnalytic
+                widget = ProjectPerformanceAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading Performance Dashboard: {e}")
         elif index == 1:
             try:
                 from analytics_financial_executive import FinancialExecutiveAnalytic
