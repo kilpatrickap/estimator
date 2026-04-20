@@ -3,10 +3,16 @@ import sqlite3
 import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal
 
 from analytics_components import MetricCard
 from pboq_logic import PBOQLogic
+
+class SelectionFrame(QFrame):
+    clicked = pyqtSignal()
+    def mousePressEvent(self, event):
+        self.clicked.emit()
+        super().mousePressEvent(event)
 
 class ProjectPerformanceAnalytic(QWidget):
     """Analytic view for Project Performance."""
@@ -15,6 +21,7 @@ class ProjectPerformanceAnalytic(QWidget):
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         self.currency_symbol = "$" # Default
+        self._selected_row = None
         self._init_ui()
         self.refresh_data()
 
@@ -286,35 +293,75 @@ class ProjectPerformanceAnalytic(QWidget):
                 item.widget().deleteLater()
 
     def _add_sheet_row(self, data):
-        row = QFrame()
+        row = SelectionFrame()
+        row.setObjectName("breakdownRow")
         row.setStyleSheet("""
-            QFrame {
-                background-color: #f9f9f9; 
-                border-radius: 4px; 
-                border: 1px solid #f0f0f0;
+            QFrame#breakdownRow {
+                background-color: transparent; 
+                border-radius: 6px; 
+                border: 1px solid transparent;
             }
-            QFrame:hover {
-                background-color: #f1f8e9;
-                border-color: #c8e6c9;
+            QFrame#breakdownRow:hover {
+                background-color: #f5f5f5;
+            }
+            QFrame#breakdownRow[selected="true"] {
+                background-color: #e8f5e9;
+                border: 1px solid #2e7d32;
             }
         """)
+        row.setProperty("selected", "false")
+        
         l = QHBoxLayout(row)
-        l.setContentsMargins(12, 4, 12, 4)
-        l.setSpacing(10)
+        l.setContentsMargins(10, 5, 10, 5)
+        l.setSpacing(15)
+        
+        # Sheet Name 'Pill' (Responsive Column 1)
+        name_container = QFrame()
+        name_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
+        name_container.setMinimumWidth(650)
+        nc_layout = QHBoxLayout(name_container)
+        nc_layout.setContentsMargins(8, 2, 8, 2)
         
         name = QLabel(data['name'])
-        name.setStyleSheet("font-weight: 600; color: #2c3e50; font-size: 9pt;")
+        name.setStyleSheet("font-weight: 600; color: #3c4043; font-size: 8.5pt; border: none;")
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        nc_layout.addWidget(name)
         
+        # Progress (Column 2)
         progress = QLabel(f"{data['priced']}/{data['total']} items")
-        progress.setStyleSheet("color: #666; font-size: 8.5pt; font-style: italic;")
+        progress.setStyleSheet("color: #70757a; font-size: 8pt; font-family: 'Segoe UI';")
+        # Let it scale or keep it compact
+        progress.setMinimumWidth(80)
+        progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
-        amount = QLabel(f"{self.currency_symbol}{data['amount']:,.2f}")
-        amount.setStyleSheet("font-weight: 800; color: #2e7d32; font-size: 9.5pt;")
+        # Amount Capsule (Position: Between Description and Items)
+        amount_container = QFrame()
+        amount_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
+        amount_container.setMinimumWidth(180)
+        ac_layout = QHBoxLayout(amount_container)
+        ac_layout.setContentsMargins(8, 2, 8, 2)
         
-        l.addWidget(name)
-        l.addStretch()
-        l.addWidget(progress)
-        l.addSpacing(10)
-        l.addWidget(amount)
+        amount = QLabel(f"{self.currency_symbol} {data['amount']:,.2f}")
+        amount.setStyleSheet("font-weight: 700; color: #1b5e20; font-size: 9pt; font-family: 'Consolas'; border: none; background: transparent;")
+        amount.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        ac_layout.addWidget(amount)
+        
+        l.addWidget(name_container, 6)  # High stretch for sheet name
+        l.addWidget(amount_container, 2) # Medium stretch for amount
+        l.addWidget(progress, 1)         # Small stretch for counts
+        l.addStretch(1)                  # Balancing stretch
+        
+        def on_click():
+            if self._selected_row:
+                self._selected_row.setProperty("selected", "false")
+                self._selected_row.style().unpolish(self._selected_row)
+                self._selected_row.style().polish(self._selected_row)
+            
+            row.setProperty("selected", "true")
+            row.style().unpolish(row)
+            row.style().polish(row)
+            self._selected_row = row
+            
+        row.clicked.connect(on_click)
         
         self.breakdown_list.insertWidget(self.breakdown_list.count() - 1, row)
