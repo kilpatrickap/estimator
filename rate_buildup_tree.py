@@ -99,8 +99,73 @@ class RateBuildupTreeWidget(QWidget):
     def add_resource(self, table_name):
         dialog = CostSelectionDialog(table_name, self)
         if dialog.exec() and dialog.selected_item:
-            item_data = dialog.selected_item
+            item_data = dict(dialog.selected_item)
             
+            # Automatically convert to project base currency if there's a mismatch
+            item_currency = item_data.get('currency', '$')
+            if item_currency != self.estimate.currency:
+                rate_data = self.estimate.exchange_rates.get(item_currency)
+                
+                # Check Global Project Conversion History if no rate is currently saved
+                if not rate_data:
+                    import json
+                    from datetime import datetime
+                    history_str = self.db_manager.get_setting('currency_conversion_history', '[]')
+                    try:
+                        history = json.loads(history_str)
+                    except:
+                        history = []
+                        
+                    found_rate = 1.0
+                    found_operator = '*'
+                    found_date = datetime.now().strftime("%Y-%m-%d")
+                    found = False
+                    
+                    # Search newest to oldest for a matching conversion
+                    for entry in reversed(history):
+                        if entry.get('from') == item_currency and entry.get('to') == self.estimate.currency:
+                            found_rate = float(entry.get('rate', 1.0))
+                            found_operator = entry.get('operator', '*')
+                            found_date = entry.get('date', found_date).split(' ')[0]
+                            found = True
+                            break
+                        # Inverse conversion logic
+                        elif entry.get('from') == self.estimate.currency and entry.get('to') == item_currency:
+                            found_rate = float(entry.get('rate', 1.0))
+                            found_operator = '*' if entry.get('operator', '*') == '/' else '/'
+                            found_date = entry.get('date', found_date).split(' ')[0]
+                            found = True
+                            break
+                            
+                    if found:
+                        self.estimate.exchange_rates[item_currency] = {
+                            'rate': found_rate, 'date': found_date, 'operator': found_operator
+                        }
+                        rate_data = self.estimate.exchange_rates[item_currency]
+                
+                # Fallback to Prompt if STILL not found
+                if not rate_data:
+                    from PyQt6.QtWidgets import QInputDialog, QMessageBox
+                    from datetime import datetime
+                    rate, ok = QInputDialog.getDouble(
+                        self.parent(), "Exchange Rate Needed",
+                        f"The resource is in '{item_currency}' but the project is '{self.estimate.currency}'.\n"
+                        f"Please enter the conversion rate (to multiply by):",
+                        1.0, 0.0001, 1000000.0, 4
+                    )
+                    if ok:
+                        self.estimate.exchange_rates[item_currency] = {
+                            'rate': rate, 'date': datetime.now().strftime("%Y-%m-%d"), 'operator': '*'
+                        }
+                    else:
+                        return # Cancel the addition
+                
+                if 'price' in item_data:
+                    item_data['price'] = self.estimate.convert_to_base_currency(item_data['price'], item_currency)
+                if 'rate' in item_data:
+                    item_data['rate'] = self.estimate.convert_to_base_currency(item_data['rate'], item_currency)
+                item_data['currency'] = self.estimate.currency
+
             # Use appropriate task or 'Imported Rates' task
             if table_name == 'indirect_costs':
                 target_task = None
