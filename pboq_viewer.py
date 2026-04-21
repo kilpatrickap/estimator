@@ -1275,9 +1275,7 @@ class PBOQDialog(QDialog):
                     break
         
         if sor_dialog:
-            result = sor_dialog.highlight_and_build(ref, desc, qty, unit)
-            if result is not None:
-                gross_rate, new_code = result
+            def on_rate_built(gross_rate, new_code):
                 # Persist the newly generated rate back to the PBOQ row ONLY if a rate was actually generated
                 if gross_rate and new_code:
                     if rate_col >= 0:
@@ -1306,7 +1304,9 @@ class PBOQDialog(QDialog):
                                 from PyQt6.QtCore import QTimer
                                 QTimer.singleShot(0, lambda: sor_dialog.table_widget.clearFocus())
                             break
-            else:
+
+            result = sor_dialog.highlight_and_build(ref, desc, qty, unit, callback=on_rate_built)
+            if not result:
                 QMessageBox.warning(self, "Not Found", f"Item '{desc}' could not be found in the loaded Schedule of Rates (SOR).\n\nPlease load the correct SOR to build this rate.")
         else:
             QMessageBox.warning(self, "SOR Not Open", "The Schedule of Rates (SOR) window is not open.\n\nPlease open the SOR window to build gross rates.")

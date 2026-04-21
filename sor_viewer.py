@@ -521,7 +521,7 @@ class SORDialog(QDialog):
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to persist SOR data:\n{e}")
         
-    def _build_rate(self, index):
+    def _build_rate(self, index, callback=None):
         row = index.row()
         item = self.table_widget.item(row, 3) # Description column
         unit_item = self.table_widget.item(row, 5) # Unit column
@@ -560,6 +560,13 @@ class SORDialog(QDialog):
                 estimate_obj = db.load_estimate_details(est_id)
                 if estimate_obj and self.main_window:
                     self.main_window.open_rate_buildup_window(estimate_obj, db_path=db_path)
+                    if callback:
+                        from PyQt6.QtCore import QTimer
+                        gross_item = self.table_widget.item(row, 6)
+                        code_item = self.table_widget.item(row, 7)
+                        g_rate = gross_item.text().strip() if gross_item else ""
+                        r_code = code_item.text().strip() if code_item else ""
+                        QTimer.singleShot(0, lambda: callback(g_rate, r_code))
                 return
             else:
                 QMessageBox.warning(self, "Not Found", f"Rate '{rate_code}' could not be found in the Project Database.")
@@ -599,27 +606,47 @@ class SORDialog(QDialog):
                             widget.load_project_rates()
 
         dialog = RateBuildUpDialog(new_est, main_window=self.main_window, parent=self, db_path=db_path)
-        dialog.dataCommitted.connect(refresh_manager)
-        dialog.exec()
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         
-        if hasattr(dialog, 'estimate') and dialog.estimate.id:
-            totals = dialog.estimate.calculate_totals()
-            gross_rate = totals.get('grand_total', 0.0)
-            formatted_gross = f"{gross_rate:,.2f}"
-            
-            gross_item = QTableWidgetItem(formatted_gross)
-            gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            
-            rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
-            
-            self.table_widget.setItem(row, 6, gross_item)
-            self.table_widget.setItem(row, 7, rate_code_item)
-            
-            # Persist to SOR DB
-            self._persist_to_sor_db(row, formatted_gross, str(dialog.estimate.rate_code))
-            
-            self.table_widget.resizeColumnToContents(6)
-            self.table_widget.resizeColumnToContents(7)
+        def on_data_committed():
+            refresh_manager()
+            if hasattr(dialog, 'estimate') and dialog.estimate.id:
+                totals = dialog.estimate.calculate_totals()
+                gross_rate = totals.get('grand_total', 0.0)
+                formatted_gross = f"{gross_rate:,.2f}"
+                
+                gross_item = QTableWidgetItem(formatted_gross)
+                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                
+                rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
+                
+                self.table_widget.setItem(row, 6, gross_item)
+                self.table_widget.setItem(row, 7, rate_code_item)
+                
+                # Persist to SOR DB
+                self._persist_to_sor_db(row, formatted_gross, str(dialog.estimate.rate_code))
+                
+                self.table_widget.resizeColumnToContents(6)
+                self.table_widget.resizeColumnToContents(7)
+                
+                if callback:
+                    callback(formatted_gross, str(dialog.estimate.rate_code))
+
+        dialog.dataCommitted.connect(on_data_committed)
+        
+        if self.main_window and hasattr(self.main_window, 'mdi_area'):
+            sub = self.main_window.mdi_area.addSubWindow(dialog)
+            color = "#ffffff"
+            if self.main_window and hasattr(self.main_window, '_get_color_for_rate') and new_est.rate_code:
+                color = self.main_window._get_color_for_rate(new_est.rate_code)
+            if color != "transparent":
+                sub.setStyleSheet(f"QMdiSubWindow {{ border: 4px solid {color}; background-color: #ffffff; }}")
+            dialog.stateChanged.connect(self.main_window._update_toolbar_state)
+            sub.resize(800, 634)
+            self.main_window._apply_zoom_to_subwindow(sub)
+            sub.show()
+        else:
+            dialog.exec()
 
     def _price_sor_with_rate(self, rate_desc, gross_rate, rate_code):
         """Searches the SOR table for a matching description and updates it."""
@@ -681,7 +708,7 @@ class SORDialog(QDialog):
             self.table_widget.resizeColumnToContents(7)
         return found_count
 
-    def highlight_and_build(self, ref, desc, qty, unit):
+    def highlight_and_build(self, ref, desc, qty, unit, callback=None):
         """Highlights a matching item based on combination of keys, and triggers build."""
         from PyQt6.QtGui import QBrush
         from PyQt6.QtCore import Qt
@@ -743,25 +770,22 @@ class SORDialog(QDialog):
             
             # Trigger build
             index = self.table_widget.model().index(found_row, 0)
-            self._build_rate(index)
             
-            # Clear highlight after build dialog is closed/done
-            for col in range(self.table_widget.columnCount()):
-                cell = self.table_widget.item(found_row, col)
-                if cell:
-                    cell.setData(Qt.ItemDataRole.BackgroundRole, None)
-                    cell.setData(Qt.ItemDataRole.ForegroundRole, None)
+            # Define an interceptor callback to clear highlight and call the actual callback
+            def intercept_callback(g_rate, r_code):
+                for col in range(self.table_widget.columnCount()):
+                    cell = self.table_widget.item(found_row, col)
+                    if cell:
+                        cell.setData(Qt.ItemDataRole.BackgroundRole, None)
+                        cell.setData(Qt.ItemDataRole.ForegroundRole, None)
+                if callback:
+                    callback(g_rate, r_code)
+                    
+            self._build_rate(index, callback=intercept_callback)
             
-            # Extract updated info
-            gross_item = self.table_widget.item(found_row, 6)
-            code_item = self.table_widget.item(found_row, 7)
+            return True
             
-            g_rate = gross_item.text().strip() if gross_item else ""
-            r_code = code_item.text().strip() if code_item else ""
-            
-            return g_rate, r_code
-            
-        return None
+        return False
 
     def _on_mdi_subwindow_activated(self, sub):
         """Toggle dock visibility based on whether THIS window is active."""

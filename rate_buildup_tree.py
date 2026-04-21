@@ -159,12 +159,6 @@ class RateBuildupTreeWidget(QWidget):
                         }
                     else:
                         return # Cancel the addition
-                
-                if 'price' in item_data:
-                    item_data['price'] = self.estimate.convert_to_base_currency(item_data['price'], item_currency)
-                if 'rate' in item_data:
-                    item_data['rate'] = self.estimate.convert_to_base_currency(item_data['rate'], item_currency)
-                item_data['currency'] = self.estimate.currency
 
             # Use appropriate task or 'Imported Rates' task
             if table_name == 'indirect_costs':

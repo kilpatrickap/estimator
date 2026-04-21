@@ -252,6 +252,7 @@ class RateBuildUpDialog(QDialog):
         """Opens exchange rate settings in MDI."""
         for sub in self.main_window.mdi_area.subWindowList():
             if isinstance(sub.widget(), CurrencyConversionDialog):
+                sub.widget().populate_table()
                 self.main_window.mdi_area.setActiveSubWindow(sub)
                 return
                 
