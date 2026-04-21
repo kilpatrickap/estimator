@@ -83,7 +83,6 @@ class PBOQDialog(QDialog):
         self.tools_pane.columnHeadersRequested.connect(self._update_column_headers)
         self.tools_pane.wrapTextToggled.connect(self._toggle_wrap_text)
         self.tools_pane.alignTextLeftToggled.connect(self._toggle_left_align)
-        self.tools_pane.clearGrossRequested.connect(self._clear_gross_and_code)
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
         self.tools_pane.revertRequested.connect(self._run_revert_logic)
         self.tools_pane.recalculateRequested.connect(self._run_recalculate_all_logic)
@@ -2264,12 +2263,6 @@ class PBOQDialog(QDialog):
             self._save_pboq_state()
         finally:
             self.is_updating_logic = False
-
-    def _clear_gross_and_code(self):
-        m = self.tools_pane.get_mappings()
-        rate_col = m['rate']
-        code_col = m['rate_code']
-        self._clear_columns([rate_col, code_col], "Gross Rate & Code")
 
     def _clear_plug_and_code(self):
         m = self.tools_pane.get_mappings()

@@ -9,7 +9,6 @@ class PBOQToolsPane(QWidget):
     
     # Signals for state changes and button clicks
     stateChanged = pyqtSignal()
-    clearGrossRequested = pyqtSignal()
     extendRequested = pyqtSignal()
     revertRequested = pyqtSignal()
     recalculateRequested = pyqtSignal()
@@ -111,14 +110,10 @@ class PBOQToolsPane(QWidget):
         self.align_left_btn.clicked.connect(lambda checked: self.alignTextLeftToggled.emit(checked))
         self.align_left_btn.clicked.connect(self.stateChanged)
 
-        self.clear_all_btn = QPushButton("Clear Gross & Code")
-        self.clear_all_btn.clicked.connect(self.clearGrossRequested)
-        
         row1 = QHBoxLayout()
         row1.addWidget(self.wrap_text_btn)
         row1.addWidget(self.align_left_btn)
         format_layout.addLayout(row1)
-        format_layout.addWidget(self.clear_all_btn)
         container_layout.addWidget(format_group)
 
         # 3. Extend
@@ -435,7 +430,7 @@ class PBOQToolsPane(QWidget):
             self.cb_rate, self.cb_rate_code, self.cb_plug_rate, self.cb_plug_code,
             self.cb_prov_sum, self.cb_prov_sum_code,
             self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
-            self.wrap_text_btn, self.align_left_btn, self.clear_all_btn,
+            self.wrap_text_btn, self.align_left_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
             self.dummy_rate_spin, self.extend_btn, self.revert_btn, self.recalc_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
