@@ -85,6 +85,7 @@ class PBOQDialog(QDialog):
         self.tools_pane.alignTextLeftToggled.connect(self._toggle_left_align)
         self.tools_pane.clearGrossRequested.connect(self._clear_gross_and_code)
         self.tools_pane.extendRequested.connect(self._run_extend_logic)
+        self.tools_pane.revertRequested.connect(self._run_revert_logic)
         self.tools_pane.recalculateRequested.connect(self._run_recalculate_all_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
@@ -1997,7 +1998,6 @@ class PBOQDialog(QDialog):
             QMessageBox.warning(self, "Mapping Required", "Map Qty and Bill Rate columns.")
             return
 
-        is_revert = self.tools_pane.extend_btn.text() == "Revert"
         d_rate = self.tools_pane.dummy_rate_spin.value()
         d_rate_str = "{:,.2f}".format(d_rate)
         
@@ -2014,56 +2014,41 @@ class PBOQDialog(QDialog):
             for r in range(table.rowCount()):
                 rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
                 rate_item = table.item(r, m['bill_rate'])
-                g_idx = table.item(r, 0).data(Qt.ItemDataRole.UserRole + 1)
                 
-                if is_revert:
-                    if rate_item and rate_item.text() == d_rate_str and rate_item.foreground().color().name().lower() == const.COLOR_GRAY_TEXT.name().lower():
-                        rate_item.setText("")
-                        rate_item.setForeground(Qt.GlobalColor.black)
-                        rate_updates.append((rowid, ""))
-                        if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_rate'])
-                        if m['bill_amount'] >= 0:
-                            amt_item = table.item(r, m['bill_amount'])
-                            if amt_item: 
-                                amt_item.setText("")
-                                amt_item.setForeground(Qt.GlobalColor.black)
-                            amt_updates.append((rowid, ""))
-                            if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
-                else:
-                    # Extend Logic
-                    if not checked_cols: continue
-                    is_aligned = all(table.item(r, c) and table.item(r, c).text().strip() for c in checked_cols)
-                    if not is_aligned: continue
+                # Extend Logic
+                if not checked_cols: continue
+                is_aligned = all(table.item(r, c) and table.item(r, c).text().strip() for c in checked_cols)
+                if not is_aligned: continue
+                
+                qty_item = table.item(r, m['qty'])
+                if not qty_item or not qty_item.text().strip(): continue
+                
+                # Already has a rate?
+                if rate_item and rate_item.text().strip(): continue
+                
+                try:
+                    qty_val = float(qty_item.text().replace(',', ''))
+                    if qty_val <= 0: continue
                     
-                    qty_item = table.item(r, m['qty'])
-                    if not qty_item or not qty_item.text().strip(): continue
+                    if not rate_item:
+                        rate_item = QTableWidgetItem()
+                        table.setItem(r, m['bill_rate'], rate_item)
                     
-                    # Already has a rate?
-                    if rate_item and rate_item.text().strip(): continue
+                    rate_item.setText(d_rate_str)
+                    rate_item.setForeground(const.COLOR_GRAY_TEXT)
+                    rate_updates.append((rowid, d_rate_str))
                     
-                    try:
-                        qty_val = float(qty_item.text().replace(',', ''))
-                        if qty_val <= 0: continue
-                        
-                        if not rate_item:
-                            rate_item = QTableWidgetItem()
-                            table.setItem(r, m['bill_rate'], rate_item)
-                        
-                        rate_item.setText(d_rate_str)
-                        rate_item.setForeground(const.COLOR_GRAY_TEXT)
-                        rate_updates.append((rowid, d_rate_str))
-                        
-                        if m['bill_amount'] >= 0:
-                            amt_val = qty_val * d_rate
-                            amt_str = "{:,.2f}".format(amt_val)
-                            amt_item = table.item(r, m['bill_amount'])
-                            if not amt_item:
-                                amt_item = QTableWidgetItem()
-                                table.setItem(r, m['bill_amount'], amt_item)
-                            amt_item.setText(amt_str)
-                            amt_item.setForeground(const.COLOR_GRAY_TEXT)
-                            amt_updates.append((rowid, amt_str))
-                    except ValueError: continue
+                    if m['bill_amount'] >= 0:
+                        amt_val = qty_val * d_rate
+                        amt_str = "{:,.2f}".format(amt_val)
+                        amt_item = table.item(r, m['bill_amount'])
+                        if not amt_item:
+                            amt_item = QTableWidgetItem()
+                            table.setItem(r, m['bill_amount'], amt_item)
+                        amt_item.setText(amt_str)
+                        amt_item.setForeground(const.COLOR_GRAY_TEXT)
+                        amt_updates.append((rowid, amt_str))
+                except ValueError: continue
 
         if rate_updates:
             self._persist_updates(m['bill_rate'], rate_updates)
@@ -2077,9 +2062,47 @@ class PBOQDialog(QDialog):
                 fmt_amt_updates = [(self.rowid_to_item0[rid].data(Qt.ItemDataRole.UserRole + 1), {'font_color': const.COLOR_GRAY_TEXT.name()}) for rid, _ in amt_updates]
                 self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_amt_updates)
             
-            self.tools_pane.extend_btn.setText("Extend" if is_revert else "Revert")
             self._update_column_headers()
-            QMessageBox.information(self, "Success", f"Processed {len(rate_updates)} rows.")
+            QMessageBox.information(self, "Success", f"Extended {len(rate_updates)} rows.")
+
+    def _run_revert_logic(self):
+        m = self.tools_pane.get_mappings()
+        if m['bill_rate'] < 0:
+            QMessageBox.warning(self, "Mapping Required", "Map Bill Rate column.")
+            return
+
+        d_rate = self.tools_pane.dummy_rate_spin.value()
+        d_rate_str = "{:,.2f}".format(d_rate)
+        
+        rate_updates, amt_updates = [], []
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            for r in range(table.rowCount()):
+                rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                rate_item = table.item(r, m['bill_rate'])
+                g_idx = table.item(r, 0).data(Qt.ItemDataRole.UserRole + 1)
+                
+                if rate_item and rate_item.text() == d_rate_str and rate_item.foreground().color().name().lower() == const.COLOR_GRAY_TEXT.name().lower():
+                    rate_item.setText("")
+                    rate_item.setForeground(Qt.GlobalColor.black)
+                    rate_updates.append((rowid, ""))
+                    if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_rate'])
+                    if m['bill_amount'] >= 0:
+                        amt_item = table.item(r, m['bill_amount'])
+                        if amt_item: 
+                            amt_item.setText("")
+                            amt_item.setForeground(Qt.GlobalColor.black)
+                        amt_updates.append((rowid, ""))
+                        if g_idx is not None: self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
+
+        if rate_updates:
+            self._persist_updates(m['bill_rate'], rate_updates)
+            if amt_updates: 
+                self._persist_updates(m['bill_amount'], amt_updates)
+            
+            self._update_column_headers()
+            QMessageBox.information(self, "Success", f"Reverted {len(rate_updates)} rows.")
 
     def _run_recalculate_all_logic(self, silent=False):
         """Audits every row in the PBOQ and recalculates Bill Amount for accuracy."""

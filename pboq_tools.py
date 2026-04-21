@@ -11,6 +11,7 @@ class PBOQToolsPane(QWidget):
     stateChanged = pyqtSignal()
     clearGrossRequested = pyqtSignal()
     extendRequested = pyqtSignal()
+    revertRequested = pyqtSignal()
     recalculateRequested = pyqtSignal()
     clearBillRequested = pyqtSignal()
     collectRequested = pyqtSignal()
@@ -146,11 +147,14 @@ class PBOQToolsPane(QWidget):
         extend_btns = QHBoxLayout()
         self.extend_btn = QPushButton("Extend")
         self.extend_btn.clicked.connect(self.extendRequested)
+        self.revert_btn = QPushButton("Revert")
+        self.revert_btn.clicked.connect(self.revertRequested)
         self.recalc_btn = QPushButton("Recalc")
         self.recalc_btn.clicked.connect(self.recalculateRequested)
         self.clear_bill_btn = QPushButton("Clear")
         self.clear_bill_btn.clicked.connect(self.clearBillRequested)
         extend_btns.addWidget(self.extend_btn)
+        extend_btns.addWidget(self.revert_btn)
         extend_btns.addWidget(self.recalc_btn)
         extend_btns.addWidget(self.clear_bill_btn)
         extend_layout.addLayout(extend_btns)
@@ -365,8 +369,7 @@ class PBOQToolsPane(QWidget):
             'wrap_text': self.wrap_text_btn.isChecked(),
             'align_left': self.align_left_btn.isChecked(),
             'frozen': self.freeze_btn.isChecked(),
-            'collect_revert': self.collect_btn.text() == "Revert",
-            'extend_revert': self.extend_btn.text() == "Revert"
+            'collect_revert': self.collect_btn.text() == "Revert"
         }
 
     def set_tools_state(self, state):
@@ -393,11 +396,6 @@ class PBOQToolsPane(QWidget):
                 self.collect_btn.setText("Revert")
             else:
                 self.collect_btn.setText("Collect")
-
-            if state.get('extend_revert'):
-                self.extend_btn.setText("Revert")
-            else:
-                self.extend_btn.setText("Extend")
         finally:
             self.blockSignals(False)
         
@@ -423,7 +421,7 @@ class PBOQToolsPane(QWidget):
             self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
             self.wrap_text_btn, self.align_left_btn, self.clear_all_btn,
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
-            self.dummy_rate_spin, self.extend_btn, self.recalc_btn, self.clear_bill_btn,
+            self.dummy_rate_spin, self.extend_btn, self.revert_btn, self.recalc_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
             self.collect_btn
         ]
