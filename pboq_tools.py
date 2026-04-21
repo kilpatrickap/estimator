@@ -248,11 +248,26 @@ class PBOQToolsPane(QWidget):
                   self.cb_sub_package, self.cb_sub_name, self.cb_sub_rate, self.cb_sub_markup,
                   self.cb_sub_category, self.cb_sub_code]
         
+        user_combos = [self.cb_ref, self.cb_desc, self.cb_qty, self.cb_unit]
+        
         for cb in combos:
             cb.blockSignals(True)
             cb.clear()
             cb.addItem("-- Select Column --")
-            cb.addItems(column_names)
+            
+            # Filter: only show Column 0-3 in user-visible dropdowns to avoid confusion
+            if cb in user_combos:
+                filtered_cols = []
+                for col in column_names:
+                    if col.startswith("Column "):
+                        try:
+                            col_idx = int(col.replace("Column ", ""))
+                            if col_idx <= 3:
+                                filtered_cols.append(col)
+                        except: pass
+                cb.addItems(filtered_cols)
+            else:
+                cb.addItems(column_names)
             
         # Standard Smart-Detection (Role to DB column name mapping)
         smart_map = {
