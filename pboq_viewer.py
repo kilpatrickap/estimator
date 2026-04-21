@@ -137,6 +137,7 @@ class PBOQDialog(QDialog):
         
         self.tool_toggle_btn = QPushButton("Price Tools")
         self.tool_toggle_btn.setFixedWidth(100)
+        self.tool_toggle_btn.setStyleSheet("background-color: #ffff00; color: #1b5e20; font-weight: bold;")
         self.tool_toggle_btn.clicked.connect(self._switch_tool_pane)
         top_bar.addWidget(self.tool_toggle_btn)
         
@@ -1740,6 +1741,7 @@ class PBOQDialog(QDialog):
             self.tools_dock.setWidget(self.price_pane)
             self.tools_dock.setWindowTitle("Price Tools")
             self.tool_toggle_btn.setText("PBOQ Tools")
+            self.tool_toggle_btn.setStyleSheet("background-color: #1b5e20; color: #ffff00; font-weight: bold;")
             
             # Apply current state of the price pane
             self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
@@ -1747,6 +1749,7 @@ class PBOQDialog(QDialog):
             self.tools_dock.setWidget(self.tools_pane)
             self.tools_dock.setWindowTitle("PBOQ Tools")
             self.tool_toggle_btn.setText("Price Tools")
+            self.tool_toggle_btn.setStyleSheet("background-color: #ffff00; color: #1b5e20; font-weight: bold;")
         
         # Ensure dock is visible
         if not self.tools_dock.isVisible():
