@@ -89,6 +89,7 @@ class PBOQDialog(QDialog):
         self.tools_pane.recalculateRequested.connect(self._run_recalculate_all_logic)
         self.tools_pane.clearBillRequested.connect(self._clear_bill_rates)
         self.tools_pane.collectRequested.connect(self._run_collect_logic)
+        self.tools_pane.collectRevertRequested.connect(self._run_collect_revert_logic)
         self.tools_pane.stateChanged.connect(self._update_stats)
         
         # Connect Price Pane signals
@@ -1462,9 +1463,20 @@ class PBOQDialog(QDialog):
 
         # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
         # AND we are not already in a logic update.
+        # Trigger Collection update IF we are currently in a "Collection" state
+        # (Identifying this by checking if any cell in the table has the Collection background color)
         if display_col == m['bill_amount'] and not self.is_updating_logic:
-            if self.tools_pane.collect_btn.text() == "Revert":
-                self._run_collect_logic(force_collect=True)
+            # Check current sheet for collection color to avoid expensive global scan if possible
+            table = self.tabs.currentWidget()
+            if isinstance(table, PBOQTable):
+                has_collect = False
+                for r in range(table.rowCount()):
+                    it = table.item(r, m['bill_amount'])
+                    if it and it.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
+                        has_collect = True
+                        break
+                if has_collect:
+                    self._run_collect_logic(force_refresh=True)
         
         # Stats update is fast enough to keep live
         self._update_stats()
@@ -2144,16 +2156,16 @@ class PBOQDialog(QDialog):
                     updates.append((rowid, ""))
         if updates: self._persist_updates(m['bill_rate'], updates)
 
-    def _run_collect_logic(self, force_collect=False):
+    def _run_collect_logic(self, force_refresh=False):
         m = self.tools_pane.get_mappings()
         if m['desc'] < 0 or m['bill_amount'] < 0: return
         
         # Start logical update session
         self.is_updating_logic = True
         try:
-            # We are "reverting" strictly if the button says Revert AND we aren't forcing a collect update
-            is_revert_action = self.tools_pane.collect_btn.text() == "Revert" and not force_collect
             kw = self.tools_pane.collect_search_bar.text().lower().strip()
+            if not kw and not force_refresh:
+                return # Nothing to search for
             
             # Options from UI
             search_desc = self.tools_pane.collect_desc_cb.isChecked()
@@ -2170,73 +2182,83 @@ class PBOQDialog(QDialog):
                     item_desc = t.item(r, m['desc'])
                     item_amt = t.item(r, m['bill_amount'])
                     rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
-                    g_idx = item_amt.data(Qt.ItemDataRole.UserRole + 1) if item_amt else None
                     
-                    if is_revert_action:
-                        # Clear only collected items
-                        if item_amt and item_amt.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                            item_amt.setText("")
-                            def_color = t.get_column_default_color(m['bill_amount'])
-                            item_amt.setBackground(def_color if def_color else QBrush())
-                            item_amt.setForeground(Qt.GlobalColor.black)
-                            updates.append((rowid, ""))
-                            if g_idx is not None: 
-                                self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
-                    else:
-                        if not kw: 
-                            # If no keyword and not reverting, we can't search
-                            continue
+                    # Check for matches based on user selection
+                    match = False
+                    if search_desc and item_desc and kw and kw in item_desc.text().lower():
+                        match = True
+                    if not match and search_amt and item_amt and kw and kw in item_amt.text().lower():
+                        match = True
                         
-                        # Check for matches based on user selection
-                        match = False
-                        if search_desc and item_desc and kw in item_desc.text().lower():
-                            match = True
-                        if not match and search_amt and item_amt and kw in item_amt.text().lower():
-                            match = True
+                    if match:
+                        if not item_amt:
+                            item_amt = QTableWidgetItem()
+                            t.setItem(r, m['bill_amount'], item_amt)
+                        
+                        f_sum = "{:,.2f}".format(cur_sum)
+                        item_amt.setText(f_sum)
+                        item_amt.setBackground(const.COLOR_COLLECT)
+                        item_amt.setForeground(const.COLOR_GRAY_TEXT)
+                        updates.append((rowid, f_sum))
+                        cur_sum = 0.0
+                    else:
+                        # Add to sum if not a logic cell
+                        if item_amt and item_amt.text().strip():
+                            bg_hex = item_amt.background().color().name().lower()
+                            is_logic = bg_hex == const.COLOR_COLLECT.name().lower()
                             
-                        if match:
-                            if not item_amt:
-                                item_amt = QTableWidgetItem()
-                                t.setItem(r, m['bill_amount'], item_amt)
-                            
-                            f_sum = "{:,.2f}".format(cur_sum)
-                            item_amt.setText(f_sum)
-                            item_amt.setBackground(const.COLOR_COLLECT)
-                            item_amt.setForeground(const.COLOR_GRAY_TEXT)
-                            updates.append((rowid, f_sum))
-                            cur_sum = 0.0
-                        else:
-                            # Add to sum if not a logic cell
-                            if item_amt and item_amt.text().strip():
-                                bg_hex = item_amt.background().color().name().lower()
-                                is_logic = bg_hex == const.COLOR_COLLECT.name().lower()
-                                
-                                if not is_logic:
-                                    try: 
-                                        val = float(item_amt.text().replace(',', ''))
-                                        cur_sum += val
-                                    except ValueError: pass
+                            if not is_logic:
+                                try: 
+                                    val = float(item_amt.text().replace(',', ''))
+                                    cur_sum += val
+                                except ValueError: pass
             
             if updates:
                 self._persist_updates(m['bill_amount'], updates)
-                if not is_revert_action:
-                    fmt_updates = []
-                    for rid, val in updates:
-                        if val == "": continue 
-                        item0 = self.rowid_to_item0.get(rid)
-                        if item0:
-                            g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
-                            if g_idx is not None:
-                                fmt_updates.append((g_idx, {'bg_color': const.COLOR_COLLECT.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
-                    
-                    if fmt_updates:
-                        self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
+                fmt_updates = []
+                for rid, val in updates:
+                    if val == "": continue 
+                    item0 = self.rowid_to_item0.get(rid)
+                    if item0:
+                        g_idx = item0.data(Qt.ItemDataRole.UserRole + 1)
+                        if g_idx is not None:
+                            fmt_updates.append((g_idx, {'bg_color': const.COLOR_COLLECT.name(), 'font_color': const.COLOR_GRAY_TEXT.name()}))
+                
+                if fmt_updates:
+                    self.logic.persist_batch_cell_formatting(self.pboq_file_selector.currentData(), m['bill_amount'], fmt_updates)
             
-            # Update button text manually based on action just taken
-            if is_revert_action:
-                self.tools_pane.collect_btn.setText("Collect")
-            elif kw:
-                self.tools_pane.collect_btn.setText("Revert")
+            self._update_column_headers()
+            self._save_pboq_state()
+        finally:
+            self.is_updating_logic = False
+
+    def _run_collect_revert_logic(self):
+        m = self.tools_pane.get_mappings()
+        if m['bill_amount'] < 0: return
+        
+        self.is_updating_logic = True
+        try:
+            updates = []
+            for i in range(self.tabs.count()):
+                t = self.tabs.widget(i)
+                if not isinstance(t, PBOQTable): continue
+                
+                for r in range(t.rowCount()):
+                    item_amt = t.item(r, m['bill_amount'])
+                    rowid = t.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    g_idx = item_amt.data(Qt.ItemDataRole.UserRole + 1) if item_amt else None
+                    
+                    if item_amt and item_amt.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
+                        item_amt.setText("")
+                        def_color = t.get_column_default_color(m['bill_amount'])
+                        item_amt.setBackground(def_color if def_color else QBrush())
+                        item_amt.setForeground(Qt.GlobalColor.black)
+                        updates.append((rowid, ""))
+                        if g_idx is not None: 
+                            self.logic.clear_cell_formatting(self.pboq_file_selector.currentData(), g_idx, m['bill_amount'])
+            
+            if updates:
+                self._persist_updates(m['bill_amount'], updates)
             
             self._update_column_headers()
             self._save_pboq_state()

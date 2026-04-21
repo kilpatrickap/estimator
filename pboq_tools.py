@@ -15,6 +15,7 @@ class PBOQToolsPane(QWidget):
     recalculateRequested = pyqtSignal()
     clearBillRequested = pyqtSignal()
     collectRequested = pyqtSignal()
+    collectRevertRequested = pyqtSignal()
     columnHeadersRequested = pyqtSignal()
     wrapTextToggled = pyqtSignal(bool)
     alignTextLeftToggled = pyqtSignal(bool)
@@ -184,9 +185,14 @@ class PBOQToolsPane(QWidget):
         check_row.addWidget(self.collect_amount_cb)
         collect_layout.addLayout(check_row)
         
+        collect_btns = QHBoxLayout()
         self.collect_btn = QPushButton("Collect")
         self.collect_btn.clicked.connect(self.collectRequested)
-        collect_layout.addWidget(self.collect_btn)
+        self.collect_revert_btn = QPushButton("Revert")
+        self.collect_revert_btn.clicked.connect(self.collectRevertRequested)
+        collect_btns.addWidget(self.collect_btn)
+        collect_btns.addWidget(self.collect_revert_btn)
+        collect_layout.addLayout(collect_btns)
         container_layout.addWidget(collect_group)
 
 
@@ -368,8 +374,7 @@ class PBOQToolsPane(QWidget):
             'collect_amount': self.collect_amount_cb.isChecked(),
             'wrap_text': self.wrap_text_btn.isChecked(),
             'align_left': self.align_left_btn.isChecked(),
-            'frozen': self.freeze_btn.isChecked(),
-            'collect_revert': self.collect_btn.text() == "Revert"
+            'frozen': self.freeze_btn.isChecked()
         }
 
     def set_tools_state(self, state):
@@ -392,10 +397,6 @@ class PBOQToolsPane(QWidget):
             if 'frozen' in state:
                 self.freeze_btn.setChecked(state['frozen'])
                 self._toggle_freeze(state['frozen'])
-            if state.get('collect_revert'):
-                self.collect_btn.setText("Revert")
-            else:
-                self.collect_btn.setText("Collect")
         finally:
             self.blockSignals(False)
         
@@ -423,7 +424,7 @@ class PBOQToolsPane(QWidget):
             self.extend_cb0, self.extend_cb1, self.extend_cb2, self.extend_cb3,
             self.dummy_rate_spin, self.extend_btn, self.revert_btn, self.recalc_btn, self.clear_bill_btn,
             self.collect_search_bar, self.collect_desc_cb, self.collect_amount_cb,
-            self.collect_btn
+            self.collect_btn, self.collect_revert_btn
         ]
         
         for w in widgets_to_toggle:
