@@ -58,8 +58,8 @@ class PBOQLogic:
         db_columns = [info[1] for info in cursor.fetchall()]
         
         # Standard Columns and Named Columns in a fixed preferred order
-        standard_cols = [f"Column {i}" for i in range(20)]
-        named_cols = ["Description", "Unit", "Bill Rate", "Bill Amount", "GrossRate", "RateCode", "Rate Code", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
+        standard_cols = [f"Column {i}" for i in range(4)]
+        named_cols = ["Description", "Unit", "Bill Rate", "Bill Amount", "GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", "PlugFactor", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "ProvSum", "ProvSumCode", "ProvSumFormula", "ProvSumCategory", "ProvSumCurrency", "ProvSumExchangeRates",
                       "PCSum", "PCSumCode", "PCSumFormula", "PCSumCategory", "PCSumCurrency", "PCSumExchangeRates",
@@ -240,8 +240,8 @@ class PBOQLogic:
                 # Search across all possible historical code columns to avoid duplicate rows.
                 cursor.execute("""
                     SELECT rowid FROM pboq_items 
-                    WHERE PlugCode = ? OR SubbeeCode = ? OR "Rate Code" = ? OR RateCode = ?
-                """, (code, code, code, code))
+                    WHERE PlugCode = ? OR SubbeeCode = ? OR RateCode = ?
+                """, (code, code, code))
                 res = cursor.fetchone()
                 if res:
                     # Detect which 'Bill Rate' variants exist to avoid crashes
@@ -263,7 +263,7 @@ class PBOQLogic:
                         UPDATE pboq_items 
                         SET "{val_col}" = ?, "Description" = ?, "Unit" = ? {br_clause},
                             {extra_fields},
-                            "Rate Code" = NULL, RateCode = NULL
+                            RateCode = NULL
                         WHERE rowid = ?
                     """, (base_rate, desc, unit) + tuple(br_params) + extra_params + (rowid,))
 

@@ -103,32 +103,33 @@ class PBOQTable(QTableWidget):
                         
                     item.setBackground(color)
 
-    def apply_column_alignment(self, left_enabled, mappings):
+    def apply_column_alignment(self, left_enabled, mappings, skip_cells=False):
         """Forces Left alignment for non-standard columns if enabled, otherwise reverts to Right."""
         map_inv = {v: k for k, v in mappings.items() if v >= 0}
         excludes = [mappings.get('ref', -1), mappings.get('desc', -1), mappings.get('qty', -1), mappings.get('unit', -1)]
         
         # 1. Update Cell Alignment
-        for r in range(self.rowCount()):
-            for c in range(self.columnCount()):
-                item = self.item(r, c)
-                if not item: continue
-                
-                if c in excludes:
-                    # Keep default for these
-                    role = map_inv.get(c)
-                    if role == 'unit':
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-                    elif role == 'qty':
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-                    else: # ref, desc
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                else:
-                    # Pricing columns
-                    if left_enabled:
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        if not skip_cells:
+            for r in range(self.rowCount()):
+                for c in range(self.columnCount()):
+                    item = self.item(r, c)
+                    if not item: continue
+                    
+                    if c in excludes:
+                        # Keep default for these
+                        role = map_inv.get(c)
+                        if role == 'unit':
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                        elif role == 'qty':
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        else: # ref, desc
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
                     else:
-                        item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                        # Pricing columns
+                        if left_enabled:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                        else:
+                            item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         
         # 2. Update Header Alignment
         for c in range(self.columnCount()):

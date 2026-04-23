@@ -692,8 +692,8 @@ class RateManagerDialog(QDialog):
                 # Search across all possible historical code columns to avoid duplicate rows.
                 cursor.execute("""
                     SELECT rowid FROM pboq_items 
-                    WHERE PlugCode = ? OR SubbeeCode = ? OR "Rate Code" = ? OR RateCode = ?
-                """, (code, code, code, code))
+                    WHERE PlugCode = ? OR SubbeeCode = ? OR RateCode = ?
+                """, (code, code, code))
                 pboq_record = cursor.fetchone()
                 
                 if pboq_record:
@@ -716,7 +716,7 @@ class RateManagerDialog(QDialog):
                         SET "Description" = ?, "Unit" = ?, PlugRate = ?, SubbeeRate = ? {br_clause},
                             PlugCode = CASE WHEN ? NOT LIKE 'SR-%' THEN ? ELSE PlugCode END,
                             SubbeeCode = CASE WHEN ? LIKE 'SR-%' THEN ? ELSE SubbeeCode END,
-                            "Rate Code" = NULL, RateCode = NULL
+                            RateCode = NULL
                         WHERE rowid = ?
                     """, (desc, unit, rate, rate) + tuple(br_params) + (code, code, code, code, pboq_record[0]))
 

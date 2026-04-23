@@ -771,7 +771,7 @@ class BOQSetupWindow(QWidget):
             return
         
         # Build records with a guaranteed fixed schema to prevent "drift"
-        standard_cols = ["Sheet"] + [f"Column {i}" for i in range(14)]
+        standard_cols = ["Sheet"] + [f"Column {i}" for i in range(4)]
         named_cols = ["GrossRate", "RateCode", "PlugRate", "PlugCode", "PlugFormula", 
                       "PlugCategory", "PlugCurrency", "PlugExchangeRates",
                       "SubbeePackage", "SubbeeName", "SubbeeRate", "SubbeeMarkup"]

@@ -267,10 +267,23 @@ class PBOQDialog(QDialog):
             
         self.tools_pane.populate_column_combos(display_col_names)
         
+        # Load the saved state BEFORE building the UI so that mapping, alignment, and color are accurate on first pass!
+        # Temporarily block signals so that changing combo boxes doesn't trigger _update_column_headers on empty tabs
+        self.tools_pane.blockSignals(True)
+        self._load_pboq_state(index)
+        self.tools_pane.blockSignals(False)
+        
         progress = QProgressDialog("Loading Sheets...", None, 0, len(rows), self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
+        
+        # Cache UI states and mappings before entering the dense rendering loops
+        m = self.tools_pane.get_mappings()
+        map_inv = {v: k for k, v in m.items() if v >= 0}
+        sub_markup_idx = m.get('sub_markup', -1)
+        align_left = self.tools_pane.align_left_btn.isChecked()
+        align_excludes = [m.get('ref', -1), m.get('desc', -1), m.get('qty', -1), m.get('unit', -1)]
         
         rows_loaded = 0
         try:
@@ -286,11 +299,10 @@ class PBOQDialog(QDialog):
                 for r_idx, (global_row_idx, row_id, row_data, is_flagged) in enumerate(sheet_entries):
                     for c_idx in range(num_display_cols):
                         val = row_data[c_idx] if c_idx < len(row_data) else ""
-                        m = self.tools_pane.get_mappings()
                         display_val = str(val) if val is not None else ""
                         
                         # Format Subbee Markup if mapped
-                        if c_idx == m.get('sub_markup', -1) and display_val:
+                        if c_idx == sub_markup_idx and display_val:
                             try:
                                 f_val = float(display_val.replace('%','').replace(',',''))
                                 display_val = "{:,.2f}%".format(f_val)
@@ -298,9 +310,24 @@ class PBOQDialog(QDialog):
                              
                         item = QTableWidgetItem(display_val)
                         
-                        # Apply Default Column Color
-                        def_color = table.get_column_default_color(c_idx)
-                        if def_color: item.setBackground(def_color)
+                        # Apply Role-based or Default Column Color
+                        role = map_inv.get(c_idx)
+                        color = table.get_role_color(role) if role else table.get_column_default_color(c_idx)
+                        if color: item.setBackground(color)
+                        
+                        # Apply Alignment
+                        if c_idx in align_excludes:
+                            if role == 'unit':
+                                item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+                            elif role == 'qty':
+                                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+                            else:
+                                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                        else:
+                            if align_left:
+                                item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                            else:
+                                item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
                         if c_idx == 0:
                             item.setData(Qt.ItemDataRole.UserRole, row_id)
@@ -337,7 +364,6 @@ class PBOQDialog(QDialog):
                 table.resizeColumnsToContents()
                 table._is_loading = False
                 self.tabs.addTab(table, sheet_name)
-                self._update_column_headers()
                 if progress.wasCanceled():
                     break
             
@@ -345,15 +371,20 @@ class PBOQDialog(QDialog):
         finally:
             progress.close()
             self.tabs.blockSignals(False)
+        
+        # Restore active tab
+        state_file = os.path.join(self.project_dir, "PBOQ States", os.path.basename(file_path) + ".json")
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, 'r') as f:
+                    state = json.load(f)
+                    self.tabs.setCurrentIndex(state.get('active_tab', 0))
+                    if self.tools_pane.collect_btn.text() == "Revert":
+                        self._run_collect_logic(force_collect=True)
+            except: pass
             
-        self._load_pboq_state(index)
-        
-        # Always ensure Global UI preferences (Wrap, Align) are applied
-        # even if no per-file state existed.
+        self._update_column_headers(skip_cells=True)
         self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
-        self._toggle_left_align(self.tools_pane.align_left_btn.isChecked())
-        
-        self._update_column_headers()
         self._update_stats()
         
         # Accuracy Audit: Automatically ensure all extensions follow 'Precision as Displayed'
@@ -1841,7 +1872,7 @@ class PBOQDialog(QDialog):
         """Forces Left alignment across the table based on the toggle."""
         self._update_column_headers()
 
-    def _update_column_headers(self):
+    def _update_column_headers(self, skip_cells=False):
         m = self.tools_pane.get_mappings()
         
         friends = {
@@ -1908,11 +1939,12 @@ class PBOQDialog(QDialog):
                         item.setBackground(const.COLOR_HEADING)
                         item.setForeground(Qt.GlobalColor.black)
             
-            # Update columns identifying colors across sheets
-            table.apply_column_colors(m, table.columnCount())
-            
-            # Apply dynamic alignment
-            table.apply_column_alignment(self.tools_pane.align_left_btn.isChecked(), m)
+            if not skip_cells:
+                # Update columns identifying colors across sheets
+                table.apply_column_colors(m, table.columnCount())
+                
+            # Apply dynamic alignment (headers always aligned, cells skip if requested)
+            table.apply_column_alignment(self.tools_pane.align_left_btn.isChecked(), m, skip_cells=skip_cells)
             
             # Ensure Word Wrap is synced for every sheet
             table.set_word_wrap_enabled(self.tools_pane.wrap_text_btn.isChecked())
@@ -2379,14 +2411,15 @@ class PBOQDialog(QDialog):
                     # Apply initial visibility
                     self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
                 
-                self.tabs.setCurrentIndex(state.get('active_tab', 0))
-                # Apply word wrap state after loading
-                self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
-                self._toggle_left_align(self.tools_pane.align_left_btn.isChecked())
-                
-                # If sticky mode was active, refresh it
-                if self.tools_pane.collect_btn.text() == "Revert":
-                    self._run_collect_logic(force_collect=True)
+                if self.tabs.count() > 0:
+                    self.tabs.setCurrentIndex(state.get('active_tab', 0))
+                    # Apply word wrap state after loading
+                    self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
+                    self._toggle_left_align(self.tools_pane.align_left_btn.isChecked())
+                    
+                    # If sticky mode was active, refresh it
+                    if self.tools_pane.collect_btn.text() == "Revert":
+                        self._run_collect_logic(force_collect=True)
 
     def _save_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
