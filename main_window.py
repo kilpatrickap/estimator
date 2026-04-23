@@ -632,47 +632,39 @@ class MainWindow(QMainWindow):
             db_sub.widget().highlight_resource(table_name, resource_name)
         
     def _broadcast_library_update(self, table, name, val, curr, unit=""):
-        """Notifies all open rate windows about a resource update in the library."""
-        from database import DatabaseManager
-        from PyQt6.QtWidgets import QMessageBox
+        """Notifies only OPEN MDI windows about a resource update in the library.
         
-        db_costs = self.db_manager
-        db_rates = DatabaseManager("construction_rates.db")
-        
-        costs_affected = db_costs.get_estimates_using_resource(table, name)
-        rates_affected = db_rates.get_estimates_using_resource(table, name)
-        
-        total_affected = len(costs_affected) + len(rates_affected)
-        auto_update = False
-        
-        if total_affected > 0:
-            unit_msg = f" @ {unit}" if unit else ""
-            reply = QMessageBox.question(
-                self, 
-                "Update Dependent Rates and Estimates",
-                f"The resource '{name}' is used in {total_affected} saved estimate(s)/rate(s).\n\n"
-                f"Do you want to update all of them to the new rate, currency, and unit: {curr} {val:,.2f}{unit_msg}?",
-                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-                QMessageBox.StandardButton.Yes
-            )
-            
-            if reply == QMessageBox.StandardButton.Yes:
-                db_costs.update_resource_in_all_estimates(table, name, val, curr, new_unit=unit)
-                db_rates.update_resource_in_all_estimates(table, name, val, curr, new_unit=unit)
-                
-                # Force recalculation for nested composite rates and historical totals
-                db_costs.recalculate_all_estimates()
-                db_rates.recalculate_all_estimates()
-                
-                auto_update = True
-        
+        This follows the 'detached snapshot' model: closed/saved projects are NOT 
+        modified. Users must explicitly 'Sync from Library' per-resource, per-project.
+        Only windows currently open in the MDI workspace receive live updates.
+        """
+        live_updated = 0
         for sub in self.mdi_area.subWindowList():
             widget = sub.widget()
             if hasattr(widget, 'handle_library_update'):
-                widget.handle_library_update(table, name, val, curr, unit, auto_update=auto_update)
+                widget.handle_library_update(table, name, val, curr, unit, auto_update=True)
+                live_updated += 1
             elif hasattr(widget, 'load_rates'):
                 # Refresh Historical Rates view if open
                 widget.load_rates()
+        
+        # Show notification window
+        from PyQt6.QtWidgets import QMessageBox
+        unit_msg = f" / {unit}" if unit else ""
+        if live_updated > 0:
+            QMessageBox.information(
+                self, "Library Updated",
+                f"'{name}' updated to {curr} {val:,.2f}{unit_msg}.\n\n"
+                f"{live_updated} open window(s) synced automatically.\n"
+                f"To update other projects, right-click the resource and select 'Sync from Library'."
+            )
+        else:
+            QMessageBox.information(
+                self, "Library Updated",
+                f"'{name}' updated to {curr} {val:,.2f}{unit_msg}.\n\n"
+                f"To update projects using this resource, open them and\n"
+                f"right-click the resource \u2192 'Sync from Library'."
+            )
 
     def manage_rate_database(self):
         for sub in self.mdi_area.subWindowList():

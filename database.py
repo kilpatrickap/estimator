@@ -228,6 +228,16 @@ class DatabaseManager:
             if close_session:
                 session.close()
 
+    def get_library_item_by_name(self, table_name, name):
+        """Returns the full item dict for a resource by name, or None if not found.
+        Used for stale detection (comparing project-local prices against library prices)."""
+        model = self._get_model_class(table_name)
+        if not model: return None
+        col_attr = model.description if table_name == 'indirect_costs' else (model.trade if table_name == 'labor' else model.name)
+        with self.Session() as session:
+            obj = session.query(model).filter(col_attr == name).first()
+            return self._to_dict(obj) if obj else None
+
     def save_estimate(self, estimate_obj):
         if estimate_obj is None:
             print("Database Error: Attempted to save a None estimate.")

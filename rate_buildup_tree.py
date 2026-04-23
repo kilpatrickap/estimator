@@ -39,6 +39,96 @@ class RateBuildupTreeWidget(QWidget):
         
         layout.addWidget(self.tree)
 
+    def _get_stale_info(self, item_type, item_data):
+        """Compares a project resource against the global library.
+        Returns (is_stale, library_item) or (False, None) if no mismatch."""
+        from database import DatabaseManager
+        lib_db = DatabaseManager()  # global construction_costs.db
+        
+        name_key_map = {
+            'material': ('materials', 'name', 'unit_cost', 'price'),
+            'labor': ('labor', 'trade', 'rate', 'rate'),
+            'equipment': ('equipment', 'name', 'rate', 'rate'),
+            'plant': ('plant', 'name', 'rate', 'rate'),
+            'indirect_costs': ('indirect_costs', 'description', 'amount', 'amount')
+        }
+        mapping = name_key_map.get(item_type)
+        if not mapping:
+            return False, None
+        
+        table_name, name_key, local_rate_key, lib_rate_key = mapping
+        resource_name = item_data.get(name_key)
+        if not resource_name:
+            return False, None
+        
+        lib_item = lib_db.get_library_item_by_name(table_name, resource_name)
+        if not lib_item:
+            return False, None  # Not in library, nothing to compare
+        
+        local_val = item_data.get(local_rate_key, 0.0)
+        lib_val = lib_item.get(lib_rate_key, 0.0)
+        local_curr = item_data.get('currency', '')
+        lib_curr = lib_item.get('currency', '')
+        
+        # Only compare when currencies match. If they differ, the resource was
+        # intentionally converted (e.g. GHS library → USD project) and raw
+        # values can't be meaningfully compared.
+        if local_curr == lib_curr and local_val != lib_val:
+            return True, lib_item
+        return False, None
+
+    def sync_resource_from_library(self, item):
+        """Updates a single resource in this estimate to match the current library values."""
+        if not hasattr(item, 'item_type') or not hasattr(item, 'item_data'):
+            return
+        
+        is_stale, lib_item = self._get_stale_info(item.item_type, item.item_data)
+        if not is_stale or not lib_item:
+            QMessageBox.information(self, "Up to Date", "This resource already matches the library.")
+            return
+        
+        name_key_map = {
+            'material': ('name', 'unit_cost', 'price'),
+            'labor': ('trade', 'rate', 'rate'),
+            'equipment': ('name', 'rate', 'rate'),
+            'plant': ('name', 'rate', 'rate'),
+            'indirect_costs': ('description', 'amount', 'amount')
+        }
+        name_key, local_rate_key, lib_rate_key = name_key_map[item.item_type]
+        resource_name = item.item_data.get(name_key, '?')
+        
+        old_val = item.item_data.get(local_rate_key, 0.0)
+        new_val = lib_item.get(lib_rate_key, 0.0)
+        old_curr = item.item_data.get('currency', '')
+        new_curr = lib_item.get('currency', '')
+        
+        reply = QMessageBox.question(
+            self, "Sync from Library",
+            f"Update '{resource_name}' to library values?\n\n"
+            f"  Rate: {old_curr} {old_val:,.2f}  →  {new_curr} {new_val:,.2f}\n"
+            f"  Unit: {item.item_data.get('unit', '')}  →  {lib_item.get('unit', '')}\n\n"
+            f"This only affects this rate/estimate.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        # Apply the update
+        item.item_data[local_rate_key] = new_val
+        item.item_data['currency'] = new_curr
+        if lib_item.get('unit'):
+            item.item_data['unit'] = lib_item['unit']
+        
+        # Recalculate total
+        qty_key = 'qty' if item.item_type == 'material' else ('amount' if item.item_type == 'indirect_costs' else 'hours')
+        qty = item.item_data.get(qty_key, 1.0)
+        if item.item_type == 'indirect_costs':
+            item.item_data['total'] = new_val
+        else:
+            item.item_data['total'] = qty * new_val
+        
+        self.stateChanged.emit()
+
     def show_context_menu(self, pos):
         item = self.tree.itemAt(pos)
         menu = QMenu(self)
@@ -46,6 +136,13 @@ class RateBuildupTreeWidget(QWidget):
         if item and hasattr(item, 'item_type'):
             go_to_action = menu.addAction("Go to Resource")
             go_to_action.triggered.connect(lambda: self.go_to_resource(item))
+            
+            # Sync from Library (only for non-imported-rate resources)
+            if not (hasattr(item, 'task_object') and item.task_object.description == "Imported Rates"):
+                is_stale, _ = self._get_stale_info(item.item_type, item.item_data)
+                sync_lib_action = menu.addAction("⚠ Sync from Library" if is_stale else "Sync from Library")
+                sync_lib_action.triggered.connect(lambda: self.sync_resource_from_library(item))
+            
             menu.addSeparator()
 
         add_task_action = menu.addAction("Add Task")
@@ -598,14 +695,24 @@ class RateBuildupTreeWidget(QWidget):
                     
                     for c in range(self.tree.columnCount()):
                         child.setFlags(child.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                    
+                    # Stale detection: compare against global library
+                    is_stale = False
+                    if task.description != "Imported Rates":
+                        is_stale, _ = self._get_stale_info(type_code, item)
+                        if is_stale:
+                            stale_bg = QColor("#fff8e1")  # light amber
+                            for c in range(self.tree.columnCount()):
+                                child.setBackground(c, stale_bg)
                         
                     item_type_for_color = 'rates' if task.description == "Imported Rates" else type_code
                     color_hex = get_color_for_type(item_type_for_color)
                     if color_hex:
                         from PyQt6.QtWidgets import QLabel
+                        stale_prefix = '⚠ ' if is_stale else ''
                         child.setText(1, "") # Clear underlying text to avoid selection overlaps
                         if task.description != "Imported Rates":
-                            lbl = QLabel(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
+                            lbl = QLabel(f'&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;{stale_prefix}<span style="color: {color_hex}; font-weight: bold;">{label_prefix}:</span> {item_display_name}')
                         else:
                             parts = item_display_name.split(':', 1)
                             if len(parts) > 1:
@@ -615,6 +722,9 @@ class RateBuildupTreeWidget(QWidget):
                         lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
                         lbl.setStyleSheet("background: transparent;")
                         self.tree.setItemWidget(child, 1, lbl)
+                    elif is_stale:
+                        # No color styling but still stale — prepend warning to plain text
+                        child.setText(1, f"    ⚠ {label_prefix}: {item_display_name}")
                         
                     if getattr(self, 'show_impact_highlights', False) and (type_code, item_display_name) in getattr(self, 'impacted_resources', set()):
                         for c in range(self.tree.columnCount()):

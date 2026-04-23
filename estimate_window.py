@@ -134,6 +134,8 @@ class EstimateWindow(QMainWindow):
         layout.addLayout(btn_layout)
         
         self.tree.itemDoubleClicked.connect(self.edit_item)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tree.customContextMenuRequested.connect(self.show_tree_context_menu)
         return panel
 
     def _create_summary_panel(self):
@@ -404,6 +406,135 @@ class EstimateWindow(QMainWindow):
                     task_obj.add_indirect_cost(item.get('description', ''), quantity, unit=str(item.get('unit', '')), currency=str(item.get('currency', '')), formula=formula)
                 self.refresh_view()
 
+    def _get_stale_info(self, item_type, item_data):
+        """Compares a project resource against the global library.
+        Returns (is_stale, library_item) or (False, None) if no mismatch."""
+        lib_db = DatabaseManager()  # global construction_costs.db
+        
+        name_key_map = {
+            'material': ('materials', 'name', 'unit_cost', 'price'),
+            'labor': ('labor', 'trade', 'rate', 'rate'),
+            'equipment': ('equipment', 'name', 'rate', 'rate'),
+            'plant': ('plant', 'name', 'rate', 'rate'),
+            'indirect_costs': ('indirect_costs', 'description', 'amount', 'amount')
+        }
+        mapping = name_key_map.get(item_type)
+        if not mapping:
+            return False, None
+        
+        table_name, name_key, local_rate_key, lib_rate_key = mapping
+        resource_name = item_data.get(name_key)
+        if not resource_name:
+            return False, None
+        
+        lib_item = lib_db.get_library_item_by_name(table_name, resource_name)
+        if not lib_item:
+            return False, None
+        
+        local_val = item_data.get(local_rate_key, 0.0)
+        lib_val = lib_item.get(lib_rate_key, 0.0)
+        local_curr = item_data.get('currency', '')
+        lib_curr = lib_item.get('currency', '')
+        
+        # Only compare when currencies match. If they differ, the resource was
+        # intentionally converted (e.g. GHS library → USD project) and raw
+        # values can't be meaningfully compared.
+        if local_curr == lib_curr and local_val != lib_val:
+            return True, lib_item
+        return False, None
+
+    def sync_resource_from_library(self, item):
+        """Updates a single resource in this estimate to match the current library values."""
+        if not hasattr(item, 'item_type') or not hasattr(item, 'item_data'):
+            return
+        
+        is_stale, lib_item = self._get_stale_info(item.item_type, item.item_data)
+        if not is_stale or not lib_item:
+            QMessageBox.information(self, "Up to Date", "This resource already matches the library.")
+            return
+        
+        name_key_map = {
+            'material': ('name', 'unit_cost', 'price'),
+            'labor': ('trade', 'rate', 'rate'),
+            'equipment': ('name', 'rate', 'rate'),
+            'plant': ('name', 'rate', 'rate'),
+            'indirect_costs': ('description', 'amount', 'amount')
+        }
+        name_key, local_rate_key, lib_rate_key = name_key_map[item.item_type]
+        resource_name = item.item_data.get(name_key, '?')
+        
+        old_val = item.item_data.get(local_rate_key, 0.0)
+        new_val = lib_item.get(lib_rate_key, 0.0)
+        old_curr = item.item_data.get('currency', '')
+        new_curr = lib_item.get('currency', '')
+        
+        reply = QMessageBox.question(
+            self, "Sync from Library",
+            f"Update '{resource_name}' to library values?\n\n"
+            f"  Rate: {old_curr} {old_val:,.2f}  \u2192  {new_curr} {new_val:,.2f}\n"
+            f"  Unit: {item.item_data.get('unit', '')}  \u2192  {lib_item.get('unit', '')}\n\n"
+            f"This only affects this estimate.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        
+        self.save_state()
+        
+        item.item_data[local_rate_key] = new_val
+        item.item_data['currency'] = new_curr
+        if lib_item.get('unit'):
+            item.item_data['unit'] = lib_item['unit']
+        
+        qty_key = 'qty' if item.item_type == 'material' else ('amount' if item.item_type == 'indirect_costs' else 'hours')
+        qty = item.item_data.get(qty_key, 1.0)
+        if item.item_type == 'indirect_costs':
+            item.item_data['total'] = new_val
+        else:
+            item.item_data['total'] = qty * new_val
+        
+        self.refresh_view()
+
+    def show_tree_context_menu(self, pos):
+        """Context menu for the estimate tree with Sync from Library and Go to Resource."""
+        from PyQt6.QtWidgets import QMenu
+        item = self.tree.itemAt(pos)
+        menu = QMenu(self)
+        
+        if item and hasattr(item, 'item_type') and hasattr(item, 'item_data'):
+            # Go to Resource
+            go_action = menu.addAction("Go to Resource")
+            type_table_map = {
+                'material': ('materials', 'name'),
+                'labor': ('labor', 'trade'),
+                'equipment': ('equipment', 'name'),
+                'plant': ('plant', 'name'),
+                'indirect_costs': ('indirect_costs', 'description')
+            }
+            mapping = type_table_map.get(item.item_type)
+            if mapping and self.main_window:
+                table, name_key = mapping
+                resource_name = item.item_data.get(name_key, '')
+                go_action.triggered.connect(lambda: self.main_window.show_resource_in_database(table, resource_name))
+            
+            # Sync from Library
+            is_stale, _ = self._get_stale_info(item.item_type, item.item_data)
+            sync_label = "\u26a0 Sync from Library" if is_stale else "Sync from Library"
+            sync_action = menu.addAction(sync_label)
+            sync_action.triggered.connect(lambda: self.sync_resource_from_library(item))
+            
+            menu.addSeparator()
+            
+            # Remove
+            remove_action = menu.addAction("Remove Selected")
+            remove_action.triggered.connect(self.remove_item)
+        
+        elif item and hasattr(item, 'task_object'):
+            remove_action = menu.addAction("Remove Task")
+            remove_action.triggered.connect(self.remove_item)
+        
+        menu.exec(self.tree.viewport().mapToGlobal(pos))
+
     def remove_item(self):
         selected = self.tree.currentItem()
         if not selected: return
@@ -581,6 +712,16 @@ class EstimateWindow(QMainWindow):
                     ])
                     child.item_data = item
                     child.item_type = type_code
+                    
+                    # Stale detection: compare against global library
+                    is_stale, _ = self._get_stale_info(type_code, item)
+                    if is_stale:
+                        from PyQt6.QtGui import QColor
+                        stale_bg = QColor("#fff8e1")  # light amber
+                        for col_idx in range(self.tree.columnCount()):
+                            child.setBackground(col_idx, stale_bg)
+                        child.setText(1, f"\u26a0 {label_prefix}: {item[name_key]}")
+                    
                     sub_idx += 1
 
         self.tree.expandAll()
