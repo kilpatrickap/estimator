@@ -615,19 +615,23 @@ class SORDialog(QDialog):
                 gross_rate = totals.get('grand_total', 0.0)
                 formatted_gross = f"{gross_rate:,.2f}"
                 
-                gross_item = QTableWidgetItem(formatted_gross)
-                gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-                
-                rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
-                
-                self.table_widget.setItem(row, 6, gross_item)
-                self.table_widget.setItem(row, 7, rate_code_item)
-                
-                # Persist to SOR DB
-                self._persist_to_sor_db(row, formatted_gross, str(dialog.estimate.rate_code))
-                
-                self.table_widget.resizeColumnToContents(6)
-                self.table_widget.resizeColumnToContents(7)
+                try:
+                    gross_item = QTableWidgetItem(formatted_gross)
+                    gross_item.setTextAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+                    
+                    rate_code_item = QTableWidgetItem(str(dialog.estimate.rate_code))
+                    
+                    self.table_widget.setItem(row, 6, gross_item)
+                    self.table_widget.setItem(row, 7, rate_code_item)
+                    
+                    # Persist to SOR DB
+                    self._persist_to_sor_db(row, formatted_gross, str(dialog.estimate.rate_code))
+                    
+                    self.table_widget.resizeColumnToContents(6)
+                    self.table_widget.resizeColumnToContents(7)
+                except RuntimeError:
+                    # SORDialog or table_widget might have been closed/deleted
+                    pass
                 
                 if callback:
                     callback(formatted_gross, str(dialog.estimate.rate_code))
@@ -773,11 +777,14 @@ class SORDialog(QDialog):
             
             # Define an interceptor callback to clear highlight and call the actual callback
             def intercept_callback(g_rate, r_code):
-                for col in range(self.table_widget.columnCount()):
-                    cell = self.table_widget.item(found_row, col)
-                    if cell:
-                        cell.setData(Qt.ItemDataRole.BackgroundRole, None)
-                        cell.setData(Qt.ItemDataRole.ForegroundRole, None)
+                try:
+                    for col in range(self.table_widget.columnCount()):
+                        cell = self.table_widget.item(found_row, col)
+                        if cell:
+                            cell.setData(Qt.ItemDataRole.BackgroundRole, None)
+                            cell.setData(Qt.ItemDataRole.ForegroundRole, None)
+                except RuntimeError:
+                    pass
                 if callback:
                     callback(g_rate, r_code)
                     
