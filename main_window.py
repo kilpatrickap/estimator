@@ -1104,10 +1104,10 @@ class MainWindow(QMainWindow):
                         win.estimate.profit_margin_percent = new_profit
                         win.estimate.adjustment_factor = new_factor
                         
-                        for task in getattr(win.estimate, 'tasks', []):
-                            for res_type in ['materials', 'labor', 'equipment', 'plant', 'indirect_costs']:
-                                for item in getattr(task, res_type, []):
-                                    item['currency'] = new_currency
+                        # NOTE: Do NOT overwrite individual resource currencies here.
+                        # Resources retain their original currency so that 
+                        # convert_to_base_currency() can detect foreign currencies
+                        # and apply exchange rates correctly.
                     
                     if hasattr(win, 'db_manager') and library_path and win_type == "EstimateWindow":
                         win.db_manager.set_setting('library_path', library_path)

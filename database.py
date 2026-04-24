@@ -707,15 +707,13 @@ class DatabaseManager:
             else:
                 session.add(Setting(key='currency', value=str(new_currency)))
 
-            # 2. Update main estimates header
+            # 2. Update main estimates header (project-level currency)
             session.query(DBEstimate).update({DBEstimate.currency: new_currency})
             
-            # 3. Update nested estimate items
-            session.query(DBEstimateMaterial).update({DBEstimateMaterial.currency: new_currency})
-            session.query(DBEstimateLabor).update({DBEstimateLabor.currency: new_currency})
-            session.query(DBEstimateEquipment).update({DBEstimateEquipment.currency: new_currency})
-            session.query(DBEstimatePlant).update({DBEstimatePlant.currency: new_currency})
-            session.query(DBEstimateIndirectCost).update({DBEstimateIndirectCost.currency: new_currency})
+            # NOTE: Individual resource currencies (materials, labor, etc.) are NOT
+            # updated here. They retain their original currency so that
+            # convert_to_base_currency() can detect foreign currencies and apply
+            # exchange rates. Value conversion is handled by CurrencyMigrationDialog.
             
             # 4. Update Library items currency so that Resource views also reflect the global change
             from orm_models import Material, Labor, Equipment, Plant, IndirectCost
@@ -728,9 +726,13 @@ class DatabaseManager:
             session.commit()
 
     def bulk_update_estimate_margins(self, new_overhead, new_profit):
-        """Updates the overhead and profit percent for all estimates and recalculates their grand_totals."""
+        """Updates the overhead and profit percent for all estimates and recalculates their grand_totals.
+        
+        Properly reloads each estimate via the model to ensure currency conversion 
+        and factor application are handled correctly by calculate_totals().
+        """
+        # 1. Update the settings table directly
         with self.Session() as session:
-            # 1. Update the settings table directly
             from orm_models import Setting
             
             s_oh = session.query(Setting).get('overhead')
@@ -740,57 +742,51 @@ class DatabaseManager:
             s_pr = session.query(Setting).get('profit')
             if s_pr: s_pr.value = str(new_profit)
             else: session.add(Setting(key='profit', value=str(new_profit)))
-
-            # 2. Update margins and recalculate exactly Native grand_totals perfectly
-            all_ests = session.query(DBEstimate).all()
-            for e in all_ests:
-                e.overhead_percent = new_overhead
-                e.profit_margin_percent = new_profit
-                
-                # Derive grand base cost
-                subtotal = e.net_total if e.net_total else 0.0
-                adj_factor = e.adjustment_factor if e.adjustment_factor is not None else 1.0
-                adj_subtotal = subtotal * adj_factor
-                
-                oh = new_overhead if new_overhead is not None else 0.0
-                pr = new_profit if new_profit is not None else 0.0
-                
-                o_amt = adj_subtotal * (oh / 100.0)
-                p_amt = adj_subtotal * (pr / 100.0)
-                
-                e.grand_total = adj_subtotal + o_amt + p_amt
             
             session.commit()
 
-    def bulk_update_estimate_factor(self, new_factor):
-        """Updates the adjustment factor for all estimates in this database and recalculates their grand_totals."""
+        # 2. Reload each estimate through the model, update margins, and re-save.
+        # This ensures calculate_totals() correctly handles currency conversion 
+        # and factor application rather than using potentially stale net_total.
         with self.Session() as session:
-            # 1. Update the settings table directly
+            est_ids = [e.id for e in session.query(DBEstimate).all()]
+        
+        for eid in est_ids:
+            est = self.load_estimate_details(eid)
+            if est:
+                est.overhead_percent = new_overhead
+                est.profit_margin_percent = new_profit
+                self.save_estimate(est)
+
+    def bulk_update_estimate_factor(self, new_factor):
+        """Updates the adjustment factor for all estimates in this database and recalculates their grand_totals.
+        
+        Properly reloads each estimate via the model to ensure currency conversion 
+        is handled correctly by calculate_totals(), preventing the gross rate from
+        reverting to a foreign resource currency value.
+        """
+        # 1. Update the settings table directly
+        with self.Session() as session:
             from orm_models import Setting
             s = session.query(Setting).get('factor')
             if s: 
                 s.value = str(new_factor)
             else: 
                 session.add(Setting(key='factor', value=str(new_factor)))
-
-            # 2. Update all estimates adjustment factor and recalculate grand_totals
-            all_ests = session.query(DBEstimate).all()
-            for e in all_ests:
-                e.adjustment_factor = new_factor
-                
-                # Recalculate exactly following the project's margin logic
-                subtotal = e.net_total if e.net_total else 0.0
-                adj_subtotal = subtotal * new_factor
-                
-                oh = e.overhead_percent if e.overhead_percent is not None else 0.0
-                pr = e.profit_margin_percent if e.profit_margin_percent is not None else 0.0
-                
-                o_amt = adj_subtotal * (oh / 100.0)
-                p_amt = adj_subtotal * (pr / 100.0)
-                
-                e.grand_total = adj_subtotal + o_amt + p_amt
             
             session.commit()
+
+        # 2. Reload each estimate through the model, update factor, and re-save.
+        # This ensures calculate_totals() correctly handles currency conversion 
+        # rather than using stale net_total which may predate a currency migration.
+        with self.Session() as session:
+            est_ids = [e.id for e in session.query(DBEstimate).all()]
+        
+        for eid in est_ids:
+            est = self.load_estimate_details(eid)
+            if est:
+                est.adjustment_factor = new_factor
+                self.save_estimate(est)
 
     def get_pboq_rates_summary(self):
         """Fetches a summary of Plug and Subcontractor rates from pboq_items table."""
