@@ -322,12 +322,31 @@ class FinancialExecutiveAnalytic(QWidget):
                     db_path = os.path.join(pj_db_dir, dbs[0])
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
-                    cursor.execute("SELECT value FROM settings WHERE key='currency'")
-                    row = cursor.fetchone()
-                    if row:
-                        val = row[0]
-                        if '(' in val: self.currency_symbol = val.split('(')[-1].strip(')') + " "
-                        else: self.currency_symbol = val + " "
+                    
+                    curr_str = None
+                    
+                    # Primary: Read from settings table
+                    try:
+                        cursor.execute("SELECT value FROM settings WHERE key='currency'")
+                        row = cursor.fetchone()
+                        if row:
+                            curr_str = row[0]
+                    except: pass
+                    
+                    # Fallback: Read from estimates table (source of truth)
+                    if not curr_str:
+                        try:
+                            cursor.execute("SELECT currency FROM estimates LIMIT 1")
+                            row = cursor.fetchone()
+                            if row and row[0]:
+                                curr_str = row[0]
+                        except: pass
+                    
+                    if curr_str:
+                        if '(' in curr_str:
+                            self.currency_symbol = curr_str.split('(')[-1].strip(')') + " "
+                        else:
+                            self.currency_symbol = curr_str + " "
                     conn.close()
         except: pass
 

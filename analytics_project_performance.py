@@ -86,18 +86,33 @@ class ProjectPerformanceAnalytic(QWidget):
                     db_path = os.path.join(pj_db_dir, dbs[0])
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
+                    
+                    curr_str = None
+                    
+                    # Primary: Read from settings table
                     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
                     if cursor.fetchone():
                         cursor.execute("SELECT value FROM settings WHERE key='currency'")
                         row = cursor.fetchone()
                         if row:
                             curr_str = row[0]
-                            if '(' in curr_str:
-                                code = curr_str.split('(')[0].strip()
-                                symbol = curr_str.split('(')[-1].strip(')')
-                                self.currency_symbol = f"{code} {symbol} "
-                            else:
-                                self.currency_symbol = f"{curr_str} "
+                    
+                    # Fallback: Read from estimates table (source of truth for active project currency)
+                    if not curr_str:
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+                        if cursor.fetchone():
+                            cursor.execute("SELECT currency FROM estimates LIMIT 1")
+                            row = cursor.fetchone()
+                            if row and row[0]:
+                                curr_str = row[0]
+                    
+                    if curr_str:
+                        if '(' in curr_str:
+                            code = curr_str.split('(')[0].strip()
+                            symbol = curr_str.split('(')[-1].strip(')')
+                            self.currency_symbol = f"{code} {symbol} "
+                        else:
+                            self.currency_symbol = f"{curr_str} "
                     conn.close()
         except Exception as e:
             print(f"Analytics Project Performance: Currency detection error: {e}")

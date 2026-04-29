@@ -266,6 +266,8 @@ class PBOQToolsPane(QWidget):
             
         # Standard Smart-Detection (Role to DB column name mapping)
         smart_map = {
+            self.cb_bill_rate: "Bill Rate",
+            self.cb_bill_amount: "Bill Amount",
             self.cb_rate: "GrossRate",
             self.cb_rate_code: "RateCode",
             self.cb_plug_rate: "PlugRate",

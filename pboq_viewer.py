@@ -1888,13 +1888,23 @@ class PBOQDialog(QDialog):
             'sub_category': "Subbee Category", 'sub_code': "Subbee Code"
         }
         
-        # Determine the rightmost boundary for standard columns to keep unmapped columns hidden beyond it.
-        # This keeps the view clean by hiding empty trailing database columns while allowing initial mapping.
-        std_roles = ['ref', 'desc', 'qty', 'unit', 'bill_rate', 'bill_amount']
-        max_std_idx = max([m.get(r, -1) for r in std_roles] + [-1])
-        boundary = max(max_std_idx, 5) # Always allow at least 6 columns to be visible for initial mapping
+        # Determine the rightmost boundary for user-configurable columns (Column 0-3) to keep
+        # unmapped internal columns hidden. Named columns (Bill Rate, GrossRate, etc.) are auto-detected
+        # by name and shown via their mapped role, so they don't need to expand the boundary.
+        user_roles = ['ref', 'desc', 'qty', 'unit']
+        max_user_idx = max([m.get(r, -1) for r in user_roles] + [-1])
+        boundary = max(max_user_idx, 3) # Show up to Column 0-3 for initial mapping
 
         map_inv = {v: k for k, v in m.items() if v >= 0}
+        
+        # Define the desired visual column order: standard BOQ columns first, then pricing columns
+        # This ensures Bill Rate and Bill Amount appear right after Unit, not interleaved with price types
+        std_boq_roles = ['ref', 'desc', 'qty', 'unit', 'bill_rate', 'bill_amount']
+        pricing_roles = ['rate', 'rate_code', 'plug_rate', 'plug_code', 'plug_factor',
+                         'prov_sum', 'prov_sum_code', 'pc_sum', 'pc_sum_code',
+                         'daywork', 'daywork_code',
+                         'sub_package', 'sub_name', 'sub_rate', 'sub_markup',
+                         'sub_category', 'sub_code']
         
         for idx in range(self.tabs.count()):
             table = self.tabs.widget(idx)
@@ -1912,6 +1922,28 @@ class PBOQDialog(QDialog):
                 table.setColumnHidden(i, hide)
             
             table.setHorizontalHeaderLabels(headers)
+            
+            # Reorder visible columns: place standard BOQ columns first, then pricing columns
+            header = table.horizontalHeader()
+            visual_pos = 0
+            
+            # 1. Place standard BOQ columns in order (Ref, Desc, Qty, Unit, Bill Rate, Bill Amount)
+            for role in std_boq_roles:
+                logical_idx = m.get(role, -1)
+                if logical_idx >= 0 and logical_idx < table.columnCount():
+                    current_visual = header.visualIndex(logical_idx)
+                    if current_visual != visual_pos:
+                        header.moveSection(current_visual, visual_pos)
+                    visual_pos += 1
+            
+            # 2. Place pricing columns after standard BOQ columns
+            for role in pricing_roles:
+                logical_idx = m.get(role, -1)
+                if logical_idx >= 0 and logical_idx < table.columnCount():
+                    current_visual = header.visualIndex(logical_idx)
+                    if current_visual != visual_pos:
+                        header.moveSection(current_visual, visual_pos)
+                    visual_pos += 1
             
             # Apply heading color and blue text to the header items directly
             # This is more robust than Palette when a global stylesheet is present
