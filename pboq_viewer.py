@@ -387,9 +387,10 @@ class PBOQDialog(QDialog):
         self._toggle_wrap_text(self.tools_pane.wrap_text_btn.isChecked())
         self._update_stats()
         
-        # Accuracy Audit: Automatically ensure all extensions follow 'Precision as Displayed'
-        self._run_recalculate_all_logic(silent=True)
-        self._run_global_search(self.search_bar.text())
+        # Only apply search filter if there's an active search term
+        search_text = self.search_bar.text().strip()
+        if search_text:
+            self._run_global_search(search_text)
 
     def _handle_cell_updated(self, rowid, col_idx, new_val):
         """Called when a user manually edits a cell in the table."""
@@ -404,11 +405,15 @@ class PBOQDialog(QDialog):
             table = self.tabs.widget(i)
             if not isinstance(table, PBOQTable): continue
             
+            # Fast path: empty search means show all rows
+            if not text:
+                for r in range(table.rowCount()):
+                    table.setRowHidden(r, False)
+                continue
+            
             for r in range(table.rowCount()):
                 match = False
-                if not text:
-                    match = True
-                elif is_review_search:
+                if is_review_search:
                     item0 = table.item(r, 0)
                     if item0 and item0.data(Qt.ItemDataRole.UserRole + 2) == 1:
                         match = True
@@ -1985,7 +1990,9 @@ class PBOQDialog(QDialog):
         self._toggle_rate_visibility(self.price_pane.get_rate_visibility())
         
         # Sync the Logical Backplane (ensure SubbeeName column has latest award data)
-        self._sync_logical_assignment_columns()
+        # Skip during initial load (skip_cells=True) since data was just loaded from DB
+        if not skip_cells:
+            self._sync_logical_assignment_columns()
 
         self._update_stats()
 
