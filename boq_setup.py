@@ -278,7 +278,14 @@ class BOQSetupWindow(QWidget):
             
             if progress.wasCanceled(): return
             
-            xl = pd.ExcelFile(self.boq_file_path)
+            try:
+                # Calamine is a fast Rust-based engine highly resilient to slightly malformed .xls/.xlsx files
+                # which often cause xlrd to crash with an AssertionError in unpack_SST_table
+                xl = pd.ExcelFile(self.boq_file_path, engine='calamine')
+            except Exception:
+                # Fallback to default engine (xlrd for xls, openpyxl for xlsx)
+                xl = pd.ExcelFile(self.boq_file_path)
+                
             sheet_names = xl.sheet_names
             
             progress.setValue(15)
@@ -441,7 +448,12 @@ class BOQSetupWindow(QWidget):
             progress.setValue(100)
 
         except Exception as e:
-            QMessageBox.critical(self, "Excel Error", f"Failed to load BOQ Excel file.\nError: {e}")
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"Error loading Excel:\n{error_details}")
+            # Show a more detailed error message, or at least repr(e) if it's empty
+            err_msg = str(e) if str(e).strip() else repr(e)
+            QMessageBox.critical(self, "Excel Error", f"Failed to load BOQ Excel file.\nError: {err_msg}")
 
     def _on_tab_changed(self, index):
         sheet_name = self.tabs.tabText(index)
