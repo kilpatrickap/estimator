@@ -1,0 +1,9 @@
+[
+  "PyTest/test_factor_currency.py::TestBulkMarginUpdate::test_margins_preserve_currency_conversion",
+  "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_preserves_project_currency_grand_total",
+  "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_update_does_not_double_apply",
+  "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_with_exchange_rate_conversion",
+  "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_with_multiply_operator",
+  "PyTest/test_factor_currency.py::TestFactorWithRealProjectData::test_all_estimates_stay_in_project_currency",
+  "PyTest/test_factor_currency.py::TestFactorWithRealProjectData::test_factor_roundtrip_consistency"
+]

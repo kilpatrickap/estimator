@@ -71,10 +71,7 @@ class MarginMigrationWorker(QThread):
                     for r_data in rdb.get_rates_data():
                         cde = r_data.get('rate_code')
                         if cde:
-                            est_obj = rdb.load_estimate_details(r_data.get('id'))
-                            if est_obj:
-                                gt = est_obj.calculate_totals()['grand_total']
-                                native_rates[cde.strip().upper()] = gt
+                            native_rates[cde.strip().upper()] = r_data.get('grand_total', 0.0)
                 except Exception as ex:
                     pass
         
@@ -162,10 +159,7 @@ class MarginMigrationWorker(QThread):
                     for r_data in rdb.get_rates_data():
                         cde = r_data.get('rate_code')
                         if cde:
-                            est_obj = rdb.load_estimate_details(r_data.get('id'))
-                            if est_obj:
-                                gt = est_obj.calculate_totals()['grand_total']
-                                native_rates[cde.strip().upper()] = gt
+                            native_rates[cde.strip().upper()] = r_data.get('grand_total', 0.0)
                 except Exception as ex:
                     pass
         pboq_files = [f for f in os.listdir(pboq_dir) if f.endswith('.db')]

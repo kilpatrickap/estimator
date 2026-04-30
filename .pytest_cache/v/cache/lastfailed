@@ -1,0 +1,5 @@
+{
+  "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies": true,
+  "PyTest/test_factor_currency.py::TestFactorWithRealProjectData": true,
+  "PyTest/test_factor_currency.py::TestBulkMarginUpdate": true
+}
