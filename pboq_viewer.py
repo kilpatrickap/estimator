@@ -1095,6 +1095,9 @@ class PBOQDialog(QDialog):
             it.setText(self.clipboard_data['code'])
             self._persist_updates(code_col, [(rowid, self.clipboard_data['code'])])
         
+        # Auto-link the pasted rate to Bill Rate / Bill Amount
+        self._link_item_to_bill(table, row, rowid, is_plug=is_plug, is_prov=is_prov, is_pc=is_pc, is_dw=is_dw)
+        
         self._update_stats()
 
     def _clear_rate_at_row(self, table, row, rowid, is_plug, is_prov=False, is_pc=False, is_dw=False):
