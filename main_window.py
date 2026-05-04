@@ -804,7 +804,15 @@ class MainWindow(QMainWindow):
                                 prog.setLabelText(msg)
                                 
                             worker.progress.connect(update_prog)
-                            worker.finished_mig.connect(lambda s, m: loop.quit())
+                            
+                            def on_finished(success, msg):
+                                prog.close()
+                                loop.quit()
+                                if not success:
+                                    from PyQt6.QtWidgets import QMessageBox
+                                    QMessageBox.critical(self, "Migration Error", f"A problem occurred during margin migration:\n\n{msg}")
+
+                            worker.finished_mig.connect(on_finished)
                             
                             worker.start()
                             loop.exec()

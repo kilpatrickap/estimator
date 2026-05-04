@@ -163,7 +163,11 @@ class MarginMigrationWorker(QThread):
                 except Exception as ex:
                     pass
         pboq_files = [f for f in os.listdir(pboq_dir) if f.endswith('.db')]
-        for f in pboq_files:
+        total_files = len(pboq_files)
+        for idx, f in enumerate(pboq_files):
+            # Update progress within the 30-70% range
+            file_progress = 30 + int((idx / total_files) * 40)
+            self.progress.emit(file_progress, f"Migrating PBOQ: {f}...")
             db_path = os.path.join(pboq_dir, f)
             db_basename = f
             base_name = db_basename.replace("PBOQ_", "").replace(".db", ".xlsx")
@@ -211,12 +215,6 @@ class MarginMigrationWorker(QThread):
                             m_plug_rate = pst['mappings'].get('plug_rate', -1)
                             m_plug_code = pst['mappings'].get('plug_code', -1)
                             
-                            # Fallback fuzzy detection if state mapping is incomplete
-                            if m_plug_rate < 0:
-                                for i, col in enumerate(db_cols):
-                                    if "plugrate" in col.lower().replace(" ", ""):
-                                        m_plug_rate = i - 1
-                                        break
                 except: pass
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
@@ -237,16 +235,42 @@ class MarginMigrationWorker(QThread):
 
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
+                
+                # Fallback fuzzy detection if state mapping is incomplete
+                if m_plug_rate < 0:
+                    for i, col in enumerate(db_cols):
+                        c_lower = col.lower().replace(" ", "")
+                        if "plugrate" in c_lower and col.startswith("Column"):
+                            try:
+                                m_plug_rate = int(col.split(" ")[1])
+                                break
+                            except: pass
+
                 if "GrossRate" not in db_cols:
                     conn.close()
                     continue
                     
+                # Safety check for mapped columns to avoid sqlite3.OperationalError
+                def is_col_valid(idx):
+                    return idx >= 0 and f"Column {idx}" in db_cols
+
+                if not is_col_valid(m_code): m_code = -1
+                if not is_col_valid(m_amt): m_amt = -1
+                if not is_col_valid(m_rate): m_rate = -1
+                if not is_col_valid(m_bill_rate): m_bill_rate = -1
+                if not is_col_valid(m_qty): m_qty = -1
+                if not is_col_valid(m_ref): m_ref = -1
+                if not is_col_valid(m_plug_rate): m_plug_rate = -1
+                if not is_col_valid(m_plug_code): m_plug_code = -1
+                    
                 # Deterministic List instead of Set
                 target_cols = ['"GrossRate"']
                 if "RateCode" in db_cols: target_cols.append('"RateCode"')
+                if "Bill Rate" in db_cols: target_cols.append('"Bill Rate"')
+                if "Bill Amount" in db_cols: target_cols.append('"Bill Amount"')
+                
                 if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
                 if m_amt >= 0 and f'"Column {m_amt}"' not in target_cols: target_cols.append(f'"Column {m_amt}"')
-                if m_code >= 0 and f'"Column {m_code}"' not in target_cols: target_cols.append(f'"Column {m_code}"')
                 if m_bill_rate >= 0 and f'"Column {m_bill_rate}"' not in target_cols: target_cols.append(f'"Column {m_bill_rate}"')
                 
                 # Plug columns
@@ -295,20 +319,39 @@ class MarginMigrationWorker(QThread):
                     is_rate_linked = False
                     is_amt_linked = False
                     
-                    if g_idx >= 0 and m_amt >= 0:
-                        bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
-                        if bg == '#e8f5e9': # Linked from Gross
-                            is_amt_linked = True
-                        elif bg == '#f3e5f5': # Linked from Plug
-                            is_amt_linked = 'plug'
+                    if g_idx >= 0:
+                        if m_amt >= 0:
+                            bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
+                            if bg == '#e8f5e9': # Linked from Gross
+                                is_amt_linked = True
+                            elif bg == '#f3e5f5': # Linked from Plug
+                                is_amt_linked = 'plug'
+                        
+                        if not is_amt_linked and "Bill Amount" in db_cols:
+                            ma_idx = m_amt if m_amt >= 0 else pst.get('mappings', {}).get('bill_amount', -1)
+                            if ma_idx >= 0:
+                                bg = formatting_map.get((g_idx, ma_idx), {}).get('bg_color', '').lower()
+                                if bg == '#e8f5e9': is_amt_linked = True
+                                elif bg == '#f3e5f5': is_amt_linked = 'plug'
                     
                     is_rate_linked_plug = False
-                    if g_idx >= 0 and m_bill_rate >= 0:
-                        bg = formatting_map.get((g_idx, m_bill_rate), {}).get('bg_color', '').lower()
-                        if bg == '#e8f5e9': # Linked from Gross
-                            is_rate_linked = True
-                        elif bg == '#f3e5f5': # Linked from Plug
-                            is_rate_linked_plug = True
+                    if g_idx >= 0:
+                        # Check mapped column index
+                        if m_bill_rate >= 0:
+                            bg = formatting_map.get((g_idx, m_bill_rate), {}).get('bg_color', '').lower()
+                            if bg == '#e8f5e9': # Linked from Gross
+                                is_rate_linked = True
+                            elif bg == '#f3e5f5': # Linked from Plug
+                                is_rate_linked_plug = True
+                        
+                        # Check named "Bill Rate" column if not already linked via mapping
+                        if not is_rate_linked and not is_rate_linked_plug and "Bill Rate" in db_cols:
+                            # Use mapping if available, otherwise try to find it in the state
+                            br_idx = m_bill_rate if m_bill_rate >= 0 else pst.get('mappings', {}).get('bill_rate', -1)
+                            if br_idx >= 0:
+                                bg = formatting_map.get((g_idx, br_idx), {}).get('bg_color', '').lower()
+                                if bg == '#e8f5e9': is_rate_linked = True
+                                elif bg == '#f3e5f5': is_rate_linked_plug = True
                     
                     code_val = ""
                     # Grab logical code if exists
@@ -379,6 +422,13 @@ class MarginMigrationWorker(QThread):
                         
                         # Determine new Plug rate
                         scaled_plug = None # Use None to signify "don't calculate"
+                        item_plug_factor = 1.0
+                        if 'PlugFactor' in cols_to_update:
+                            try:
+                                pf_val = row[cols_to_update.index('PlugFactor') + 1]
+                                if pf_val: item_plug_factor = float(str(pf_val).replace(',', ''))
+                            except: pass
+
                         if plug_code_val:
                             # Re-calculate from formula if available
                             formula_val = ""
@@ -387,10 +437,16 @@ class MarginMigrationWorker(QThread):
                             
                             if formula_val:
                                 base_sum = PBOQLogic.evaluate_formula(formula_val)
-                                scaled_plug = base_sum * self.new_factor
+                                # Scale the item's existing factor by the global change
+                                new_item_factor = item_plug_factor * scale_factor
+                                scaled_plug = base_sum * new_item_factor
+                                item_plug_factor = new_item_factor
                             elif plug_code_val in native_rates:
                                 # Fallback to native rates if it matched a buildup
                                 scaled_plug = native_rates[plug_code_val]
+                                # If we use native rates, we should probably reset factor to 1.0 or the project factor?
+                                # Usually native rates are "final", so factor 1.0.
+                                item_plug_factor = 1.0 
                             else:
                                 # Fallback to straight math scaling
                                 c_idx = cols_to_update.index('PlugRate') + 1
@@ -398,6 +454,7 @@ class MarginMigrationWorker(QThread):
                                 try:
                                     p_clean = re.sub(r'[^\d.-]', '', str(v_plug))
                                     scaled_plug = float(p_clean) * scale_factor if p_clean else 0.0
+                                    item_plug_factor *= scale_factor
                                 except: scaled_plug = 0.0
                         
                         if scaled_val == 0.0 and scaled_plug is None:
@@ -437,7 +494,7 @@ class MarginMigrationWorker(QThread):
                         for i, col_name in enumerate(cols_to_update):
                             cv = row[i+1] # +1 because rowid is 0
                             
-                            if m_amt >= 0 and col_name == f'Column {m_amt}':
+                            if (m_amt >= 0 and col_name == f'Column {m_amt}') or col_name == 'Bill Amount':
                                 # Favor recalculation if we have a new rate and a quantity
                                 s_val = scaled_plug if (is_amt_linked == 'plug' or is_rate_linked_plug) else scaled_val
                                 
@@ -470,7 +527,7 @@ class MarginMigrationWorker(QThread):
                                     row_update_vals.append(cv)
                                 continue
                             
-                            if m_bill_rate >= 0 and col_name == f'Column {m_bill_rate}':
+                            if (m_bill_rate >= 0 and col_name == f'Column {m_bill_rate}') or col_name == 'Bill Rate':
                                 if is_rate_linked or is_rate_linked_plug:
                                     s_val = scaled_plug if is_rate_linked_plug else scaled_val
                                     
@@ -514,7 +571,7 @@ class MarginMigrationWorker(QThread):
                                 
                             if col_name == 'PlugFactor':
                                 if scaled_plug is not None:
-                                    row_update_vals.append(str(self.new_factor))
+                                    row_update_vals.append(f"{item_plug_factor:,.4f}")
                                 else:
                                     row_update_vals.append(cv)
                                 continue
