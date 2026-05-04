@@ -9,6 +9,53 @@ from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, 
 from analytics_components import MetricCard, SelectionFrame
 from pboq_logic import PBOQLogic
 
+class MetricRow(QFrame):
+    def __init__(self, name, bid, cost, margin, is_total=False, parent=None):
+        super().__init__(parent)
+        bg = "#f1f8e9" if is_total else "#ffffff"
+        border = "#2e7d32" if is_total else "#e2e8f0"
+        self.setStyleSheet(f"""
+            QFrame {{ background-color: {bg}; border-radius: 8px; border: 1px solid {border}; }}
+            QFrame:hover {{ background-color: #f8fafc; border: 1px solid #cbd5e1; }}
+        """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 8, 15, 8)
+        layout.setSpacing(15)
+
+        # Name
+        name_lbl = QLabel(name)
+        weight = "800" if is_total else "600"
+        name_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: {weight}; color: #1e293b; font-size: 13px;")
+        layout.addWidget(name_lbl, 5)
+
+        # Bid Pill
+        bid_pill = QFrame()
+        bid_pill.setStyleSheet("background-color: #f0fdf4; border-radius: 4px; padding: 2px 8px;")
+        bp_layout = QHBoxLayout(bid_pill)
+        bp_layout.setContentsMargins(5, 2, 5, 2)
+        bid_val = QLabel(f"$ {bid:,.2f}")
+        bid_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 13px;")
+        bp_layout.addWidget(bid_val)
+        layout.addWidget(bid_pill, 2)
+
+        # Cost Pill
+        cost_pill = QFrame()
+        cost_pill.setStyleSheet("background-color: #eff6ff; border-radius: 4px; padding: 2px 8px;")
+        cp_layout = QHBoxLayout(cost_pill)
+        cp_layout.setContentsMargins(5, 2, 5, 2)
+        cost_val = QLabel(f"$ {cost:,.2f}")
+        cost_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #1e40af; font-size: 13px;")
+        cp_layout.addWidget(cost_val)
+        layout.addWidget(cost_pill, 2)
+
+        # Margin Badge
+        m_color = "#ea580c" if margin > 0 else "#991b1b"
+        m_bg = "#fff7ed" if margin > 0 else "#fef2f2"
+        margin_lbl = QLabel(f"{margin:.1f}% Margin")
+        margin_lbl.setStyleSheet(f"background-color: {m_bg}; color: {m_color}; border-radius: 4px; padding: 2px 8px; font-weight: 800; font-size: 11px;")
+        margin_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(margin_lbl, 2)
+
 class ChartWidget(QWidget):
     """Base class for responsive custom charts."""
     def __init__(self, title, parent=None):
@@ -299,11 +346,31 @@ class FinancialExecutiveAnalytic(QWidget):
         self.table_list.addStretch()
         self.table_scroll.setWidget(self.table_container)
         table_layout.addWidget(self.table_scroll)
-        
-        table_layout.addWidget(self.table_scroll)
-        
         self.content_layout.addWidget(table_frame)
+
+        # 4. Categorical Table
+        cat_table_frame = QFrame()
+        cat_table_frame.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        cat_table_layout = QVBoxLayout(cat_table_frame)
+        cat_table_layout.setContentsMargins(25, 25, 25, 25)
         
+        cat_tbl_lbl = QLabel("<b style='font-size: 16px; font-family: Inter; color: #1e293b;'>Categorical Detail & Margin Analysis</b>")
+        cat_table_layout.addWidget(cat_tbl_lbl)
+        
+        self.cat_table_scroll = QScrollArea()
+        self.cat_table_scroll.setWidgetResizable(True)
+        self.cat_table_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.cat_table_scroll.setMinimumHeight(400)
+        self.cat_table_container = QWidget()
+        self.cat_table_list = QVBoxLayout(self.cat_table_container)
+        self.cat_table_list.setSpacing(5)
+        self.cat_table_list.setContentsMargins(0, 10, 0, 10)
+        self.cat_table_list.addStretch()
+        self.cat_table_scroll.setWidget(self.cat_table_container)
+        cat_table_layout.addWidget(self.cat_table_scroll)
+        self.content_layout.addWidget(cat_table_frame)
+        
+        # Finish content widget
         self.scroll_area.setWidget(self.content_widget)
         root_layout.addWidget(self.scroll_area)
 
@@ -370,14 +437,14 @@ class FinancialExecutiveAnalytic(QWidget):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Find the estimate ID and Net Total for this rate code
-            cursor.execute("SELECT id, net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+            # Find the estimate ID, Net Total, and Category for this rate code
+            cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
             res = cursor.fetchone()
             if not res: 
                 conn.close()
-                return None, 0.0
+                return None, 0.0, None
             
-            est_id, net_total = res
+            est_id, net_total, category = res
             net_total = float(net_total or 0.0)
             
             comp = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Indirect': 0.0, 'Subcontractors': 0.0}
@@ -429,11 +496,11 @@ class FinancialExecutiveAnalytic(QWidget):
             if total > 0:
                 ratios = {k: v / total for k, v in comp.items()}
             
-            self._rate_cache[rate_code] = (ratios, net_total)
+            self._rate_cache[rate_code] = (ratios, net_total, category)
             conn.close()
-            return ratios, net_total
+            return ratios, net_total, category
         except: pass
-        return None, 0.0
+        return None, 0.0, None
 
     def _get_pboq_mapping(self, db_filename):
         """Loads column mapping from PBOQ States if available."""
@@ -448,14 +515,17 @@ class FinancialExecutiveAnalytic(QWidget):
 
     def refresh_data(self):
         self._load_project_settings()
-        if not os.path.exists(self.pboq_folder): return
+        if not os.path.exists(self.pboq_folder): 
+            return
         
         t_bid, t_cost = 0.0, 0.0
         dist = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Subcontractors': 0.0, 'Risk': 0.0}
         all_items, sections = [], []
+        c_agg = {} # Categorical aggregate (Project Wide)
 
-        for f in os.listdir(self.pboq_folder):
-            if not f.lower().endswith('.db'): continue
+        files = [f for f in os.listdir(self.pboq_folder) if f.lower().endswith('.db')]
+
+        for f in files:
                 
             db_path = os.path.join(self.pboq_folder, f)
             mapping = self._get_pboq_mapping(f)
@@ -496,7 +566,7 @@ class FinancialExecutiveAnalytic(QWidget):
                 query = f"SELECT {', '.join(query_parts)} FROM pboq_items"
                 cursor.execute(query)
                 rows = cursor.fetchall()
-                s_agg = {}
+                s_agg = {} # Sectional aggregate (Per File)
 
                 for r in rows:
                     sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw = r
@@ -515,7 +585,13 @@ class FinancialExecutiveAnalytic(QWidget):
                     is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
                     
                     active_code = p_code if p_code and str(p_code).strip() else r_code
-                    ratios, master_net_cost = self._get_rate_composition(active_code) if active_code else (None, 0.0)
+                    ratios, master_net_cost, master_cat = self._get_rate_composition(active_code) if active_code else (None, 0.0, None)
+                    
+                    # Determine Final Category
+                    category = "Uncategorized"
+                    if is_prelim: category = "Preliminaries"
+                    elif p_cat and str(p_cat).strip(): category = str(p_cat).strip()
+                    elif master_cat and str(master_cat).strip(): category = str(master_cat).strip()
                     
                     # Determine the source unit cost. 
                     if master_net_cost > 0:
@@ -560,6 +636,10 @@ class FinancialExecutiveAnalytic(QWidget):
                     s_agg[sheet][0] += bill_f
                     s_agg[sheet][1] += item_cost
                     
+                    if category not in c_agg: c_agg[category] = [0.0, 0.0]
+                    c_agg[category][0] += bill_f
+                    c_agg[category][1] += item_cost
+                    
                 for s, v in s_agg.items():
                     sections.append({'name': f"{f.replace('.db','')} : {s}", 'bid': v[0], 'cost': v[1]})
                 conn.close()
@@ -598,115 +678,53 @@ class FinancialExecutiveAnalytic(QWidget):
         top_10 = sorted(all_items, key=lambda x: x[1], reverse=True)[:10]
         self.pareto_chart.set_data([(d, v, "#43a047") for d, v in top_10])
         
-        # Bridge
         self.bridge_chart.set_data([
             ("Base Cost", t_cost, "#0277bd"),
             ("Overhead", overhead_amount, "#546e7a"),
             ("Profit", profit_amount, "#ef6c00"),
             ("Final Bid", t_bid, "#1b5e20")
         ])
-        
-        self._clear_table()
-        sections.sort(key=lambda x: x['bid'], reverse=True)
-        for s in sections: self._add_table_row(s)
 
+        # 5. Populate Tables
+        self._clear_table(self.table_list)
+        sections.sort(key=lambda x: x['bid'], reverse=True)
+        s_total_bid, s_total_cost = 0.0, 0.0
+        for s in sections: 
+            self._add_table_row(self.table_list, s)
+            s_total_bid += s['bid']
+            s_total_cost += s['cost']
+        
+        # Add Sectional Total Row
+        if sections:
+            self._add_table_row(self.table_list, {'name': 'TOTAL PROJECT SUMMARY', 'bid': s_total_bid, 'cost': s_total_cost}, is_total=True)
+        
+        self._clear_table(self.cat_table_list)
+        cat_list = [{'name': k, 'bid': v[0], 'cost': v[1]} for k, v in c_agg.items()]
+        cat_list.sort(key=lambda x: x['bid'], reverse=True)
+        c_total_bid, c_total_cost = 0.0, 0.0
+        for c in cat_list: 
+            self._add_table_row(self.cat_table_list, c)
+            c_total_bid += c['bid']
+            c_total_cost += c['cost']
+
+        # Add Categorical Total Row
+        if cat_list:
+            self._add_table_row(self.cat_table_list, {'name': 'TOTAL CATEGORICAL SUMMARY', 'bid': c_total_bid, 'cost': c_total_cost}, is_total=True)
+        
     def _to_float(self, val):
         if not val: return 0.0
         if isinstance(val, (int, float)): return float(val)
         try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
         except: return 0.0
 
-    def _clear_table(self):
-        while self.table_list.count() > 1:
-            it = self.table_list.takeAt(0)
+    def _clear_table(self, layout):
+        while layout.count() > 1:
+            it = layout.takeAt(0)
             if it.widget(): it.widget().deleteLater()
 
-    def _add_table_row(self, data):
-        row = SelectionFrame()
-        row.setObjectName("TableRow")
-        row.setStyleSheet("""
-            QFrame#TableRow { 
-                background-color: transparent; 
-                border-radius: 6px; 
-                border: 1px solid transparent; 
-            }
-            QFrame#TableRow:hover { 
-                background-color: #f5f5f5; 
-            }
-            QFrame#TableRow[selected="true"] {
-                background-color: #e8f5e9;
-                border: 1px solid #2e7d32;
-            }
-        """)
-        row.setProperty("selected", "false")
-        
-        l = QHBoxLayout(row)
-        l.setContentsMargins(10, 4, 10, 4)
-        l.setSpacing(12)
-        
-        # 1. Name Container
-        name_container = QFrame()
-        name_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
-        name_container.setMinimumWidth(500)
-        nc_layout = QHBoxLayout(name_container)
-        nc_layout.setContentsMargins(8, 2, 8, 2)
-        
-        name = QLabel(data['name'])
-        name.setStyleSheet("font-weight: 600; color: #3c4043; font-size: 8.5pt; border: none; background: transparent;")
-        nc_layout.addWidget(name)
-        
-        # 2. Bid Pill
-        bid_container = QFrame()
-        bid_container.setStyleSheet("background-color: #e8f5e9; border-radius: 4px; min-width: 160px;")
-        bc_layout = QHBoxLayout(bid_container)
-        bc_layout.setContentsMargins(8, 2, 8, 2)
-        
-        bid = QLabel(f"{self.currency_symbol}{data['bid']:,.2f}")
-        bid.setStyleSheet("font-weight: 700; color: #1b5e20; font-size: 9pt; font-family: 'Consolas'; border: none;")
-        bc_layout.addWidget(bid)
-        
-        # 3. Cost Pill
-        cost_container = QFrame()
-        cost_container.setStyleSheet("background-color: #e3f2fd; border-radius: 4px; min-width: 160px;")
-        cc_layout = QHBoxLayout(cost_container)
-        cc_layout.setContentsMargins(8, 2, 8, 2)
-        
-        cost = QLabel(f"{self.currency_symbol}{data['cost']:,.2f}")
-        cost.setStyleSheet("font-weight: 700; color: #0277bd; font-size: 9pt; font-family: 'Consolas'; border: none;")
-        cc_layout.addWidget(cost)
-        
-        # 4. Margin Pill
-        mv = ((data['bid'] - data['cost']) / data['bid'] * 100) if data['bid'] > 0 else 0
-        c_bg = "#f1f8e9" if mv > 15 else ("#fff8e1" if mv > 5 else "#ffebee")
-        c_fg = "#2e7d32" if mv > 15 else ("#f57f17" if mv > 5 else "#c62828")
-        
-        margin_container = QFrame()
-        margin_container.setStyleSheet(f"background-color: {c_bg}; border-radius: 4px; min-width: 100px;")
-        mc_layout = QHBoxLayout(margin_container)
-        mc_layout.setContentsMargins(8, 2, 8, 2)
-        
-        margin = QLabel(f"{mv:.1f}% Margin")
-        margin.setStyleSheet(f"font-weight: 800; color: {c_fg}; font-size: 8.5pt; font-family: 'Inter'; border: none;")
-        margin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        mc_layout.addWidget(margin)
-        
-        l.addWidget(name_container, 6)
-        l.addWidget(bid_container, 2)
-        l.addWidget(cost_container, 2)
-        l.addWidget(margin_container, 1)
-        l.addStretch(1)
-        
-        def on_click():
-            if self._selected_row:
-                self._selected_row.setProperty("selected", "false")
-                self._selected_row.style().unpolish(self._selected_row)
-                self._selected_row.style().polish(self._selected_row)
-            
-            row.setProperty("selected", "true")
-            row.style().unpolish(row)
-            row.style().polish(row)
-            self._selected_row = row
-            
-        row.clicked.connect(on_click)
-        self.table_list.insertWidget(self.table_list.count() - 1, row)
+    def _add_table_row(self, layout, data, is_total=False):
+        bid, cost = data.get('bid', 0.0), data.get('cost', 0.0)
+        margin = ((bid - cost) / bid * 100) if bid > 0 else 0
+        r = MetricRow(data.get('name', 'Unknown'), bid, cost, margin, is_total=is_total)
+        layout.insertWidget(layout.count() - 1, r)
 
