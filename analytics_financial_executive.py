@@ -9,6 +9,8 @@ from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, 
 from analytics_components import MetricCard, SelectionFrame
 from pboq_logic import PBOQLogic
 
+from analytics_components import MetricCard, ChartWidget, DonutChart, ParetoBarChart, WaterfallChart
+
 class MetricRow(QFrame):
     def __init__(self, name, bid, cost, margin, is_total=False, parent=None):
         super().__init__(parent)
