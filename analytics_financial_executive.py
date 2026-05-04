@@ -25,8 +25,9 @@ class MetricRow(QFrame):
         # Name
         name_lbl = QLabel(name)
         weight = "800" if is_total else "600"
-        name_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: {weight}; color: #1e293b; font-size: 13px;")
-        layout.addWidget(name_lbl, 5)
+        name_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: {weight}; color: #1e293b; font-size: 13px; border: none;")
+        name_lbl.setToolTip(name) # Show full name on hover
+        layout.addWidget(name_lbl, 6) # Increased stretch for name
 
         # Bid Pill
         bid_pill = QFrame()
@@ -47,6 +48,17 @@ class MetricRow(QFrame):
         cost_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #1e40af; font-size: 13px;")
         cp_layout.addWidget(cost_val)
         layout.addWidget(cost_pill, 2)
+
+        # Profit Pill
+        profit = bid - cost
+        profit_pill = QFrame()
+        profit_pill.setStyleSheet("background-color: #fffbeb; border-radius: 4px; padding: 2px 8px;")
+        pp_layout = QHBoxLayout(profit_pill)
+        pp_layout.setContentsMargins(5, 2, 5, 2)
+        profit_val = QLabel(f"$ {profit:,.2f}")
+        profit_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #b45309; font-size: 13px;")
+        pp_layout.addWidget(profit_val)
+        layout.addWidget(profit_pill, 2)
 
         # Margin Badge
         m_color = "#ea580c" if margin > 0 else "#991b1b"
@@ -369,6 +381,28 @@ class FinancialExecutiveAnalytic(QWidget):
         self.cat_table_scroll.setWidget(self.cat_table_container)
         cat_table_layout.addWidget(self.cat_table_scroll)
         self.content_layout.addWidget(cat_table_frame)
+
+        # 5. Sub-Contractor Analysis Table
+        sub_table_frame = QFrame()
+        sub_table_frame.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        sub_table_layout = QVBoxLayout(sub_table_frame)
+        sub_table_layout.setContentsMargins(25, 25, 25, 25)
+        
+        sub_tbl_lbl = QLabel("<b style='font-size: 16px; font-family: Inter; color: #1e293b;'>Sub-Contractor Analysis</b>")
+        sub_table_layout.addWidget(sub_tbl_lbl)
+        
+        self.sub_table_scroll = QScrollArea()
+        self.sub_table_scroll.setWidgetResizable(True)
+        self.sub_table_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.sub_table_scroll.setMinimumHeight(400)
+        self.sub_table_container = QWidget()
+        self.sub_table_list = QVBoxLayout(self.sub_table_container)
+        self.sub_table_list.setSpacing(5)
+        self.sub_table_list.setContentsMargins(0, 10, 0, 10)
+        self.sub_table_list.addStretch()
+        self.sub_table_scroll.setWidget(self.sub_table_container)
+        sub_table_layout.addWidget(self.sub_table_scroll)
+        self.content_layout.addWidget(sub_table_frame)
         
         # Finish content widget
         self.scroll_area.setWidget(self.content_widget)
@@ -522,6 +556,7 @@ class FinancialExecutiveAnalytic(QWidget):
         dist = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Subcontractors': 0.0, 'Risk': 0.0}
         all_items, sections = [], []
         c_agg = {} # Categorical aggregate (Project Wide)
+        sub_agg = {} # Subcontractor aggregate (Project Wide)
 
         files = [f for f in os.listdir(self.pboq_folder) if f.lower().endswith('.db')]
 
@@ -555,13 +590,18 @@ class FinancialExecutiveAnalytic(QWidget):
                     'rate_code': next((c for c in cols if c.lower() in ["rate code", "ratecode"]), None),
                     'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
                     'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
-                    'dw': next((c for c in cols if c.lower() in ["daywork"]), None)
+                    'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                    'sub_pkg': next((c for c in cols if c.lower() in ["sub_package", "subpackage", "subbeepackage"]), None),
+                    'sub_name': next((c for c in cols if c.lower() in ["sub_name", "subname", "subbeename"]), None),
+                    'sub_cat': next((c for c in cols if c.lower() in ["subbeecategory", "sub_category"]), None),
+                    'prov_cat': next((c for c in cols if c.lower() in ["provsumcategory", "prov_sum_category"]), None),
+                    'pc_cat': next((c for c in cols if c.lower() in ["pcsumcategory", "pc_sum_category"]), None)
                 }
                 
                 query_parts = ["Sheet", f"\"{d_col}\"", f"\"{q_col}\"", f"\"{b_col}\""]
-                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw']:
+                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw', 'sub_pkg', 'sub_name', 'prov_cat', 'pc_cat', 'sub_cat']:
                     v = src_cols.get(k)
-                    query_parts.append(f"\"{v}\"" if v else "0")
+                    query_parts.append(f"\"{v}\"" if v else "''")
                 
                 query = f"SELECT {', '.join(query_parts)} FROM pboq_items"
                 cursor.execute(query)
@@ -569,7 +609,7 @@ class FinancialExecutiveAnalytic(QWidget):
                 s_agg = {} # Sectional aggregate (Per File)
 
                 for r in rows:
-                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw = r
+                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw, s_pkg, s_n, pr_cat, pc_c, s_cat = r
                     desc_low = (desc or "").lower()
                     
                     if "collection" in desc_low or "summary" in desc_low:
@@ -589,26 +629,50 @@ class FinancialExecutiveAnalytic(QWidget):
                     
                     # Determine Final Category
                     category = "Uncategorized"
-                    if is_prelim: category = "Preliminaries"
-                    elif p_cat and str(p_cat).strip(): category = str(p_cat).strip()
-                    elif master_cat and str(master_cat).strip(): category = str(master_cat).strip()
+                    if is_prelim: 
+                        category = "Preliminaries"
+                    elif p_cat and str(p_cat).strip() and str(p_cat).strip() != "''": 
+                        category = str(p_cat).strip()
+                    elif pr_cat and str(pr_cat).strip() and str(pr_cat).strip() != "''": 
+                        category = str(pr_cat).strip()
+                    elif pc_c and str(pc_c).strip() and str(pc_c).strip() != "''": 
+                        category = str(pc_c).strip()
+                    elif s_cat and str(s_cat).strip() and str(s_cat).strip() != "''":
+                        category = str(s_cat).strip()
+                    elif master_cat and str(master_cat).strip(): 
+                        category = str(master_cat).strip()
+                    
+                    # Subcontractor Categorization Override
+                    sub_ratio = 0.0
+                    if ratios:
+                        sub_ratio = ratios.get('Subcontractors', 0.0)
+                    elif s_val > 0:
+                        # If no buildup but has sub rate, it's 100% subbed
+                        sub_ratio = 1.0
+                    
+                    if sub_ratio > 0.8 and s_pkg and str(s_pkg).strip() and str(s_pkg).strip() != "''":
+                        category = f"Sub-Contract: {category}: {str(s_pkg).strip()}"
                     
                     # Determine the source unit cost. 
-                    if master_net_cost > 0:
+                    # Priority: Provisional/PC/Daywork (0% Margin) > Master Buildup > Plug/Sub Fallbacks
+                    if pr_val > 0: unit_cost = pr_val
+                    elif pc_val > 0: unit_cost = pc_val
+                    elif d_val > 0: unit_cost = d_val
+                    elif master_net_cost > 0:
                         unit_cost = master_net_cost
                     else:
-                        # Fallback to BOQ rates if no master link
+                        # Fallback to other BOQ rates
                         if p_val > 0: unit_cost = p_val
                         elif s_val > 0: unit_cost = s_val
                         elif g_val > 0: unit_cost = g_val
-                        elif d_val > 0: unit_cost = d_val
                         else: 
                             # If it's a prelim item with a bill amount but no rate, 
                             # treat it as a lump sum cost (Indirect)
                             unit_cost = bill_f if is_prelim and bill_f > 0 and qty_f <= 1 else 0.0
                     
-                    # Ensure qty is at least 1 for lump sums in prelims
-                    calc_qty = qty_f if qty_f > 0 else (1.0 if is_prelim and bill_f > 0 else 0.0)
+                    # Ensure qty is at least 1 for lump sums (Prelims, Prov Sums, PC Sums, Dayworks)
+                    is_lump_sum = is_prelim or pr_val > 0 or pc_val > 0 or d_val > 0
+                    calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
                     item_cost = unit_cost * calc_qty
                     
                     # 2. Resource distribution
@@ -641,8 +705,17 @@ class FinancialExecutiveAnalytic(QWidget):
                     c_agg[category][0] += bill_f
                     c_agg[category][1] += item_cost
                     
+                    # Subcontractor Analysis Aggregation
+                    if sub_ratio > 0:
+                        pkg_key = str(s_pkg).strip() or "General Sub"
+                        sub_key = f"{pkg_key} ({str(s_n).strip() or 'Unknown Sub'})"
+                        if sub_key not in sub_agg: sub_agg[sub_key] = [0.0, 0.0]
+                        sub_agg[sub_key][0] += bill_f * sub_ratio
+                        sub_agg[sub_key][1] += item_cost * sub_ratio
+                    
                 for s, v in s_agg.items():
-                    sections.append({'name': f"{f.replace('.db','')} : {s}", 'bid': v[0], 'cost': v[1]})
+                    clean_name = f.replace('.db', '').replace('PBOQ_', '')
+                    sections.append({'name': f"{clean_name} : {s}", 'bid': v[0], 'cost': v[1]})
                 conn.close()
             except Exception as e:
                 print(f"Error processing {f}: {e}")
@@ -687,7 +760,10 @@ class FinancialExecutiveAnalytic(QWidget):
         ])
 
         # 5. Populate Tables
+        
+        # Sectional Table
         self._clear_table(self.table_list)
+        self._add_table_header(self.table_list, "Section Description")
         sections.sort(key=lambda x: x['bid'], reverse=True)
         s_total_bid, s_total_cost = 0.0, 0.0
         for s in sections: 
@@ -695,11 +771,12 @@ class FinancialExecutiveAnalytic(QWidget):
             s_total_bid += s['bid']
             s_total_cost += s['cost']
         
-        # Add Sectional Total Row
         if sections:
             self._add_table_row(self.table_list, {'name': 'TOTAL PROJECT SUMMARY', 'bid': s_total_bid, 'cost': s_total_cost}, is_total=True)
         
+        # Categorical Table
         self._clear_table(self.cat_table_list)
+        self._add_table_header(self.cat_table_list, "Trade Category")
         cat_list = [{'name': k, 'bid': v[0], 'cost': v[1]} for k, v in c_agg.items()]
         cat_list.sort(key=lambda x: x['bid'], reverse=True)
         c_total_bid, c_total_cost = 0.0, 0.0
@@ -708,9 +785,22 @@ class FinancialExecutiveAnalytic(QWidget):
             c_total_bid += c['bid']
             c_total_cost += c['cost']
 
-        # Add Categorical Total Row
         if cat_list:
             self._add_table_row(self.cat_table_list, {'name': 'TOTAL CATEGORICAL SUMMARY', 'bid': c_total_bid, 'cost': c_total_cost}, is_total=True)
+            
+        # Sub-Contractor Table
+        self._clear_table(self.sub_table_list)
+        self._add_table_header(self.sub_table_list, "Sub-Contractor Package")
+        sub_list = [{'name': k, 'bid': v[0], 'cost': v[1]} for k, v in sub_agg.items()]
+        sub_list.sort(key=lambda x: x['bid'], reverse=True)
+        sub_total_bid, sub_total_cost = 0.0, 0.0
+        for sb in sub_list:
+            self._add_table_row(self.sub_table_list, sb)
+            sub_total_bid += sb['bid']
+            sub_total_cost += sb['cost']
+            
+        if sub_list:
+            self._add_table_row(self.sub_table_list, {'name': 'TOTAL SUB-CONTRACT SUMMARY', 'bid': sub_total_bid, 'cost': sub_total_cost}, is_total=True)
         
     def _to_float(self, val):
         if not val: return 0.0
@@ -722,6 +812,31 @@ class FinancialExecutiveAnalytic(QWidget):
         while layout.count() > 1:
             it = layout.takeAt(0)
             if it.widget(): it.widget().deleteLater()
+
+    def _add_table_header(self, layout, desc_title):
+        header = QFrame()
+        header.setStyleSheet("background-color: transparent; border: none;")
+        h_layout = QHBoxLayout(header)
+        h_layout.setContentsMargins(15, 0, 15, 5)
+        h_layout.setSpacing(15)
+        
+        style = "font-family: 'Inter'; font-weight: 700; color: #64748b; font-size: 11px; text-transform: uppercase;"
+        
+        titles = [
+            (desc_title, 6),
+            ("Bid Amount", 2),
+            ("Net Cost", 2),
+            ("Profit & Overheads", 2),
+            ("Margin %", 2)
+        ]
+        
+        for text, stretch in titles:
+            lbl = QLabel(text)
+            lbl.setStyleSheet(style)
+            if stretch == 2: lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            h_layout.addWidget(lbl, stretch)
+            
+        layout.insertWidget(layout.count() - 1, header)
 
     def _add_table_row(self, layout, data, is_total=False):
         bid, cost = data.get('bid', 0.0), data.get('cost', 0.0)
