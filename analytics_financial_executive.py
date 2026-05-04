@@ -3,7 +3,7 @@ import sqlite3
 import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSize
+from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics
 
 from analytics_components import MetricCard, SelectionFrame
@@ -12,14 +12,16 @@ from pboq_logic import PBOQLogic
 from analytics_components import MetricCard, ChartWidget, DonutChart, ParetoBarChart, WaterfallChart
 
 class MetricRow(QFrame):
+    clicked = pyqtSignal(object) # Custom signal that sends the row instance
+
     def __init__(self, name, bid, cost, margin, is_total=False, parent=None):
         super().__init__(parent)
-        bg = "#f1f8e9" if is_total else "#ffffff"
-        border = "#2e7d32" if is_total else "#e2e8f0"
-        self.setStyleSheet(f"""
-            QFrame {{ background-color: {bg}; border-radius: 8px; border: 1px solid {border}; }}
-            QFrame:hover {{ background-color: #f8fafc; border: 1px solid #cbd5e1; }}
-        """)
+        self.is_total = is_total
+        self.is_selected = False
+        self.bg_base = "#f1f8e9" if is_total else "#ffffff"
+        self.border_base = "#2e7d32" if is_total else "#e2e8f0"
+        self._update_style()
+        
         layout = QHBoxLayout(self)
         layout.setContentsMargins(15, 8, 15, 8)
         layout.setSpacing(15)
@@ -28,37 +30,41 @@ class MetricRow(QFrame):
         name_lbl = QLabel(name)
         weight = "800" if is_total else "600"
         name_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: {weight}; color: #1e293b; font-size: 13px; border: none;")
-        name_lbl.setToolTip(name) # Show full name on hover
-        layout.addWidget(name_lbl, 6) # Increased stretch for name
+        name_lbl.setToolTip(name) 
+        layout.addWidget(name_lbl, 6) 
 
         # Bid Pill
+        p_border = "#166534" if not is_total else "none"
         bid_pill = QFrame()
-        bid_pill.setStyleSheet("background-color: #f0fdf4; border-radius: 4px; padding: 2px 8px;")
+        bid_pill.setStyleSheet(f"background-color: #f0fdf4; border-radius: 4px; border: 1px solid {p_border};")
         bp_layout = QHBoxLayout(bid_pill)
         bp_layout.setContentsMargins(5, 2, 5, 2)
         bid_val = QLabel(f"$ {bid:,.2f}")
-        bid_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 13px;")
+        bid_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 13px; border: none;")
         bp_layout.addWidget(bid_val)
         layout.addWidget(bid_pill, 2)
 
         # Cost Pill
+        c_border = "#1e40af" if not is_total else "none"
         cost_pill = QFrame()
-        cost_pill.setStyleSheet("background-color: #eff6ff; border-radius: 4px; padding: 2px 8px;")
+        cost_pill.setStyleSheet(f"background-color: #eff6ff; border-radius: 4px; border: 1px solid {c_border};")
         cp_layout = QHBoxLayout(cost_pill)
         cp_layout.setContentsMargins(5, 2, 5, 2)
         cost_val = QLabel(f"$ {cost:,.2f}")
-        cost_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #1e40af; font-size: 13px;")
+        cost_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #1e40af; font-size: 13px; border: none;")
         cp_layout.addWidget(cost_val)
         layout.addWidget(cost_pill, 2)
 
         # Profit Pill
         profit = bid - cost
+        pr_border = "#b45309" if not is_total else "none"
         profit_pill = QFrame()
-        profit_pill.setStyleSheet("background-color: #fffbeb; border-radius: 4px; padding: 2px 8px;")
+        profit_pill.setStyleSheet(f"background-color: #fffbeb; border-radius: 4px; border: 1px solid {pr_border};")
         pp_layout = QHBoxLayout(profit_pill)
         pp_layout.setContentsMargins(5, 2, 5, 2)
         profit_val = QLabel(f"$ {profit:,.2f}")
-        profit_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #b45309; font-size: 13px;")
+        profit_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #b45309; font-size: 13px; border: none;")
+        profit_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pp_layout.addWidget(profit_val)
         layout.addWidget(profit_pill, 2)
 
@@ -66,201 +72,29 @@ class MetricRow(QFrame):
         m_color = "#ea580c" if margin > 0 else "#991b1b"
         m_bg = "#fff7ed" if margin > 0 else "#fef2f2"
         margin_lbl = QLabel(f"{margin:.1f}% Margin")
-        margin_lbl.setStyleSheet(f"background-color: {m_bg}; color: {m_color}; border-radius: 4px; padding: 2px 8px; font-weight: 800; font-size: 11px;")
+        margin_lbl.setStyleSheet(f"background-color: {m_bg}; color: {m_color}; border-radius: 4px; padding: 2px 8px; font-weight: 800; font-size: 11px; border: none;")
         margin_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(margin_lbl, 2)
 
-class ChartWidget(QWidget):
-    """Base class for responsive custom charts."""
-    def __init__(self, title, parent=None):
-        super().__init__(parent)
-        self.title = title
-        self.data = [] # List of (label, value, color)
-        self.setMinimumHeight(280)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+    def _update_style(self):
+        bg = "#f1f8e9" if (self.is_selected or self.is_total) else "#ffffff"
+        border = "#2e7d32" if (self.is_selected or self.is_total) else "#e2e8f0"
+        hover_bg = "#ecfdf5" if not self.is_total else bg
+        
+        self.setStyleSheet(f"""
+            MetricRow {{ background-color: {bg}; border-radius: 8px; border: 1px solid {border}; }}
+            MetricRow:hover {{ background-color: {hover_bg}; border: 1px solid #2e7d32; }}
+        """)
 
-    def set_data(self, data):
-        self.data = data
-        self.update()
+    def set_selected(self, selected):
+        if self.is_total: return
+        self.is_selected = selected
+        self._update_style()
 
-class DonutChart(ChartWidget):
-    """A responsive donut chart with side legend."""
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        rect = self.rect()
-        total = sum(d[1] for d in self.data if d[1] > 0)
-        
-        if total == 0:
-            painter.setPen(QColor("#999"))
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No Cost Data")
-            return
-
-        # Split space: Left 60% for chart, Right 40% for legend
-        chart_w = rect.width() * 0.55
-        side = min(chart_w, rect.height()) - 60
-        chart_rect = QRectF(30, (rect.height() - side) / 2, side, side)
-        
-        start_angle = 90 * 16 # Start at top
-        for label, value, color in self.data:
-            if value <= 0: continue
-            span_angle = int((value / total) * 360 * 16)
-            painter.setBrush(QBrush(QColor(color)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawPie(chart_rect, start_angle, span_angle)
-            start_angle += span_angle
-
-        # Donut hole
-        hole_size = side * 0.72
-        hole_rect = QRectF(chart_rect.center().x() - hole_size/2, chart_rect.center().y() - hole_size/2, hole_size, hole_size)
-        painter.setBrush(QBrush(QColor("white")))
-        painter.drawEllipse(hole_rect)
-        
-        # Center Text
-        painter.setPen(QPen(QColor("#333")))
-        painter.setFont(QFont("Outfit", 9, QFont.Weight.Bold))
-        fm = QFontMetrics(painter.font())
-        inner_text = "COST\nMIX"
-        painter.drawText(hole_rect, Qt.AlignmentFlag.AlignCenter, inner_text)
-
-        # Legend on Right
-        legend_x = int(chart_w + 10)
-        legend_y = int((rect.height() - (len(self.data) * 25)) / 2)
-        painter.setFont(QFont("Inter", 8, QFont.Weight.Medium))
-        
-        for label, value, color in self.data:
-            if value < 0: continue
-            painter.setBrush(QBrush(QColor(color)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(legend_x, legend_y, 12, 12, 3, 3)
-            
-            painter.setPen(QPen(QColor("#555")))
-            pct = (value / total * 100) if total > 0 else 0
-            label_text = f"{label} ({pct:.1f}%)"
-            
-            # Smart Truncation for legend
-            metrics = QFontMetrics(painter.font())
-            avail_w = rect.width() - legend_x - 15
-            elided = metrics.elidedText(label_text, Qt.TextElideMode.ElideRight, avail_w)
-            
-            painter.drawText(legend_x + 20, legend_y + 10, elided)
-            legend_y += 25
-
-class ParetoBarChart(ChartWidget):
-    """A horizontal bar chart with adaptive margins and elided text."""
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        rect = self.rect()
-        if not self.data:
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "Awaiting Data...")
-            return
-
-        # Adaptive Margin
-        margin_left = min(220, rect.width() * 0.38)
-        margin_right = 65
-        
-        max_val = max(d[1] for d in self.data if d[1] > 0)
-        chart_top = 40
-        bar_h = 18
-        gap = 10
-        
-        painter.setFont(QFont("Inter", 8))
-        metrics = QFontMetrics(painter.font())
-        
-        for i, (label, value, color) in enumerate(self.data):
-            y = chart_top + i * (bar_h + gap)
-            if y + bar_h > rect.height(): break
-            
-            # Elide label to fit margin
-            elided_label = metrics.elidedText(label, Qt.TextElideMode.ElideRight, int(margin_left - 20))
-            painter.setPen(QPen(QColor("#444")))
-            painter.drawText(QRectF(10, y, margin_left - 20, bar_h), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, elided_label)
-            
-            # Track
-            track_w = rect.width() - margin_left - margin_right
-            painter.setBrush(QBrush(QColor("#f2f2f2")))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(QRectF(margin_left, y, track_w, bar_h), 4, 4)
-            
-            # Value Bar
-            val_w = (value / max_val * track_w) if max_val > 0 else 0
-            grad = QLinearGradient(QPointF(margin_left, y), QPointF(margin_left + val_w, y))
-            grad.setColorAt(0, QColor(color))
-            grad.setColorAt(1, QColor(color).lighter(115))
-            painter.setBrush(QBrush(grad))
-            painter.drawRoundedRect(QRectF(margin_left, y, val_w, bar_h), 4, 4)
-            
-            # Numeric Label
-            painter.setPen(QPen(QColor("#1b5e20")))
-            val_txt = f"{value/1000:,.1f}k" if value >= 1000 else f"{value:,.0f}"
-            painter.drawText(QRectF(margin_left + val_w + 8, y, margin_right, bar_h), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, val_txt)
-
-class WaterfallChart(ChartWidget):
-    """Responsive Waterfall chart with label protection."""
-    def paintEvent(self, event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        
-        rect = self.rect()
-        if not self.data: return
-
-        total_v = self.data[-1][1]
-        if total_v <= 0: return
-
-        margin_y = 60
-        margin_x = 60
-        chart_h = rect.height() - margin_y * 1.8
-        chart_w = rect.width() - 2 * margin_x
-        
-        col_count = len(self.data)
-        col_w = min(120, (chart_w / col_count) * 0.7)
-        spacing = chart_w / col_count
-        
-        current_sum = 0
-        painter.setFont(QFont("Inter", 8))
-        
-        for i, (label, val, color) in enumerate(self.data):
-            center_x = margin_x + i * spacing + (spacing / 2)
-            x_start = center_x - (col_w / 2)
-            
-            is_total = (i == 0 or i == col_count - 1)
-            h = (val / total_v) * chart_h
-            
-            if is_total:
-                y = margin_y + chart_h - h
-                bar_rect = QRectF(x_start, y, col_w, h)
-                if i == 0: current_sum = val
-            else:
-                start_h = (current_sum / total_v) * chart_h
-                y = margin_y + chart_h - start_h - h
-                bar_rect = QRectF(x_start, y, col_w, h)
-                
-                # Connector
-                painter.setPen(QPen(QColor("#ccc"), 1, Qt.PenStyle.DashLine))
-                painter.drawLine(int(x_start - (spacing - col_w)/2), int(margin_y + chart_h - start_h), int(x_start), int(margin_y + chart_h - start_h))
-                
-                current_sum += val
-
-            # Draw Bar
-            grad = QLinearGradient(QPointF(x_start, y), QPointF(x_start, y + h))
-            grad.setColorAt(0, QColor(color))
-            grad.setColorAt(1, QColor(color).darker(110))
-            painter.setBrush(QBrush(grad))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(bar_rect, 5, 5)
-            
-            # Bottom Label
-            painter.setPen(QPen(QColor("#444")))
-            painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
-            painter.drawText(QRectF(center_x - 40, margin_y + chart_h + 10, 80, 20), Qt.AlignmentFlag.AlignCenter, label)
-            
-            # Top Value
-            val_txt = f"{val/1000:,.1f}k" if val >= 1000 else f"{val:,.0f}"
-            painter.setFont(QFont("Inter", 8))
-            painter.drawText(QRectF(center_x - 40, y - 22, 80, 20), Qt.AlignmentFlag.AlignCenter, val_txt)
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self)
+        super().mousePressEvent(event)
 
 class FinancialExecutiveAnalytic(QWidget):
     """The 'CFO' Hub: Optimized and Responsive reporting with deep project integration."""
@@ -741,6 +575,10 @@ class FinancialExecutiveAnalytic(QWidget):
         self.card_margin.update_value(f"{actual_profit_pct:.2f}%")
         self.card_overhead.update_value(f"{actual_overhead_pct:.2f}%")
         
+        self.donut_chart.currency_symbol = self.currency_symbol
+        self.pareto_chart.currency_symbol = self.currency_symbol
+        self.bridge_chart.currency_symbol = self.currency_symbol
+
         # Donut (Using exact ratios from buildups)
         self.donut_chart.set_data([
             ("Materials", dist['Materials'], "#2e7d32"),
@@ -844,5 +682,18 @@ class FinancialExecutiveAnalytic(QWidget):
         bid, cost = data.get('bid', 0.0), data.get('cost', 0.0)
         margin = ((bid - cost) / bid * 100) if bid > 0 else 0
         r = MetricRow(data.get('name', 'Unknown'), bid, cost, margin, is_total=is_total)
+        r.clicked.connect(self._handle_row_click)
         layout.insertWidget(layout.count() - 1, r)
+
+    def _handle_row_click(self, row):
+        if row.is_total: return
+        
+        # Unselect previous
+        if self._selected_row and self._selected_row != row:
+            try:
+                self._selected_row.set_selected(False)
+            except: pass
+            
+        self._selected_row = row
+        self._selected_row.set_selected(True)
 

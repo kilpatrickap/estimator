@@ -63,6 +63,7 @@ class ChartWidget(QWidget):
         super().__init__(parent)
         self.title = title
         self.data = [] # List of (label, value, color)
+        self.currency_symbol = "$"
         self.setMinimumHeight(280)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
 
@@ -146,7 +147,7 @@ class ParetoBarChart(ChartWidget):
             if y + bar_h > rect.height(): break
             elided_label = metrics.elidedText(label, Qt.TextElideMode.ElideRight, int(margin_left - 20))
             painter.setPen(QPen(QColor("#444")))
-            painter.drawText(QRectF(10, y, margin_left - 20, bar_h), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, elided_label)
+            painter.drawText(QRectF(10, y, margin_left - 20, bar_h), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, elided_label)
             
             track_w = rect.width() - margin_left - margin_right
             painter.setBrush(QBrush(QColor("#f2f2f2")))
@@ -160,7 +161,7 @@ class ParetoBarChart(ChartWidget):
             painter.setBrush(QBrush(grad))
             painter.drawRoundedRect(QRectF(margin_left, y, val_w, bar_h), 4, 4)
             
-            painter.setPen(QPen(QColor("#1b5e20")))
+            painter.setPen(QPen(QColor("#1e293b")))
             val_txt = f"{value/1000:,.1f}k" if value >= 1000 else f"{value:,.0f}"
             painter.drawText(QRectF(margin_left + val_w + 8, y, margin_right, bar_h), Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, val_txt)
 
@@ -195,9 +196,20 @@ class WaterfallChart(ChartWidget):
                 painter.setPen(QPen(QColor("#ccc"), 1, Qt.PenStyle.DashLine))
                 painter.drawLine(int(x_start - (spacing - col_w)/2), int(margin_y + chart_h - start_h), int(x_start), int(margin_y + chart_h - start_h))
                 current_sum += val
+            
+            # Draw Bar
             grad = QLinearGradient(QPointF(x_start, y), QPointF(x_start, y + h))
             grad.setColorAt(0, QColor(color)); grad.setColorAt(1, QColor(color).darker(110))
             painter.setBrush(QBrush(grad)); painter.setPen(Qt.PenStyle.NoPen)
             painter.drawRoundedRect(bar_rect, 4, 4)
+            
+            # Bottom Label
             painter.setPen(QPen(QColor("#333")))
+            painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
             painter.drawText(QRectF(x_start - 20, margin_y + chart_h + 10, col_w + 40, 20), Qt.AlignmentFlag.AlignCenter, label)
+            
+            # Top Value Figure
+            painter.setPen(QPen(QColor("#1e293b")))
+            painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
+            val_txt = f"{self.currency_symbol}{val:,.2f}"
+            painter.drawText(QRectF(x_start - 60, y - 22, col_w + 120, 20), Qt.AlignmentFlag.AlignCenter, val_txt)
