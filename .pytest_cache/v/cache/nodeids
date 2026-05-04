@@ -11,5 +11,7 @@
   "PyTest/test_plug_rate_factor.py::test_plug_linked_bill_rate_updated",
   "PyTest/test_plug_rate_factor.py::test_plug_rates_updated_on_factor_change",
   "PyTest/test_plug_rate_factor.py::test_plug_rates_updated_on_factor_decrease",
-  "PyTest/test_revert_issue.py::test_revert_factor_from_4_to_1"
+  "PyTest/test_revert_issue.py::test_revert_factor_from_4_to_1",
+  "test_analytics.py::test_financial_aggregation",
+  "test_analytics_meticulous.py::test_refresh_data_meticulous"
 ]

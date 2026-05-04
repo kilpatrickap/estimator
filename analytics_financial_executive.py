@@ -202,13 +202,17 @@ class WaterfallChart(ChartWidget):
             painter.drawText(QRectF(center_x - 40, y - 22, 80, 20), Qt.AlignmentFlag.AlignCenter, val_txt)
 
 class FinancialExecutiveAnalytic(QWidget):
-    """The 'CFO' Hub: Optimized and Responsive reporting."""
+    """The 'CFO' Hub: Optimized and Responsive reporting with deep project integration."""
     def __init__(self, project_dir, parent=None):
         super().__init__(parent)
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
+        self.pj_db_dir = os.path.join(self.project_dir, "Project Database")
         self.currency_symbol = "$" 
+        self.overhead_rate = 0.0
+        self.profit_rate = 0.0
         self._selected_row = None
+        self._rate_cache = {} # Cache for rate buildup compositions
         self._init_ui()
         self.refresh_data()
 
@@ -239,7 +243,7 @@ class FinancialExecutiveAnalytic(QWidget):
         header_container.addWidget(line)
         self.content_layout.addLayout(header_container)
         
-        # 1. Metric Cards (Fluid Flow)
+        # 1. Metric Cards
         metrics_parent = QWidget()
         self.metrics_flow = QHBoxLayout(metrics_parent)
         self.metrics_flow.setContentsMargins(0, 0, 0, 0)
@@ -247,36 +251,35 @@ class FinancialExecutiveAnalytic(QWidget):
         
         self.card_total_bid = MetricCard("Total Bid Value", "0.00", "Gross amount to client", color="#1b5e20")
         self.card_total_cost = MetricCard("Total Net Cost", "0.00", "Base resource cost", color="#0277bd")
-        self.card_margin = MetricCard("Profit Margin (%)", "0.00%", "Profitability index", color="#ef6c00")
+        self.card_margin = MetricCard("Profit Margin (%)", "0.00%", "Project profitability", color="#ef6c00")
+        self.card_overhead = MetricCard("Overhead (%)", "0.00%", "Business operating cost", color="#546e7a")
         
         self.metrics_flow.addWidget(self.card_total_bid)
         self.metrics_flow.addWidget(self.card_total_cost)
         self.metrics_flow.addWidget(self.card_margin)
+        self.metrics_flow.addWidget(self.card_overhead)
         self.metrics_flow.addStretch()
         self.content_layout.addWidget(metrics_parent)
         
-        # 2. Charts Row (Responsive Grid)
+        # 2. Charts Row
         charts_grid = QGridLayout()
         charts_grid.setSpacing(20)
         
-        # Resource Mix
         self.donut_chart = DonutChart("Resources")
-        donut_frame = self._create_card_frame("Estimated Cost Breakdown", self.donut_chart)
+        donut_frame = self._create_card_frame("Estimated Cost Breakdown (Deep Drill-down)", self.donut_chart)
         charts_grid.addWidget(donut_frame, 0, 0)
         
-        # Pareto
         self.pareto_chart = ParetoBarChart("Pareto")
         pareto_frame = self._create_card_frame("Pareto Analysis: Top 10 Value Drivers", self.pareto_chart)
         charts_grid.addWidget(pareto_frame, 0, 1)
         
-        # Bridge
         self.bridge_chart = WaterfallChart("Bridge")
         bridge_frame = self._create_card_frame("Net-to-Gross Financial Bridge", self.bridge_chart)
         charts_grid.addWidget(bridge_frame, 1, 0, 1, 2)
         
         self.content_layout.addLayout(charts_grid)
         
-        # 3. Enhanced Sectional Table
+        # 3. Sectional Table
         table_frame = QFrame()
         table_frame.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
         table_layout = QVBoxLayout(table_frame)
@@ -297,6 +300,8 @@ class FinancialExecutiveAnalytic(QWidget):
         self.table_scroll.setWidget(self.table_container)
         table_layout.addWidget(self.table_scroll)
         
+        table_layout.addWidget(self.table_scroll)
+        
         self.content_layout.addWidget(table_frame)
         
         self.scroll_area.setWidget(self.content_widget)
@@ -312,138 +317,302 @@ class FinancialExecutiveAnalytic(QWidget):
         l.addWidget(chart)
         return f
 
-    def _load_currency(self):
+    def _load_project_settings(self):
+        """Loads currency, overhead, and profit settings from the master database."""
         self.currency_symbol = "$" 
+        self.overhead_rate = 0.0
+        self.profit_rate = 0.0
+        
         try:
-            pj_db_dir = os.path.join(self.project_dir, "Project Database")
-            if os.path.exists(pj_db_dir):
-                dbs = [f for f in os.listdir(pj_db_dir) if f.lower().endswith('.db')]
+            if os.path.exists(self.pj_db_dir):
+                dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
                 if dbs:
-                    db_path = os.path.join(pj_db_dir, dbs[0])
+                    db_path = os.path.join(self.pj_db_dir, dbs[0])
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     
-                    curr_str = None
-                    
-                    # Primary: Read from settings table
+                    # 1. Load Currency
                     try:
                         cursor.execute("SELECT value FROM settings WHERE key='currency'")
                         row = cursor.fetchone()
                         if row:
                             curr_str = row[0]
+                            if '(' in curr_str:
+                                self.currency_symbol = curr_str.split('(')[-1].strip(')') + " "
+                            else:
+                                self.currency_symbol = curr_str + " "
                     except: pass
                     
-                    # Fallback: Read from estimates table (source of truth)
-                    if not curr_str:
-                        try:
-                            cursor.execute("SELECT currency FROM estimates LIMIT 1")
-                            row = cursor.fetchone()
-                            if row and row[0]:
-                                curr_str = row[0]
-                        except: pass
+                    # 2. Load Overhead & Profit rates
+                    try:
+                        cursor.execute("SELECT value FROM settings WHERE key='overhead'")
+                        row = cursor.fetchone()
+                        if row: self.overhead_rate = float(row[0])
+                        
+                        cursor.execute("SELECT value FROM settings WHERE key='profit'")
+                        row = cursor.fetchone()
+                        if row: self.profit_rate = float(row[0])
+                    except: pass
                     
-                    if curr_str:
-                        if '(' in curr_str:
-                            self.currency_symbol = curr_str.split('(')[-1].strip(')') + " "
-                        else:
-                            self.currency_symbol = curr_str + " "
                     conn.close()
         except: pass
 
+    def _get_rate_composition(self, rate_code):
+        """Analyzes a rate buildup and returns (ratios, unit_net_total)."""
+        if not rate_code: return None, 0.0
+        if rate_code in self._rate_cache: return self._rate_cache[rate_code]
+
+        try:
+            dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+            if not dbs: return None, 0.0
+            
+            db_path = os.path.join(self.pj_db_dir, dbs[0])
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Find the estimate ID and Net Total for this rate code
+            cursor.execute("SELECT id, net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+            res = cursor.fetchone()
+            if not res: 
+                conn.close()
+                return None, 0.0
+            
+            est_id, net_total = res
+            net_total = float(net_total or 0.0)
+            
+            comp = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Indirect': 0.0, 'Subcontractors': 0.0}
+            
+            # Query all associated resources
+            cursor.execute("""
+                SELECT SUM(price * quantity) FROM estimate_materials 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Materials'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_labor 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Labor'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_equipment 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_plant 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Plant'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(amount) FROM estimate_indirect_costs 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            
+            # Subcontractors in buildup (Join with quotes to get rates)
+            try:
+                cursor.execute("""
+                    SELECT SUM(esr.quantity * sq.rate) 
+                    FROM estimate_sub_rates esr
+                    JOIN subcontractor_quotes sq ON esr.sub_rate_id = sq.id
+                    WHERE esr.estimate_id = ?
+                """, (est_id,))
+                comp['Subcontractors'] = cursor.fetchone()[0] or 0.0
+            except: pass
+            
+            total = sum(comp.values())
+            ratios = None
+            if total > 0:
+                ratios = {k: v / total for k, v in comp.items()}
+            
+            self._rate_cache[rate_code] = (ratios, net_total)
+            conn.close()
+            return ratios, net_total
+        except: pass
+        return None, 0.0
+
+    def _get_pboq_mapping(self, db_filename):
+        """Loads column mapping from PBOQ States if available."""
+        mapping_file = os.path.join(self.project_dir, "PBOQ States", db_filename + ".json")
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get('mappings', {})
+            except: pass
+        return {}
+
     def refresh_data(self):
-        self._load_currency()
+        self._load_project_settings()
         if not os.path.exists(self.pboq_folder): return
         
         t_bid, t_cost = 0.0, 0.0
-        dist = {'Materials': 0.0, 'Labor': 0.0, 'Subcontractors': 0.0, 'Risk': 0.0}
+        dist = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Subcontractors': 0.0, 'Risk': 0.0}
         all_items, sections = [], []
 
         for f in os.listdir(self.pboq_folder):
-            if f.lower().endswith('.db'):
-                db_path = os.path.join(self.pboq_folder, f)
-                try:
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    cursor.execute("PRAGMA table_info(pboq_items)")
-                    cols = [info[1] for info in cursor.fetchall()]
+            if not f.lower().endswith('.db'): continue
+                
+            db_path = os.path.join(self.pboq_folder, f)
+            mapping = self._get_pboq_mapping(f)
+            
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                cols = [info[1] for info in cursor.fetchall()]
+                
+                b_idx = mapping.get('bill_amount')
+                q_idx = mapping.get('qty')
+                d_idx = mapping.get('desc')
+                
+                b_col = cols[b_idx + 1] if b_idx is not None and (b_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount"]), None)
+                q_col = cols[q_idx + 1] if q_idx is not None and (q_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                d_col = cols[d_idx + 1] if d_idx is not None and (d_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
+                
+                if not b_col or not q_col: continue
+
+                src_cols = {
+                    'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                    'plug_code': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None),
+                    'plug_cat': next((c for c in cols if c.lower() in ["plugcategory", "plug_category"]), None),
+                    'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                    'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                    'rate_code': next((c for c in cols if c.lower() in ["rate code", "ratecode"]), None),
+                    'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                    'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                    'dw': next((c for c in cols if c.lower() in ["daywork"]), None)
+                }
+                
+                query_parts = ["Sheet", f"\"{d_col}\"", f"\"{q_col}\"", f"\"{b_col}\""]
+                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw']:
+                    v = src_cols.get(k)
+                    query_parts.append(f"\"{v}\"" if v else "0")
+                
+                query = f"SELECT {', '.join(query_parts)} FROM pboq_items"
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                s_agg = {}
+
+                for r in rows:
+                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw = r
+                    desc_low = (desc or "").lower()
                     
-                    b_col = next((c for c in cols if c.lower() in ["bill amount", "billamount"]), None)
-                    q_col = next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
-                    d_col = next((c for c in cols if c.lower() in ["description", "desc"]), None)
-                    if not b_col or not q_col: continue
-
-                    sr = ["PlugRate", "SubbeeRate", "GrossRate", "ProvSum", "PCSum", "Daywork"]
-                    query = f"SELECT Sheet, \"{d_col}\", \"{q_col}\", \"{b_col}\""
-                    for s in sr: query += f", \"{s}\"" if s in cols else ", 0"
-                    query += " FROM pboq_items"
+                    if "collection" in desc_low or "summary" in desc_low:
+                        continue
+                        
+                    qty_f, bill_f = self._to_float(q), self._to_float(b)
+                    if bill_f == 0 and qty_f == 0: continue
                     
-                    cursor.execute(query)
-                    rows = cursor.fetchall()
-                    s_agg = {}
+                    p_val, s_val, g_val, pr_val, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
+                    
+                    # 1. CORE FIX: Pricing Category based detection
+                    # Check if the item is explicitly categorized as Preliminaries
+                    is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
+                    
+                    active_code = p_code if p_code and str(p_code).strip() else r_code
+                    ratios, master_net_cost = self._get_rate_composition(active_code) if active_code else (None, 0.0)
+                    
+                    # Determine the source unit cost. 
+                    if master_net_cost > 0:
+                        unit_cost = master_net_cost
+                    else:
+                        # Fallback to BOQ rates if no master link
+                        if p_val > 0: unit_cost = p_val
+                        elif s_val > 0: unit_cost = s_val
+                        elif g_val > 0: unit_cost = g_val
+                        elif d_val > 0: unit_cost = d_val
+                        else: 
+                            # If it's a prelim item with a bill amount but no rate, 
+                            # treat it as a lump sum cost (Indirect)
+                            unit_cost = bill_f if is_prelim and bill_f > 0 and qty_f <= 1 else 0.0
+                    
+                    # Ensure qty is at least 1 for lump sums in prelims
+                    calc_qty = qty_f if qty_f > 0 else (1.0 if is_prelim and bill_f > 0 else 0.0)
+                    item_cost = unit_cost * calc_qty
+                    
+                    # 2. Resource distribution
+                    if is_prelim:
+                        dist['Risk'] += item_cost # Preliminaries are Indirect Costs
+                    elif ratios:
+                        dist['Materials'] += item_cost * ratios.get('Materials', 0.0)
+                        dist['Labor'] += item_cost * ratios.get('Labor', 0.0)
+                        dist['Plant'] += item_cost * ratios.get('Plant', 0.0)
+                        dist['Equipment'] += item_cost * ratios.get('Equipment', 0.0)
+                        dist['Subcontractors'] += item_cost * ratios.get('Subcontractors', 0.0)
+                        dist['Risk'] += item_cost * ratios.get('Indirect', 0.0)
+                    else:
+                        # Default categorizations
+                        if p_val > 0: dist['Materials'] += item_cost
+                        elif s_val > 0: dist['Subcontractors'] += item_cost
+                        elif g_val > 0: dist['Labor'] += item_cost
+                        elif d_val > 0: dist['Labor'] += item_cost
+                        elif pr_val > 0 or pc_val > 0: dist['Risk'] += item_cost
 
-                    for r in rows:
-                        sheet, desc, q, b, plug, sub, gross, prov, pc, dw = r
-                        qty_f, bill_f = self._to_float(q), self._to_float(b)
-                        if bill_f == 0: continue
-                        
-                        item_cost = 0.0
-                        p, s, g, pr, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
-                        
-                        if p > 0: 
-                            item_cost = p * qty_f
-                            dist['Materials'] += item_cost
-                        elif s > 0:
-                            item_cost = s * qty_f
-                            dist['Subcontractors'] += item_cost
-                        elif g > 0:
-                            item_cost = g * qty_f
-                            dist['Labor'] += item_cost
-                        elif pr > 0 or pc_val > 0:
-                            item_cost = (pr + pc_val) * qty_f
-                            dist['Risk'] += item_cost
-                        elif d_val > 0:
-                            dist['Labor'] += (d_val * qty_f)
-
-                        t_bid += bill_f
-                        t_cost += item_cost
-                        all_items.append((desc or "Unnamed", bill_f))
-                        if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
-                        s_agg[sheet][0] += bill_f
-                        s_agg[sheet][1] += item_cost
-                        
-                    for s, v in s_agg.items():
-                        sections.append({'name': f"{f.replace('.db','')} : {s}", 'bid': v[0], 'cost': v[1]})
-                    conn.close()
-                except Exception: pass
+                    t_bid += bill_f
+                    t_cost += item_cost
+                    all_items.append((desc or "Unnamed", bill_f))
+                    if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
+                    s_agg[sheet][0] += bill_f
+                    s_agg[sheet][1] += item_cost
+                    
+                for s, v in s_agg.items():
+                    sections.append({'name': f"{f.replace('.db','')} : {s}", 'bid': v[0], 'cost': v[1]})
+                conn.close()
+            except Exception as e:
+                print(f"Error processing {f}: {e}")
 
         # Metrics
         self.card_total_bid.update_value(f"{self.currency_symbol}{t_bid:,.2f}")
         self.card_total_cost.update_value(f"{self.currency_symbol}{t_cost:,.2f}")
-        m = ((t_bid - t_cost) / t_bid * 100) if t_bid > 0 else 0
-        self.card_margin.update_value(f"{m:.2f}%")
         
-        # Donut & Pareto
+        # Calculate Overhead and Profit split
+        markup_total = t_bid - t_cost
+        
+        # Calculate actual Overhead component
+        # Overhead is calculated on Cost according to project standards
+        overhead_amount = t_cost * (self.overhead_rate / 100)
+        actual_overhead_pct = (overhead_amount / t_bid * 100) if t_bid > 0 else 0
+        
+        # Profit is the remaining spread
+        profit_amount = markup_total - overhead_amount
+        actual_profit_pct = (profit_amount / t_bid * 100) if t_bid > 0 else 0
+        
+        self.card_margin.update_value(f"{actual_profit_pct:.2f}%")
+        self.card_overhead.update_value(f"{actual_overhead_pct:.2f}%")
+        
+        # Donut (Using exact ratios from buildups)
         self.donut_chart.set_data([
             ("Materials", dist['Materials'], "#2e7d32"),
             ("Labor", dist['Labor'], "#0277bd"),
+            ("Plant/Equip", dist['Plant'] + dist['Equipment'], "#fbc02d"),
             ("Sub-Contract", dist['Subcontractors'], "#7e57c2"),
-            ("Risk", dist['Risk'], "#c62828")
+            ("Indirect", dist['Risk'], "#c62828")
         ])
+        
+        # Pareto
         top_10 = sorted(all_items, key=lambda x: x[1], reverse=True)[:10]
         self.pareto_chart.set_data([(d, v, "#43a047") for d, v in top_10])
         
         # Bridge
         self.bridge_chart.set_data([
             ("Base Cost", t_cost, "#0277bd"),
-            ("Markup", t_bid - t_cost, "#ef6c00"),
+            ("Overhead", overhead_amount, "#546e7a"),
+            ("Profit", profit_amount, "#ef6c00"),
             ("Final Bid", t_bid, "#1b5e20")
         ])
         
         self._clear_table()
+        sections.sort(key=lambda x: x['bid'], reverse=True)
         for s in sections: self._add_table_row(s)
 
     def _to_float(self, val):
         if not val: return 0.0
+        if isinstance(val, (int, float)): return float(val)
         try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
         except: return 0.0
 
@@ -475,7 +644,7 @@ class FinancialExecutiveAnalytic(QWidget):
         l.setContentsMargins(10, 4, 10, 4)
         l.setSpacing(12)
         
-        # 1. Name Container (Pill Style)
+        # 1. Name Container
         name_container = QFrame()
         name_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
         name_container.setMinimumWidth(500)
@@ -539,5 +708,5 @@ class FinancialExecutiveAnalytic(QWidget):
             self._selected_row = row
             
         row.clicked.connect(on_click)
-        
         self.table_list.insertWidget(self.table_list.count() - 1, row)
+

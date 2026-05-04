@@ -1,5 +1,7 @@
 {
   "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies": true,
   "PyTest/test_factor_currency.py::TestFactorWithRealProjectData": true,
-  "PyTest/test_factor_currency.py::TestBulkMarginUpdate": true
+  "PyTest/test_factor_currency.py::TestBulkMarginUpdate": true,
+  "test_analytics.py::test_financial_aggregation": true,
+  "test_analytics_meticulous.py::test_refresh_data_meticulous": true
 }
