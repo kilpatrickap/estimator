@@ -594,6 +594,17 @@ class MarginMigrationWorker(QThread):
                                 row_update_vals.append(code_val)
                                 continue
                                 
+                            # EXEMPT formula and metadata columns from generic scaling
+                            if col_name in [
+                                'PlugFormula', 'PlugCategory', 'PlugCurrency', 'PlugExchangeRates',
+                                'ProvSumFormula', 'ProvSumCategory', 'ProvSumCurrency', 'ProvSumExchangeRates',
+                                'PCSumFormula', 'PCSumCategory', 'PCSumCurrency', 'PCSumExchangeRates',
+                                'DayworkFormula', 'DayworkCategory', 'DayworkCurrency', 'DayworkExchangeRates',
+                                'SubbeePackage', 'SubbeeName', 'SubbeeNotes', 'SubbeeCategory', 'SubbeeCode', 'IsFlagged'
+                            ]:
+                                row_update_vals.append(cv)
+                                continue
+
                             # Fallback generic math scale (shouldn't trigger normally)
                             if not cv:
                                 row_update_vals.append(cv)
