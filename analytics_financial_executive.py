@@ -631,7 +631,8 @@ class FinancialExecutiveAnalytic(QWidget):
 
                     t_bid += bill_f
                     t_cost += item_cost
-                    all_items.append((desc or "Unnamed", bill_f))
+                    if not is_prelim:
+                        all_items.append((desc or "Unnamed", bill_f))
                     if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
                     s_agg[sheet][0] += bill_f
                     s_agg[sheet][1] += item_cost
