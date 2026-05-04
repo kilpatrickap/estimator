@@ -483,7 +483,7 @@ class ProcurementLogisticsAnalytic(QWidget):
         
         # Populate BOM Table
         self._clear_table(self.bom_list)
-        self._add_bom_row(("RESOURCE NAME", "UNIT", "TOTAL QTY", "AVG RATE", "EST. TOTAL"), is_header=True)
+        self._add_bom_row(("RESOURCE NAME", "UNIT", "TOTAL QTY", "BASIC PRICE", "ESTIMATED AMOUNT"), is_header=True)
         
         sorted_mats = sorted(all_materials.values(), key=lambda x: x['cost'], reverse=True)
         for m in sorted_mats:
