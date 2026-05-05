@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from analytics_components import MetricCard, SelectionFrame
+from analytics_components import MetricCard, SelectionFrame, DonutChart
 from pboq_logic import PBOQLogic
 
 class ProjectPerformanceAnalytic(QWidget):
@@ -48,6 +48,21 @@ class ProjectPerformanceAnalytic(QWidget):
         self.cards_layout.addWidget(self.card_confidence, 0, 3)
         
         self.layout.addLayout(self.cards_layout)
+        
+        # Mix Donut Chart
+        chart_group = QFrame()
+        chart_group.setStyleSheet("background-color: white; border-radius: 12px; border: 1px solid #e0e0e0;")
+        chart_layout = QVBoxLayout(chart_group)
+        chart_layout.setContentsMargins(15, 15, 15, 15)
+        
+        chart_title = QLabel("Pricing Mix (by Value)")
+        chart_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #333; margin-bottom: 5px;")
+        chart_layout.addWidget(chart_title)
+        
+        self.mix_chart = DonutChart("Pricing Mix")
+        chart_layout.addWidget(self.mix_chart)
+        
+        self.layout.addWidget(chart_group)
         
         # Sectional Breakdown (Sheet Level)
         breakdown_group = QFrame()
@@ -128,7 +143,14 @@ class ProjectPerformanceAnalytic(QWidget):
         priced_items = 0
         flagged_items = 0
         
-        sources = {'library': 0, 'manual': 0, 'sub': 0, 'provisional': 0}
+        sources = {
+            'gross': 0.0, 
+            'plug': 0.0, 
+            'sub': 0.0, 
+            'provisional': 0.0,
+            'pc_sum': 0.0,
+            'daywork': 0.0
+        }
         sheet_data = []
 
         for f in os.listdir(self.pboq_folder):
@@ -256,20 +278,24 @@ class ProjectPerformanceAnalytic(QWidget):
                     cursor.execute("SELECT SUM(IsFlagged) FROM pboq_items")
                     flagged_items += (cursor.fetchone()[0] or 0)
                         
-                    cursor.execute("""
+                    cursor.execute(f"""
                         SELECT 
-                            SUM(CASE WHEN GrossRate != '' AND GrossRate IS NOT NULL THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN PlugRate != '' AND PlugRate IS NOT NULL THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN SubbeeRate != '' AND SubbeeRate IS NOT NULL THEN 1 ELSE 0 END),
-                            SUM(CASE WHEN ProvSum != '' AND ProvSum IS NOT NULL THEN 1 ELSE 0 END)
+                            SUM(CASE WHEN GrossRate != '' AND GrossRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN PlugRate != '' AND PlugRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN SubbeeRate != '' AND SubbeeRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN ProvSum != '' AND ProvSum IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN PCSum != '' AND PCSum IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN Daywork != '' AND Daywork IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END)
                         FROM pboq_items
                     """)
                     src_row = cursor.fetchone()
                     if src_row:
-                        sources['library'] += src_row[0] or 0
-                        sources['manual'] += src_row[1] or 0
-                        sources['sub'] += src_row[2] or 0
-                        sources['provisional'] += src_row[3] or 0
+                        sources['gross'] += src_row[0] or 0.0
+                        sources['plug'] += src_row[1] or 0.0
+                        sources['sub'] += src_row[2] or 0.0
+                        sources['provisional'] += src_row[3] or 0.0
+                        sources['pc_sum'] += src_row[4] or 0.0
+                        sources['daywork'] += src_row[5] or 0.0
                         
                     conn.close()
                 except Exception as e:
@@ -284,12 +310,24 @@ class ProjectPerformanceAnalytic(QWidget):
         
         confidence = "N/A"
         lib_pct = 0
-        if priced_items > 0:
-            lib_pct = (sources['library'] / priced_items * 100)
+        total_priced_val = sum(sources.values())
+        if total_priced_val > 0:
+            lib_pct = (sources['gross'] / total_priced_val * 100)
             if lib_pct > 70: confidence = "HIGH"
             elif lib_pct > 40: confidence = "MEDIUM"
             else: confidence = "LOW"
-        self.card_confidence.update_value(confidence, f"{int(lib_pct)}% verified library rates")
+        self.card_confidence.update_value(confidence, f"{int(lib_pct)}% from Gross Rates")
+
+        # Update Donut Chart
+        chart_data = [
+            ("Gross Rates", sources['gross'], "#2e7d32"),
+            ("Plug Rates", sources['plug'], "#0277bd"),
+            ("Subcontractor", sources['sub'], "#ef6c00"),
+            ("Prov. Sums", sources['provisional'], "#c62828"),
+            ("PC Sums", sources['pc_sum'], "#6a1b9a"),
+            ("Dayworks", sources['daywork'], "#37474f")
+        ]
+        self.mix_chart.set_data(chart_data)
 
         self._clear_breakdown()
         for s in sheet_data:
