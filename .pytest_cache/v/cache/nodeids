@@ -1,4 +1,5 @@
 [
+  "PyTest/test_analytics_donut.py::test_analytics_donut_data_aggregation",
   "PyTest/test_factor_currency.py::TestBulkMarginUpdate::test_margins_preserve_currency_conversion",
   "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_preserves_project_currency_grand_total",
   "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_update_does_not_double_apply",

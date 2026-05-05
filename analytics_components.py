@@ -137,7 +137,11 @@ class ParetoBarChart(ChartWidget):
 
         margin_left = min(220, rect.width() * 0.38)
         margin_right = 65
-        max_val = max(d[1] for d in self.data if d[1] > 0)
+        pos_values = [d[1] for d in self.data if d[1] > 0]
+        if not pos_values:
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No Pricing Data")
+            return
+        max_val = max(pos_values)
         chart_top, bar_h, gap = 40, 18, 10
         painter.setFont(QFont("Inter", 8))
         metrics = QFontMetrics(painter.font())

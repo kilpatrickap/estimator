@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from analytics_components import MetricCard, SelectionFrame, DonutChart
+from analytics_components import MetricCard, SelectionFrame, DonutChart, ParetoBarChart
 from pboq_logic import PBOQLogic
 
 class ProjectPerformanceAnalytic(QWidget):
@@ -20,7 +20,16 @@ class ProjectPerformanceAnalytic(QWidget):
         self.refresh_data()
 
     def _init_ui(self):
-        self.layout = QVBoxLayout(self)
+        root_layout = QVBoxLayout(self)
+        root_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.main_scroll = QScrollArea()
+        self.main_scroll.setWidgetResizable(True)
+        self.main_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        
+        self.content_widget = QWidget()
+        self.content_widget.setStyleSheet("background-color: transparent;")
+        self.layout = QVBoxLayout(self.content_widget)
         self.layout.setContentsMargins(20, 20, 20, 20)
         self.layout.setSpacing(15)
         
@@ -49,20 +58,39 @@ class ProjectPerformanceAnalytic(QWidget):
         
         self.layout.addLayout(self.cards_layout)
         
-        # Mix Donut Chart
-        chart_group = QFrame()
-        chart_group.setStyleSheet("background-color: white; border-radius: 12px; border: 1px solid #e0e0e0;")
-        chart_layout = QVBoxLayout(chart_group)
-        chart_layout.setContentsMargins(15, 15, 15, 15)
+        # Charts Row
+        self.charts_layout = QHBoxLayout()
+        self.charts_layout.setSpacing(15)
         
-        chart_title = QLabel("Pricing Mix (by Value)")
-        chart_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #333; margin-bottom: 5px;")
-        chart_layout.addWidget(chart_title)
+        # 1. Donut Mix Chart
+        donut_group = QFrame()
+        donut_group.setStyleSheet("background-color: white; border-radius: 12px; border: 1px solid #e0e0e0;")
+        donut_layout = QVBoxLayout(donut_group)
+        donut_layout.setContentsMargins(15, 15, 15, 15)
+        
+        donut_title = QLabel("Pricing Mix (Value Distribution)")
+        donut_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #333; margin-bottom: 5px;")
+        donut_layout.addWidget(donut_title)
         
         self.mix_chart = DonutChart("Pricing Mix")
-        chart_layout.addWidget(self.mix_chart)
+        donut_layout.addWidget(self.mix_chart)
+        self.charts_layout.addWidget(donut_group, 1)
         
-        self.layout.addWidget(chart_group)
+        # 2. Pareto Bar Chart
+        bar_group = QFrame()
+        bar_group.setStyleSheet("background-color: white; border-radius: 12px; border: 1px solid #e0e0e0;")
+        bar_layout = QVBoxLayout(bar_group)
+        bar_layout.setContentsMargins(15, 15, 15, 15)
+        
+        bar_title = QLabel("Price Type Values")
+        bar_title.setStyleSheet("font-size: 14px; font-weight: bold; color: #333; margin-bottom: 5px;")
+        bar_layout.addWidget(bar_title)
+        
+        self.mix_bar_chart = ParetoBarChart("Price Type Analysis")
+        bar_layout.addWidget(self.mix_bar_chart)
+        self.charts_layout.addWidget(bar_group, 1)
+        
+        self.layout.addLayout(self.charts_layout)
         
         # Sectional Breakdown (Sheet Level)
         breakdown_group = QFrame()
@@ -77,6 +105,7 @@ class ProjectPerformanceAnalytic(QWidget):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll_area.setMinimumHeight(400)
         
         self.breakdown_container = QWidget()
         self.breakdown_list = QVBoxLayout(self.breakdown_container)
@@ -87,8 +116,11 @@ class ProjectPerformanceAnalytic(QWidget):
         self.scroll_area.setWidget(self.breakdown_container)
         breakdown_layout.addWidget(self.scroll_area)
         
-        self.layout.addWidget(breakdown_group, 1)
+        self.layout.addWidget(breakdown_group)
         self.layout.addStretch()
+        
+        self.main_scroll.setWidget(self.content_widget)
+        root_layout.addWidget(self.main_scroll)
 
     def _load_currency(self):
         """Discovers the project-wide currency symbol from the master project database."""
@@ -328,6 +360,10 @@ class ProjectPerformanceAnalytic(QWidget):
             ("Dayworks", sources['daywork'], "#37474f")
         ]
         self.mix_chart.set_data(chart_data)
+        
+        # Update Bar Chart (Sorted by value for Pareto effect)
+        sorted_bar_data = sorted(chart_data, key=lambda x: x[1], reverse=True)
+        self.mix_bar_chart.set_data(sorted_bar_data)
 
         self._clear_breakdown()
         for s in sheet_data:

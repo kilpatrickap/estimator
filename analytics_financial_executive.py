@@ -31,6 +31,7 @@ class MetricRow(QFrame):
         weight = "800" if is_total else "600"
         name_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: {weight}; color: #1e293b; font-size: 13px; border: none;")
         name_lbl.setToolTip(name) 
+        name_lbl.setWordWrap(True)
         layout.addWidget(name_lbl, 6) 
 
         # Bid Pill
