@@ -237,9 +237,10 @@ class StrategicBiddingAnalytic(QWidget):
         except: pass
 
     def _calculate_accurate_totals(self):
-        """Deep resource drill-down to calculate true project net cost."""
+        """Deep resource drill-down to calculate true project net cost. Synchronized with Financial Dashboard."""
         self.base_cost = 0.0
         self.fixed_cost = 0.0
+        self.actual_bid = 0.0
         self._rate_cache = {}
         pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         if not os.path.exists(pboq_folder): return
@@ -294,11 +295,14 @@ class StrategicBiddingAnalytic(QWidget):
                     
                     p_val, s_val, g_val, pr_val, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
                     
-                    # Check for rate buildup
-                    active_code = p_code if p_code and str(p_code).strip() else r_code
-                    ratios, master_net_cost = self._get_rate_composition(active_code) if active_code else (None, 0.0)
+                    # 1. CORE SYNC Logic
+                    is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
+                    is_fixed_type = (pr_val > 0 or pc_val > 0 or d_val > 0)
                     
-                    # Determine source unit cost (Same priority as Financial Executive Dashboard)
+                    active_code = p_code if p_code and str(p_code).strip() else r_code
+                    _, master_net_cost = self._get_rate_composition(active_code) if active_code else (None, 0.0)
+                    
+                    # Determine source unit cost
                     if pr_val > 0: unit_cost = pr_val
                     elif pc_val > 0: unit_cost = pc_val
                     elif d_val > 0: unit_cost = d_val
@@ -308,20 +312,16 @@ class StrategicBiddingAnalytic(QWidget):
                         elif s_val > 0: unit_cost = s_val
                         elif g_val > 0: unit_cost = g_val
                         else:
-                            # SMART FALLBACK: If we have a bill amount but no cost, reverse-engineer it
-                            if bill_f > 0:
-                                denom = (1 + self.current_overhead/100) * (1 + self.current_profit/100) * self.current_factor
-                                unit_cost = (bill_f / qty_f) / (denom if denom > 0 else 1.0) if qty_f > 0 else (bill_f / (denom if denom > 0 else 1.0))
-                            else:
-                                unit_cost = 0.0
+                            unit_cost = bill_f if (is_prelim or is_fixed_type) and bill_f > 0 and qty_f <= 1 else 0.0
                     
-                    # Calculate cost (lump sum check for prelims/risk)
-                    is_lump_sum = pr_val > 0 or pc_val > 0 or d_val > 0
+                    # Ensure qty is at least 1 for lump sums
+                    is_lump_sum = is_prelim or is_fixed_type
                     calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
                     item_net_cost = unit_cost * calc_qty
                     
                     self.base_cost += item_net_cost
-                    if pr_val > 0 or pc_val > 0:
+                    self.actual_bid += bill_f
+                    if is_fixed_type:
                         self.fixed_cost += item_net_cost
                 
                 conn.close()
@@ -378,10 +378,11 @@ class StrategicBiddingAnalytic(QWidget):
         sim_margin_pct = (sim_profit_amt / sim_bid * 100) if sim_bid > 0 else 0
         sim_oh_pct = (sim_overhead_amt / sim_bid * 100) if sim_bid > 0 else 0
         
-        # Current baseline for comparison
-        curr_overhead_amt = self.base_cost * (self.current_overhead/100) * self.current_factor
-        curr_profit_amt = markable * (self.current_profit/100) * self.current_factor
-        curr_bid = (self.base_cost * self.current_factor) + curr_overhead_amt + curr_profit_amt
+        # 2. SOURCE OF TRUTH BASELINE (Matches Financial Executive Dashboard)
+        curr_bid = self.actual_bid
+        curr_cost = self.base_cost
+        curr_overhead_amt = curr_cost * (self.current_overhead/100)
+        curr_profit_amt = (curr_bid - curr_cost) - curr_overhead_amt
         curr_margin_pct = (curr_profit_amt / curr_bid * 100) if curr_bid > 0 else 0
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0
         
@@ -400,6 +401,7 @@ class StrategicBiddingAnalytic(QWidget):
             ("Profit", sim_profit_amt, "#ef6c00"),
             ("Final Bid", sim_bid, "#1b5e20")
         ])
+
 
     def apply_to_project(self):
         reply = QMessageBox.question(self, "Confirm Changes", 

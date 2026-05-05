@@ -460,6 +460,7 @@ class FinancialExecutiveAnalytic(QWidget):
                     # 1. CORE FIX: Pricing Category based detection
                     # Check if the item is explicitly categorized as Preliminaries
                     is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
+                    is_fixed = (pr_val > 0 or pc_val > 0 or d_val > 0)
                     
                     active_code = p_code if p_code and str(p_code).strip() else r_code
                     ratios, master_net_cost, master_cat = self._get_rate_composition(active_code) if active_code else (None, 0.0, None)
@@ -484,37 +485,32 @@ class FinancialExecutiveAnalytic(QWidget):
                     if ratios:
                         sub_ratio = ratios.get('Subcontractors', 0.0)
                     elif s_val > 0:
-                        # If no buildup but has sub rate, it's 100% subbed
                         sub_ratio = 1.0
                     
                     if sub_ratio > 0.8 and s_pkg and str(s_pkg).strip() and str(s_pkg).strip() != "''":
                         category = f"Sub-Contract: {category}: {str(s_pkg).strip()}"
                     
-                    # Determine the source unit cost. 
-                    # Priority: Provisional/PC/Daywork (0% Margin) > Master Buildup > Plug/Sub Fallbacks
+                    # Determine source unit cost
                     if pr_val > 0: unit_cost = pr_val
                     elif pc_val > 0: unit_cost = pc_val
                     elif d_val > 0: unit_cost = d_val
-                    elif master_net_cost > 0:
-                        unit_cost = master_net_cost
+                    elif master_net_cost > 0: unit_cost = master_net_cost
                     else:
-                        # Fallback to other BOQ rates
                         if p_val > 0: unit_cost = p_val
                         elif s_val > 0: unit_cost = s_val
                         elif g_val > 0: unit_cost = g_val
-                        else: 
-                            # If it's a prelim item with a bill amount but no rate, 
-                            # treat it as a lump sum cost (Indirect)
-                            unit_cost = bill_f if is_prelim and bill_f > 0 and qty_f <= 1 else 0.0
+                        else:
+                            # Fallback for Prelims or items with only bill amounts
+                            unit_cost = bill_f if (is_prelim or is_fixed) and bill_f > 0 and qty_f <= 1 else 0.0
                     
-                    # Ensure qty is at least 1 for lump sums (Prelims, Prov Sums, PC Sums, Dayworks)
-                    is_lump_sum = is_prelim or pr_val > 0 or pc_val > 0 or d_val > 0
+                    # Ensure qty is at least 1 for lump sums
+                    is_lump_sum = is_prelim or is_fixed
                     calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
                     item_cost = unit_cost * calc_qty
                     
                     # 2. Resource distribution
                     if is_prelim:
-                        dist['Risk'] += item_cost # Preliminaries are Indirect Costs
+                        dist['Risk'] += item_cost
                     elif ratios:
                         dist['Materials'] += item_cost * ratios.get('Materials', 0.0)
                         dist['Labor'] += item_cost * ratios.get('Labor', 0.0)
@@ -523,12 +519,11 @@ class FinancialExecutiveAnalytic(QWidget):
                         dist['Subcontractors'] += item_cost * ratios.get('Subcontractors', 0.0)
                         dist['Risk'] += item_cost * ratios.get('Indirect', 0.0)
                     else:
-                        # Default categorizations
                         if p_val > 0: dist['Materials'] += item_cost
                         elif s_val > 0: dist['Subcontractors'] += item_cost
                         elif g_val > 0: dist['Labor'] += item_cost
                         elif d_val > 0: dist['Labor'] += item_cost
-                        elif pr_val > 0 or pc_val > 0: dist['Risk'] += item_cost
+                        elif is_fixed: dist['Risk'] += item_cost
 
                     t_bid += bill_f
                     t_cost += item_cost
@@ -541,6 +536,7 @@ class FinancialExecutiveAnalytic(QWidget):
                     if category not in c_agg: c_agg[category] = [0.0, 0.0]
                     c_agg[category][0] += bill_f
                     c_agg[category][1] += item_cost
+
                     
                     # Subcontractor Analysis Aggregation
                     if sub_ratio > 0:
