@@ -201,12 +201,13 @@ class ResourceColorsDialog(QDialog):
         self.accept()
 
 class SettingsDialog(QDialog):
-    def __init__(self, estimate=None, project_dir="", library_path="", parent=None):
+    def __init__(self, estimate=None, project_dir="", library_path="", parent=None, overrides=None):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.db_manager = DatabaseManager()
         self.estimate = estimate
         self.project_dir = project_dir
+        self.overrides = overrides or {}
 
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(10, 10, 10, 10)
@@ -318,14 +319,19 @@ class SettingsDialog(QDialog):
                 def_profit = "10.00"
                 
             pct_validator = QDoubleValidator(0.0, 100.0, 2)
-            self.proj_overhead = QLineEdit(def_overhead)
+            
+            ov_val = self.overrides.get('overhead', def_overhead)
+            self.proj_overhead = QLineEdit(f"{float(ov_val):.2f}")
             self.proj_overhead.setValidator(pct_validator)
-            self.proj_profit = QLineEdit(def_profit)
+            
+            pr_val = self.overrides.get('profit', def_profit)
+            self.proj_profit = QLineEdit(f"{float(pr_val):.2f}")
             self.proj_profit.setValidator(pct_validator)
             
             # New Factor field
+            fc_val = self.overrides.get('factor', def_factor)
             try:
-                formatted_factor = f"{float(def_factor):.2f}"
+                formatted_factor = f"{float(fc_val):.2f}"
             except:
                 formatted_factor = "1.00"
             self.proj_factor = QLineEdit(formatted_factor)

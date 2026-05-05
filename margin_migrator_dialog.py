@@ -18,32 +18,69 @@ class MarginMigrationWorker(QThread):
         self.new_profit = new_profit
         self.old_factor = old_factor
         self.new_factor = new_factor
+        
+        # Identify the main project database to check for migration flags
+        self.pj_db_path = ""
+        import os
+        pj_db_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(pj_db_dir):
+            dbs = [f for f in os.listdir(pj_db_dir) if f.endswith('.db')]
+            if dbs:
+                self.pj_db_path = os.path.join(pj_db_dir, dbs[0])
 
     def run(self):
         try:
             self.progress.emit(10, "Calculating Multipliers...")
             
-            # Use strictly the Adjustment Factor for scaling fallback
-            old_multiplier = self.old_factor
-            new_multiplier = self.new_factor
+            # Formula: Bid = Cost * Factor * (1 + Overhead/100 + Profit/100)
+            # So Scale Factor = [New_Total_Multiplier] / [Old_Total_Multiplier]
             
-            if old_multiplier <= 0:
-                old_multiplier = 1.0
+            old_markable_mult = (1 + self.old_overhead/100 + self.old_profit/100) * self.old_factor
+            new_markable_mult = (1 + self.new_overhead/100 + self.new_profit/100) * self.new_factor
+            
+            # Avoid division by zero
+            if old_markable_mult <= 0: old_markable_mult = 1.0
+            markable_scale = new_markable_mult / old_markable_mult
+            
+            # Fixed items (Prov/PC Sums) have no Profit or Overhead in this project
+            # However, if the project is "Dirty" (legacy overhead still in fixed sums),
+            # we need to strip it once.
+            is_stripped = False
+            from database import DatabaseManager
+            if self.pj_db_path:
+                dbm = DatabaseManager(self.pj_db_path)
+                is_stripped = dbm.get_setting('fixed_markup_stripped', 'false').lower() == 'true'
+            
+            if not is_stripped:
+                # Strip old overhead from fixed sums (Legacy correction)
+                old_fixed_mult = (1 + self.old_overhead/100) * self.old_factor
+            else:
+                # Already clean, just scale by factor
+                old_fixed_mult = 1.0 * self.old_factor
                 
-            scale_factor = new_multiplier / old_multiplier
+            new_fixed_mult = 1.0 * self.new_factor
+            
+            if old_fixed_mult <= 0: old_fixed_mult = 1.0
+            fixed_scale = new_fixed_mult / old_fixed_mult
             
             self.progress.emit(30, "Migrating PBOQ files (Gross Rates only)...")
-            self._migrate_pboq_gross_rates(scale_factor)
+            self._migrate_pboq_gross_rates(markable_scale, fixed_scale)
             
             self.progress.emit(70, "Migrating SOR/Library databases...")
-            self._migrate_sor_gross_rates(scale_factor)
+            self._migrate_sor_gross_rates(markable_scale)
             
             self.progress.emit(100, "Migration Complete.")
+            
+            # Mark as stripped
+            if self.pj_db_path:
+                dbm = DatabaseManager(self.pj_db_path)
+                dbm.set_setting('fixed_markup_stripped', 'true')
+                
             self.finished_mig.emit(True, "All existing Gross Rates have been mathematically scaled to reflect new Overhead & Profit.")
         except Exception as e:
             self.finished_mig.emit(False, str(e))
 
-    def _migrate_sor_gross_rates(self, scale_factor):
+    def _migrate_sor_gross_rates(self, markable_scale):
         sor_dir = os.path.join(self.project_dir, "SOR")
         lib_dir = os.path.join(self.project_dir, "Imported Library")
         
@@ -110,7 +147,7 @@ class MarginMigrationWorker(QThread):
                             if code_val and code_val in native_rates:
                                 scaled_val = native_rates[code_val]
                             else:
-                                scaled_val = numeric_val * scale_factor
+                                scaled_val = numeric_val * markable_scale
                             
                             sym_match = re.search(r'^([^\d]+)', str(v).strip())
                             sym = sym_match.group(1).strip() + " " if sym_match else ""
@@ -129,7 +166,7 @@ class MarginMigrationWorker(QThread):
                 finally:
                     conn.close()
 
-    def _migrate_pboq_gross_rates(self, scale_factor):
+    def _migrate_pboq_gross_rates(self, markable_scale, fixed_scale):
         from pboq_logic import PBOQLogic
         pboq_dir = os.path.join(self.project_dir, "Priced BOQs")
         if not os.path.exists(pboq_dir): return
@@ -232,7 +269,7 @@ class MarginMigrationWorker(QThread):
                     for r_idx, c_idx, fmt_str in cursor.fetchall():
                         try: formatting_map[(r_idx, c_idx)] = json.loads(fmt_str)
                         except: pass
-
+ 
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 db_cols = [info[1] for info in cursor.fetchall()]
                 
@@ -245,7 +282,7 @@ class MarginMigrationWorker(QThread):
                                 m_plug_rate = int(col.split(" ")[1])
                                 break
                             except: pass
-
+ 
                 if "GrossRate" not in db_cols:
                     conn.close()
                     continue
@@ -253,7 +290,7 @@ class MarginMigrationWorker(QThread):
                 # Safety check for mapped columns to avoid sqlite3.OperationalError
                 def is_col_valid(idx):
                     return idx >= 0 and f"Column {idx}" in db_cols
-
+ 
                 if not is_col_valid(m_code): m_code = -1
                 if not is_col_valid(m_amt): m_amt = -1
                 if not is_col_valid(m_rate): m_rate = -1
@@ -318,21 +355,30 @@ class MarginMigrationWorker(QThread):
                     
                     is_rate_linked = False
                     is_amt_linked = False
+                    is_prov = False
                     
                     if g_idx >= 0:
                         if m_amt >= 0:
-                            bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
+                            fmt = formatting_map.get((g_idx, m_amt), {})
+                            bg = fmt.get('bg_color', '').lower()
                             if bg == '#e8f5e9': # Linked from Gross
                                 is_amt_linked = True
                             elif bg == '#f3e5f5': # Linked from Plug
                                 is_amt_linked = 'plug'
+                            elif bg == '#e0ffff': # Prov Sum color
+                                is_prov = True
                         
-                        if not is_amt_linked and "Bill Amount" in db_cols:
+                        if not is_amt_linked and not is_prov and "Bill Amount" in db_cols:
                             ma_idx = m_amt if m_amt >= 0 else pst.get('mappings', {}).get('bill_amount', -1)
                             if ma_idx >= 0:
-                                bg = formatting_map.get((g_idx, ma_idx), {}).get('bg_color', '').lower()
+                                fmt = formatting_map.get((g_idx, ma_idx), {})
+                                bg = fmt.get('bg_color', '').lower()
                                 if bg == '#e8f5e9': is_amt_linked = True
                                 elif bg == '#f3e5f5': is_amt_linked = 'plug'
+                                elif bg == '#e0ffff': is_prov = True
+                    
+                    # Choose correct scale factor for this row
+                    item_scale = fixed_scale if is_prov else markable_scale
                     
                     is_rate_linked_plug = False
                     if g_idx >= 0:
@@ -364,7 +410,7 @@ class MarginMigrationWorker(QThread):
                     if 'PlugCode' in cols_to_update:
                         p_idx = cols_to_update.index('PlugCode') + 1
                         plug_code_val = str(row[p_idx] or "").strip().upper()
-
+ 
                     # Also check physical rate code column
                     if m_code >= 0:
                         phys_name = f'Column {m_code}'
@@ -416,7 +462,7 @@ class MarginMigrationWorker(QThread):
                             clean_str = re.sub(r'[^\d.-]', '', str(v_gross))
                             if clean_str:
                                 numeric_val = float(clean_str)
-                                scaled_val = numeric_val * scale_factor
+                                scaled_val = numeric_val * item_scale
                             else:
                                 scaled_val = 0.0
                         
@@ -428,7 +474,7 @@ class MarginMigrationWorker(QThread):
                                 pf_val = row[cols_to_update.index('PlugFactor') + 1]
                                 if pf_val: item_plug_factor = float(str(pf_val).replace(',', ''))
                             except: pass
-
+ 
                         if plug_code_val:
                             # Re-calculate from formula if available
                             formula_val = ""
@@ -438,7 +484,7 @@ class MarginMigrationWorker(QThread):
                             if formula_val:
                                 base_sum = PBOQLogic.evaluate_formula(formula_val)
                                 # Scale the item's existing factor by the global change
-                                new_item_factor = item_plug_factor * scale_factor
+                                new_item_factor = item_plug_factor * item_scale
                                 scaled_plug = base_sum * new_item_factor
                                 item_plug_factor = new_item_factor
                             elif plug_code_val in native_rates:
@@ -453,8 +499,8 @@ class MarginMigrationWorker(QThread):
                                 v_plug = row[c_idx]
                                 try:
                                     p_clean = re.sub(r'[^\d.-]', '', str(v_plug))
-                                    scaled_plug = float(p_clean) * scale_factor if p_clean else 0.0
-                                    item_plug_factor *= scale_factor
+                                    scaled_plug = float(p_clean) * item_scale if p_clean else 0.0
+                                    item_plug_factor *= item_scale
                                 except: scaled_plug = 0.0
                         
                         if scaled_val == 0.0 and scaled_plug is None:
@@ -501,9 +547,6 @@ class MarginMigrationWorker(QThread):
                                 # If it's a standard bill item (linked color OR yellow/default color with quantity)
                                 # we should perform the extension to keep math consistent.
                                 if s_val is not None:
-                                    bg = formatting_map.get((g_idx, m_amt), {}).get('bg_color', '').lower()
-                                    is_prov = (bg == '#e0ffff') # Prov Sum color
-                                    
                                     if not is_prov and qty_val is not None:
                                         # Precision as Displayed: Round rate to 2 decimals, Qty to 4 decimals
                                         r_val_rounded = round(float(s_val), 2)
@@ -514,7 +557,7 @@ class MarginMigrationWorker(QThread):
                                         c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
                                         row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
                                         continue
-
+ 
                                 if is_amt_linked and s_val is not None:
                                     r_val_rounded = round(float(s_val), 2)
                                     q_val_rounded = round(float(qty_val), 4)
@@ -523,6 +566,16 @@ class MarginMigrationWorker(QThread):
                                     c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                                     c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else sym
                                     row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())
+                                elif is_prov:
+                                    # Manually scale Prov Sum Amount if it's not linked but identified by color
+                                    clean_amt = re.sub(r'[^\d.-]', '', str(cv))
+                                    if clean_amt:
+                                        a_scaled = float(clean_amt) * fixed_scale
+                                        a_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
+                                        a_sym = a_sym_match.group(1).strip() + " " if a_sym_match else sym
+                                        row_update_vals.append(f"{a_sym}{a_scaled:,.2f}".strip())
+                                    else:
+                                        row_update_vals.append(cv)
                                 else:
                                     row_update_vals.append(cv)
                                 continue
@@ -589,7 +642,7 @@ class MarginMigrationWorker(QThread):
                                 else:
                                     row_update_vals.append(cv)
                                 continue
-
+ 
                             if m_code >= 0 and col_name == f'Column {m_code}':
                                 row_update_vals.append(code_val)
                                 continue
@@ -604,8 +657,8 @@ class MarginMigrationWorker(QThread):
                             ]:
                                 row_update_vals.append(cv)
                                 continue
-
-                            # Fallback generic math scale (shouldn't trigger normally)
+ 
+                            # Fallback generic math scale
                             if not cv:
                                 row_update_vals.append(cv)
                                 continue
@@ -616,7 +669,7 @@ class MarginMigrationWorker(QThread):
                                 continue
                                 
                             c_num = float(c_clean)
-                            c_scaled = c_num * scale_factor
+                            c_scaled = c_num * item_scale
                             c_sym_match = re.search(r'^([^\d]+)', str(cv).strip())
                             c_sym = c_sym_match.group(1).strip() + " " if c_sym_match else ""
                             row_update_vals.append(f"{c_sym}{c_scaled:,.2f}".strip())

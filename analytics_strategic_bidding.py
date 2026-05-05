@@ -2,10 +2,10 @@ import os
 import sqlite3
 import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
-                             QFrame, QGridLayout, QScrollArea, QSlider, QDoubleSpinBox,
+                             QFrame, QGridLayout, QScrollArea, QLineEdit,
                              QPushButton, QSpacerItem, QSizePolicy, QMessageBox)
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics, QDoubleValidator
 
 from analytics_components import MetricCard, ChartWidget, WaterfallChart
 from pboq_logic import PBOQLogic
@@ -88,21 +88,21 @@ class StrategicBiddingAnalytic(QWidget):
         ctrl_title.setStyleSheet("font-weight: 800; color: #1e293b; font-size: 16px;")
         controls_layout.addWidget(ctrl_title)
         
-        # Overhead Slider
-        self.ov_slider = self._create_slider_group(controls_layout, "Project Overhead (%)", 0, 100, 0.5)
-        self.ov_slider.valueChanged.connect(self._on_parameter_changed)
+        # Overhead Input
+        self.ov_input = self._create_input_group(controls_layout, "Project Overhead (%)")
+        self.ov_input.textChanged.connect(self._on_parameter_changed)
         
-        # Profit Slider
-        self.pr_slider = self._create_slider_group(controls_layout, "Project Profit (%)", 0, 100, 0.5)
-        self.pr_slider.valueChanged.connect(self._on_parameter_changed)
+        # Profit Input
+        self.pr_input = self._create_input_group(controls_layout, "Project Profit (%)")
+        self.pr_input.textChanged.connect(self._on_parameter_changed)
         
-        # Factor Slider
-        self.fc_slider = self._create_slider_group(controls_layout, "Global Adjustment Factor", 0.5, 2.0, 0.01)
-        self.fc_slider.valueChanged.connect(self._on_parameter_changed)
+        # Factor Input
+        self.fc_input = self._create_input_group(controls_layout, "Global Adjustment Factor")
+        self.fc_input.textChanged.connect(self._on_parameter_changed)
         
         controls_layout.addStretch()
         
-        self.apply_btn = QPushButton("Apply Scenario to Project")
+        self.apply_btn = QPushButton("Apply Scenario to Project Settings")
         self.apply_btn.setStyleSheet("""
             QPushButton {
                 background-color: #1b5e20; color: white; border-radius: 8px; padding: 12px; font-weight: bold; font-size: 13px;
@@ -153,33 +153,34 @@ class StrategicBiddingAnalytic(QWidget):
         self.scroll_area.setWidget(self.content_widget)
         root_layout.addWidget(self.scroll_area)
 
-    def _create_slider_group(self, layout, title, min_val, max_val, step):
+    def _create_input_group(self, layout, title):
         lbl = QLabel(title)
         lbl.setStyleSheet("color: #64748b; font-weight: 600; font-size: 12px;")
         layout.addWidget(lbl)
         
-        hbox = QHBoxLayout()
-        slider = QSlider(Qt.Orientation.Horizontal)
-        # Use integer range for slider, then convert back
-        slider.setRange(int(min_val / step), int(max_val / step))
-        
-        spin = QDoubleSpinBox()
-        spin.setRange(min_val, max_val)
-        spin.setSingleStep(step)
-        spin.setDecimals(2 if step < 0.1 else 1)
-        spin.setStyleSheet("border: 1px solid #cbd5e1; border-radius: 4px; padding: 2px;")
-        
-        slider.valueChanged.connect(lambda v: spin.setValue(v * step))
-        spin.valueChanged.connect(lambda v: slider.setValue(int(v / step)))
-        
-        hbox.addWidget(slider)
-        hbox.addWidget(spin)
-        layout.addLayout(hbox)
+        edit = QLineEdit()
+        edit.setPlaceholderText("0.00")
+        # Allow values from -100 to 1000 with 2 decimal places
+        edit.setValidator(QDoubleValidator(-100.0, 1000.0, 2))
+        edit.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #cbd5e1; 
+                border-radius: 8px; 
+                padding: 10px; 
+                font-size: 14px;
+                background-color: #f8fafc;
+            }
+            QLineEdit:focus {
+                border: 2px solid #1b5e20;
+                background-color: white;
+            }
+        """)
+        layout.addWidget(edit)
         
         # Monkey patch value property for easier access
-        slider.actual_value = lambda: spin.value()
-        slider.set_actual_value = lambda v: spin.setValue(v)
-        return slider
+        edit.actual_value = lambda: self._to_float(edit.text())
+        edit.set_actual_value = lambda v: edit.setText(f"{float(v):.2f}")
+        return edit
 
     def _create_chart_frame(self, title, chart):
         f = QFrame()
@@ -202,10 +203,10 @@ class StrategicBiddingAnalytic(QWidget):
             # 2. Calculate Accurate Totals (Matches Financial Executive Dashboard)
             self._calculate_accurate_totals()
             
-            # 3. Set sliders to current project state
-            self.ov_slider.set_actual_value(self.current_overhead)
-            self.pr_slider.set_actual_value(self.current_profit)
-            self.fc_slider.set_actual_value(self.current_factor)
+            # 3. Set inputs to current project state
+            self.ov_input.set_actual_value(self.current_overhead)
+            self.pr_input.set_actual_value(self.current_profit)
+            self.fc_input.set_actual_value(self.current_factor)
             
             self.update_simulation()
         except Exception as e:
@@ -361,17 +362,19 @@ class StrategicBiddingAnalytic(QWidget):
         return {}
 
     def _on_parameter_changed(self):
-        self.scenario_overhead = self.ov_slider.actual_value()
-        self.scenario_profit = self.pr_slider.actual_value()
-        self.scenario_factor = self.fc_slider.actual_value()
+        self.scenario_overhead = self.ov_input.actual_value()
+        self.scenario_profit = self.pr_input.actual_value()
+        self.scenario_factor = self.fc_input.actual_value()
         self.update_simulation()
 
     def update_simulation(self):
         # 1. Calculate Scenario Bid
-        # Markable items get both O and P. Fixed items only get O (typically).
+        # Markable cost is Base Cost minus fixed costs (PC Sums/Prov Sums)
         markable = self.base_cost - self.fixed_cost
         
-        sim_overhead_amt = self.base_cost * (self.scenario_overhead/100) * self.scenario_factor
+        # Calculate simulation totals
+        # UPDATED: Overhead is now also calculated on Markable cost (matching user's request)
+        sim_overhead_amt = markable * (self.scenario_overhead/100) * self.scenario_factor
         sim_profit_amt = markable * (self.scenario_profit/100) * self.scenario_factor
         
         sim_bid = (self.base_cost * self.scenario_factor) + sim_overhead_amt + sim_profit_amt
@@ -381,8 +384,13 @@ class StrategicBiddingAnalytic(QWidget):
         # 2. SOURCE OF TRUTH BASELINE (Matches Financial Executive Dashboard)
         curr_bid = self.actual_bid
         curr_cost = self.base_cost
-        curr_overhead_amt = curr_cost * (self.current_overhead/100)
+        curr_markable = curr_cost - self.fixed_cost
+        
+        # Calculate effective overhead based on markable portion
+        curr_overhead_amt = curr_markable * (self.current_overhead/100)
+        # Profit is the remaining spread to match the actual bid
         curr_profit_amt = (curr_bid - curr_cost) - curr_overhead_amt
+        
         curr_margin_pct = (curr_profit_amt / curr_bid * 100) if curr_bid > 0 else 0
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0
         
@@ -404,42 +412,32 @@ class StrategicBiddingAnalytic(QWidget):
 
 
     def apply_to_project(self):
-        reply = QMessageBox.question(self, "Confirm Changes", 
-                                     f"Are you sure you want to apply these markups to the project?\n\n"
-                                     f"Overhead: {self.scenario_overhead}%\n"
-                                     f"Profit: {self.scenario_profit}%\n"
-                                     f"Factor: {self.scenario_factor}\n\n"
-                                     "This will trigger a full project recalculation.",
-                                     QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        # Package the scenario figures as overrides for the Settings dialog
+        overrides = {
+            'overhead': self.scenario_overhead,
+            'profit': self.scenario_profit,
+            'factor': self.scenario_factor
+        }
         
-        if reply == QMessageBox.StandardButton.Yes:
-            try:
-                # Update settings in database
-                if os.path.exists(self.pj_db_dir):
-                    dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
-                    if dbs:
-                        db_path = os.path.join(self.pj_db_dir, dbs[0])
-                        conn = sqlite3.connect(db_path)
-                        cursor = conn.cursor()
-                        cursor.execute("UPDATE settings SET value = ? WHERE key = 'overhead'", (str(self.scenario_overhead),))
-                        cursor.execute("UPDATE settings SET value = ? WHERE key = 'profit'", (str(self.scenario_profit),))
-                        cursor.execute("UPDATE settings SET value = ? WHERE key = 'factor'", (str(self.scenario_factor),))
-                        conn.commit()
-                        conn.close()
-                        
-                        # Trigger Migration Dialog
-                        from margin_migrator_dialog import MarginMigrationDialog
-                        dlg = MarginMigrationDialog(self.project_dir, 
-                                                   self.current_overhead, self.current_profit,
-                                                   self.scenario_overhead, self.scenario_profit,
-                                                   self.current_factor, self.scenario_factor,
-                                                   self.window())
-                        dlg.exec()
-                        
-                        # Refresh baseline
-                        self.load_baseline()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to apply settings: {e}")
+        # Robust detection of the MainWindow or parent with open_settings capability
+        main_win = None
+        curr = self
+        while curr:
+            if hasattr(curr, 'open_settings'):
+                main_win = curr
+                break
+            if hasattr(curr, 'main_window') and curr.main_window:
+                main_win = curr.main_window
+                break
+            curr = curr.parent()
+            
+        if main_win:
+            main_win.open_settings(overrides=overrides)
+            # After settings dialog closes (if saved), refresh the baseline
+            self.load_baseline()
+        else:
+            QMessageBox.warning(self, "Error", "Could not locate main window to open settings.")
+
 
     def _to_float(self, val):
         if not val: return 0.0

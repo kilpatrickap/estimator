@@ -708,7 +708,7 @@ class MainWindow(QMainWindow):
             self.mdi_area.setActiveSubWindow(rate_sub)
             rate_sub.widget().highlight_rate(rate_code)
 
-    def open_settings(self):
+    def open_settings(self, overrides=None):
         active_est = self._get_active_estimate_window()
         import os
         from PyQt6.QtWidgets import QMessageBox
@@ -752,7 +752,7 @@ class MainWindow(QMainWindow):
                 self.mdi_area.setActiveSubWindow(sub)
                 return
 
-        dialog = SettingsDialog(estimate_obj, project_dir, library_path, self)
+        dialog = SettingsDialog(estimate_obj, project_dir, library_path, self, overrides=overrides)
         if dialog.exec():
             data = dialog.get_project_data()
             if data:

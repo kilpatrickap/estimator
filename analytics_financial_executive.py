@@ -389,7 +389,7 @@ class FinancialExecutiveAnalytic(QWidget):
         if not os.path.exists(self.pboq_folder): 
             return
         
-        t_bid, t_cost = 0.0, 0.0
+        t_bid, t_cost, t_fixed_cost = 0.0, 0.0, 0.0
         dist = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Subcontractors': 0.0, 'Risk': 0.0}
         all_items, sections = [], []
         c_agg = {} # Categorical aggregate (Project Wide)
@@ -527,6 +527,8 @@ class FinancialExecutiveAnalytic(QWidget):
 
                     t_bid += bill_f
                     t_cost += item_cost
+                    if is_fixed:
+                        t_fixed_cost += item_cost
                     if not is_prelim:
                         all_items.append((desc or "Unnamed", bill_f))
                     if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
@@ -561,8 +563,9 @@ class FinancialExecutiveAnalytic(QWidget):
         markup_total = t_bid - t_cost
         
         # Calculate actual Overhead component
-        # Overhead is calculated on Cost according to project standards
-        overhead_amount = t_cost * (self.overhead_rate / 100)
+        # UPDATED: Overhead and Profit are only on Markable cost (Total - Fixed)
+        markable_cost = t_cost - t_fixed_cost
+        overhead_amount = markable_cost * (self.overhead_rate / 100)
         actual_overhead_pct = (overhead_amount / t_bid * 100) if t_bid > 0 else 0
         
         # Profit is the remaining spread
