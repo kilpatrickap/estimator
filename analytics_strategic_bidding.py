@@ -102,12 +102,18 @@ class StrategicBiddingAnalytic(QWidget):
         
         controls_layout.addStretch()
         
-        self.apply_btn = QPushButton("Apply Scenario to Project Settings")
+        self.apply_btn = QPushButton("Apply to Project Settings")
+        self.apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.apply_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1b5e20; color: white; border-radius: 8px; padding: 12px; font-weight: bold; font-size: 13px;
+                background-color: #2e7d32; 
+                color: #ffff00; 
+                border-radius: 8px; 
+                padding: 12px; 
+                font-weight: bold; 
+                font-size: 13px;
             }
-            QPushButton:hover { background-color: #2e7d32; }
+            QPushButton:hover { background-color: #388e3c; }
             QPushButton:pressed { background-color: #1b5e20; }
         """)
         self.apply_btn.clicked.connect(self.apply_to_project)
