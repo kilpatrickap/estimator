@@ -459,8 +459,8 @@ class FinancialExecutiveAnalytic(QWidget):
                     
                     # 1. CORE FIX: Pricing Category based detection
                     # Check if the item is explicitly categorized as Preliminaries
-                    is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
-                    is_fixed = (pr_val > 0 or pc_val > 0 or d_val > 0)
+                    is_prelim = (str(p_cat).lower() == "preliminaries" or "prelim" in desc_low) if p_cat or desc else False
+                    is_fixed = (pr_val > 0 or pc_val > 0 or d_val > 0 or is_prelim)
                     
                     active_code = p_code if p_code and str(p_code).strip() else r_code
                     ratios, master_net_cost, master_cat = self._get_rate_composition(active_code) if active_code else (None, 0.0, None)

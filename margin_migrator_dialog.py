@@ -315,6 +315,10 @@ class MarginMigrationWorker(QThread):
                 if "PlugCode" in db_cols: target_cols.append('"PlugCode"')
                 if "PlugFormula" in db_cols: target_cols.append('"PlugFormula"')
                 if "PlugFactor" in db_cols: target_cols.append('"PlugFactor"')
+                if "PlugCategory" in db_cols: target_cols.append('"PlugCategory"')
+                if "PCSum" in db_cols: target_cols.append('"PCSum"')
+                if "Daywork" in db_cols: target_cols.append('"Daywork"')
+                
                 if m_plug_rate >= 0 and f'"Column {m_plug_rate}"' not in target_cols: target_cols.append(f'"Column {m_plug_rate}"')
                 if m_plug_code >= 0 and f'"Column {m_plug_code}"' not in target_cols: target_cols.append(f'"Column {m_plug_code}"')
                 
@@ -376,9 +380,29 @@ class MarginMigrationWorker(QThread):
                                 if bg == '#e8f5e9': is_amt_linked = True
                                 elif bg == '#f3e5f5': is_amt_linked = 'plug'
                                 elif bg == '#e0ffff': is_prov = True
+                                
+                    # Advanced identification of "Fixed" items (No markup)
+                    # Check Categories and Pricing Types from the query result
+                    item_cat = ""
+                    if 'PlugCategory' in cols_to_update:
+                        cat_idx = cols_to_update.index('PlugCategory') + 1
+                        item_cat = str(row[cat_idx] or "").lower()
+                        
+                    is_prelim = "preliminaries" in item_cat or "prelim" in item_cat
+                    
+                    # PC Sum / Daywork check
+                    is_pc_dw = False
+                    if 'PCSum' in cols_to_update:
+                        pc_idx = cols_to_update.index('PCSum') + 1
+                        if float(str(row[pc_idx] or 0).replace(',', '') or 0) > 0: is_pc_dw = True
+                    if 'Daywork' in cols_to_update:
+                        dw_idx = cols_to_update.index('Daywork') + 1
+                        if float(str(row[dw_idx] or 0).replace(',', '') or 0) > 0: is_pc_dw = True
+                        
+                    is_fixed_row = is_prov or is_prelim or is_pc_dw
                     
                     # Choose correct scale factor for this row
-                    item_scale = fixed_scale if is_prov else markable_scale
+                    item_scale = fixed_scale if is_fixed_row else markable_scale
                     
                     is_rate_linked_plug = False
                     if g_idx >= 0:

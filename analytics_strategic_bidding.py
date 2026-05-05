@@ -159,9 +159,11 @@ class StrategicBiddingAnalytic(QWidget):
         layout.addWidget(lbl)
         
         edit = QLineEdit()
-        edit.setPlaceholderText("0.00")
-        # Allow values from -100 to 1000 with 2 decimal places
-        edit.setValidator(QDoubleValidator(-100.0, 1000.0, 2))
+        edit.setPlaceholderText("0.000000")
+        # Allow values from -100 to 1000 with 6 decimal places for absolute precision
+        validator = QDoubleValidator(-100.0, 1000.0, 6)
+        validator.setNotation(QDoubleValidator.Notation.StandardNotation)
+        edit.setValidator(validator)
         edit.setStyleSheet("""
             QLineEdit {
                 border: 1px solid #cbd5e1; 
@@ -179,7 +181,7 @@ class StrategicBiddingAnalytic(QWidget):
         
         # Monkey patch value property for easier access
         edit.actual_value = lambda: self._to_float(edit.text())
-        edit.set_actual_value = lambda v: edit.setText(f"{float(v):.2f}")
+        edit.set_actual_value = lambda v: edit.setText(f"{float(v):.6f}")
         return edit
 
     def _create_chart_frame(self, title, chart):
@@ -203,9 +205,19 @@ class StrategicBiddingAnalytic(QWidget):
             # 2. Calculate Accurate Totals (Matches Financial Executive Dashboard)
             self._calculate_accurate_totals()
             
-            # 3. Set inputs to current project state
-            self.ov_input.set_actual_value(self.current_overhead)
-            self.pr_input.set_actual_value(self.current_profit)
+            # 3. Set inputs to actual effective markup rates discovered in PBOQ
+            # This ensures "Scenario" starts exactly equal to "Current" with no rounding up.
+            total_markup = self.actual_bid - self.base_cost
+            markable = self.base_cost - self.fixed_cost
+            
+            eff_oh_rate = self.current_overhead
+            eff_oh_amt = markable * (eff_oh_rate / 100.0)
+            
+            eff_pr_amt = total_markup - eff_oh_amt
+            eff_pr_rate = (eff_pr_amt / markable * 100.0) if markable > 0 else 0
+            
+            self.ov_input.set_actual_value(eff_oh_rate)
+            self.pr_input.set_actual_value(eff_pr_rate)
             self.fc_input.set_actual_value(self.current_factor)
             
             self.update_simulation()
@@ -297,8 +309,8 @@ class StrategicBiddingAnalytic(QWidget):
                     p_val, s_val, g_val, pr_val, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
                     
                     # 1. CORE SYNC Logic
-                    is_prelim = (str(p_cat).lower() == "preliminaries") if p_cat else False
-                    is_fixed_type = (pr_val > 0 or pc_val > 0 or d_val > 0)
+                    is_prelim = (str(p_cat).lower() == "preliminaries" or "prelim" in desc_low) if p_cat or desc else False
+                    is_fixed_type = (pr_val > 0 or pc_val > 0 or d_val > 0 or is_prelim)
                     
                     active_code = p_code if p_code and str(p_code).strip() else r_code
                     _, master_net_cost = self._get_rate_composition(active_code) if active_code else (None, 0.0)
@@ -386,10 +398,14 @@ class StrategicBiddingAnalytic(QWidget):
         curr_cost = self.base_cost
         curr_markable = curr_cost - self.fixed_cost
         
-        # Calculate effective overhead based on markable portion
-        curr_overhead_amt = curr_markable * (self.current_overhead/100)
-        # Profit is the remaining spread to match the actual bid
-        curr_profit_amt = (curr_bid - curr_cost) - curr_overhead_amt
+        # Calculate actual total markup currently in the PBOQ
+        total_markup = curr_bid - curr_cost
+        
+        # UPDATED: Match Financial Executive priority logic
+        # 1. Overhead is calculated strictly on the Markable portion of the cost
+        curr_overhead_amt = curr_markable * (self.current_overhead / 100.0)
+        # 2. Profit is the remainder of the actual markup found in the PBOQ
+        curr_profit_amt = total_markup - curr_overhead_amt
         
         curr_margin_pct = (curr_profit_amt / curr_bid * 100) if curr_bid > 0 else 0
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0
