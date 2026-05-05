@@ -65,7 +65,7 @@ class ChartWidget(QWidget):
         self.data = [] # List of (label, value, color)
         self.currency_symbol = "$"
         self.setMinimumHeight(280)
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     def set_data(self, data):
         self.data = data

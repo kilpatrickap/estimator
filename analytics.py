@@ -187,7 +187,11 @@ class AnalyticsDashboard(QWidget):
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Logistics Dashboard: {e}")
         elif index == 3:
-            widget = PlaceholderAnalytic("Strategic Bidding & 'What-If' Analysis")
+            try:
+                from analytics_strategic_bidding import StrategicBiddingAnalytic
+                widget = StrategicBiddingAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading What-If Analysis: {e}")
         elif index == 4:
             widget = PlaceholderAnalytic("Adjudication & Supply Chain Intelligence")
         elif index == 5:
