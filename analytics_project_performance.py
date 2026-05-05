@@ -368,6 +368,14 @@ class ProjectPerformanceAnalytic(QWidget):
         self._clear_breakdown()
         for s in sheet_data:
             self._add_sheet_row(s)
+            
+        if sheet_data:
+            self._add_sheet_row({
+                'name': 'TOTAL PROJECT SUMMARY',
+                'priced': priced_items,
+                'total': total_items,
+                'amount': total_bid
+            }, is_total=True)
 
     def _clear_breakdown(self):
         while self.breakdown_list.count() > 1:
@@ -375,22 +383,27 @@ class ProjectPerformanceAnalytic(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
-    def _add_sheet_row(self, data):
+    def _add_sheet_row(self, data, is_total=False):
         row = SelectionFrame()
         row.setObjectName("breakdownRow")
-        row.setStyleSheet("""
-            QFrame#breakdownRow {
-                background-color: transparent; 
+        
+        bg_color = "#f1f8e9" if is_total else "transparent"
+        border_color = "#2e7d32" if is_total else "transparent"
+        hover_bg = "#f5f5f5" if not is_total else "#f1f8e9"
+        
+        row.setStyleSheet(f"""
+            QFrame#breakdownRow {{
+                background-color: {bg_color}; 
                 border-radius: 6px; 
-                border: 1px solid transparent;
-            }
-            QFrame#breakdownRow:hover {
-                background-color: #f5f5f5;
-            }
-            QFrame#breakdownRow[selected="true"] {
-                background-color: #e8f5e9;
-                border: 1px solid #2e7d32;
-            }
+                border: 1px solid {border_color};
+            }}
+            QFrame#breakdownRow:hover {{
+                background-color: {hover_bg};
+            }}
+            QFrame#breakdownRow[selected="true"] {{
+                background-color: #fffde7;
+                border: 1px solid #fbc02d;
+            }}
         """)
         row.setProperty("selected", "false")
         
@@ -400,26 +413,31 @@ class ProjectPerformanceAnalytic(QWidget):
         
         # Sheet Name 'Pill' (Responsive Column 1)
         name_container = QFrame()
-        name_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
+        name_bg = "white" if is_total else "#f1f3f4"
+        name_container.setStyleSheet(f"background-color: {name_bg}; border-radius: 4px; padding: 2px;")
         name_container.setMinimumWidth(650)
         nc_layout = QHBoxLayout(name_container)
         nc_layout.setContentsMargins(8, 2, 8, 2)
         
         name = QLabel(data['name'])
-        name.setStyleSheet("font-weight: 600; color: #3c4043; font-size: 8.5pt; border: none;")
+        font_weight = "800" if is_total else "600"
+        name.setStyleSheet(f"font-weight: {font_weight}; color: #3c4043; font-size: 8.5pt; border: none;")
         name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         nc_layout.addWidget(name)
         
         # Progress (Column 2)
         progress = QLabel(f"{data['priced']}/{data['total']} items")
-        progress.setStyleSheet("color: #70757a; font-size: 8pt; font-family: 'Segoe UI';")
+        progress_color = "#1b5e20" if is_total else "#70757a"
+        progress_weight = "bold" if is_total else "normal"
+        progress.setStyleSheet(f"color: {progress_color}; font-size: 8pt; font-family: 'Segoe UI'; font-weight: {progress_weight};")
         # Let it scale or keep it compact
         progress.setMinimumWidth(80)
         progress.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
         # Amount Capsule (Position: Between Description and Items)
         amount_container = QFrame()
-        amount_container.setStyleSheet("background-color: #f1f3f4; border-radius: 4px; padding: 2px;")
+        amount_bg = "white" if is_total else "#f1f3f4"
+        amount_container.setStyleSheet(f"background-color: {amount_bg}; border-radius: 4px; padding: 2px;")
         amount_container.setMinimumWidth(180)
         ac_layout = QHBoxLayout(amount_container)
         ac_layout.setContentsMargins(8, 2, 8, 2)

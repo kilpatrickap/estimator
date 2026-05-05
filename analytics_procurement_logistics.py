@@ -94,7 +94,9 @@ class LogisticsRow(QFrame):
     def _update_style(self):
         if self.is_header:
             bg, border = "#f8fafc", "#cbd5e1"
-        elif self.is_total or self.is_selected:
+        elif self.is_selected:
+            bg, border = "#fffde7", "#fbc02d"
+        elif self.is_total:
             bg, border = "#f1f8e9", "#2e7d32"
         else:
             bg, border = "#ffffff", "#e2e8f0"
@@ -191,7 +193,9 @@ class PackageRow(QFrame):
     def _update_style(self):
         if self.is_header:
             bg, border = "#f8fafc", "#cbd5e1"
-        elif self.is_total or self.is_selected:
+        elif self.is_selected:
+            bg, border = "#fffde7", "#fbc02d"
+        elif self.is_total:
             bg, border = "#f1f8e9", "#2e7d32"
         else:
             bg, border = "#ffffff", "#e2e8f0"

@@ -78,8 +78,8 @@ class MetricRow(QFrame):
         layout.addWidget(margin_lbl, 2)
 
     def _update_style(self):
-        bg = "#f1f8e9" if (self.is_selected or self.is_total) else "#ffffff"
-        border = "#2e7d32" if (self.is_selected or self.is_total) else "#e2e8f0"
+        bg = "#fffde7" if self.is_selected else ("#f1f8e9" if self.is_total else "#ffffff")
+        border = "#fbc02d" if self.is_selected else ("#2e7d32" if self.is_total else "#e2e8f0")
         hover_bg = "#ecfdf5" if not self.is_total else bg
         
         self.setStyleSheet(f"""
