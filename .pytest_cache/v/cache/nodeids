@@ -2,6 +2,7 @@
   "PyTest/test_analytics_currency.py::test_alternate_currency_format",
   "PyTest/test_analytics_currency.py::test_currency_symbol_extraction",
   "PyTest/test_analytics_currency.py::test_financial_executive_currency_load",
+  "PyTest/test_analytics_currency.py::test_historical_benchmarking_conversion",
   "PyTest/test_analytics_donut.py::test_analytics_donut_data_aggregation",
   "PyTest/test_factor_currency.py::TestBulkMarginUpdate::test_margins_preserve_currency_conversion",
   "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_preserves_project_currency_grand_total",

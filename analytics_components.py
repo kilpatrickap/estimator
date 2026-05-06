@@ -4,13 +4,20 @@ from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLabel, QGraphicsDropShadowEff
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QFontMetrics, QLinearGradient
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QSize
 
-def get_project_currency_symbol(project_dir):
-    """Discovers the project-wide currency symbol from the master project database."""
-    symbol = "$" # Default fallback
+def extract_currency_code(curr_str):
+    """Extracts the 3-letter code from strings like 'USD ($)' or 'GHS (₵)'."""
+    if not curr_str: return "USD"
+    if '(' in curr_str:
+        return curr_str.split('(')[0].strip()
+    return curr_str.strip()
+
+def get_project_currency_info(project_dir):
+    """Discovers the project-wide currency (symbol, code) from the master project database."""
+    symbol = "$"
+    code = "USD"
     try:
         pj_db_dir = os.path.join(project_dir, "Project Database")
         if not os.path.exists(pj_db_dir):
-            # Try to find a Project Database folder anywhere in the tree if we're not at root
             curr = project_dir
             for _ in range(3):
                 test_dir = os.path.join(curr, "Project Database")
@@ -27,15 +34,12 @@ def get_project_currency_symbol(project_dir):
                 cursor = conn.cursor()
                 
                 curr_str = None
-                
-                # Primary: Read from settings table
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
                 if cursor.fetchone():
                     cursor.execute("SELECT value FROM settings WHERE key='currency'")
                     row = cursor.fetchone()
                     if row: curr_str = row[0]
                 
-                # Fallback: Read from estimates table
                 if not curr_str:
                     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
                     if cursor.fetchone():
@@ -44,15 +48,19 @@ def get_project_currency_symbol(project_dir):
                         if row and row[0]: curr_str = row[0]
                 
                 if curr_str:
+                    code = extract_currency_code(curr_str)
                     if '(' in curr_str:
-                        # Extract symbol from brackets e.g. "GHS (₵)" -> "₵"
                         symbol = curr_str.split('(')[-1].strip(')')
                     else:
-                        # Use first 3 chars or the whole thing if short
-                        symbol = curr_str.split(' ')[0]
+                        symbol = curr_str # Fallback
                 conn.close()
     except: pass
-    return symbol
+    return symbol, code
+
+def get_project_currency_symbol(project_dir):
+    """Compatibility wrapper returning just the symbol."""
+    s, _ = get_project_currency_info(project_dir)
+    return s
 
 class SelectionFrame(QFrame):
     """A frame that emits a clicked signal, used for row selection in analytics tables."""

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
-from analytics_components import get_project_currency_symbol, MetricCard, TrendLineChart
+from analytics_components import get_project_currency_info, extract_currency_code, MetricCard, TrendLineChart
 
 class BenchmarkRow(QFrame):
     clicked = pyqtSignal(object)
@@ -103,7 +103,8 @@ class HistoricalBenchmarkingAnalytic(QWidget):
         self.all_benchmarks = {} # description -> [ {project, rate, prod}, ... ]
         self.current_project_rates = {} # description -> rate
         
-        self.currency_symbol = get_project_currency_symbol(project_dir) + " "
+        self.currency_symbol, self.base_currency = get_project_currency_info(project_dir)
+        self.currency_symbol += " "
         self._init_ui()
         
         # Load persistent selection or fallback to default scan
@@ -332,12 +333,14 @@ class HistoricalBenchmarkingAnalytic(QWidget):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
+            self.currency_symbol, self.base_currency = get_project_currency_info(self.project_dir)
+            self.currency_symbol += " "
             
-            # Get Exchange Rates
-            cursor.execute("SELECT currency, rate FROM estimate_exchange_rates")
-            for curr, rate in cursor.fetchall():
-                self.exchange_rates[curr] = rate
+            # Get Exchange Rates - Normalize keys to codes (USD, GHS)
+            cursor.execute("SELECT currency, rate, operator FROM estimate_exchange_rates")
+            for curr, rate, op in cursor.fetchall():
+                code = extract_currency_code(curr)
+                self.exchange_rates[code] = (rate, op)
             conn.close()
         except: pass
 
@@ -358,13 +361,20 @@ class HistoricalBenchmarkingAnalytic(QWidget):
             
             # B. Calculate Conversion Factor to Current Base Currency
             conv_factor = 1.0
-            if not is_current and hist_currency and hist_currency != self.base_currency:
+            if not is_current and hist_currency and extract_currency_code(hist_currency) != self.base_currency:
                 # We need to convert FROM hist_currency TO current base_currency
-                # In Estimator, rates are usually (1 Base = X Foreign)
-                # So to get Base value: Foreign / rate
-                rate_in_curr_proj = self.exchange_rates.get(hist_currency)
-                if rate_in_curr_proj and rate_in_curr_proj > 0:
-                    conv_factor = 1.0 / rate_in_curr_proj
+                hist_code = extract_currency_code(hist_currency)
+                rate_data = self.exchange_rates.get(hist_code)
+                if rate_data:
+                    rate, op = rate_data
+                    if rate > 0:
+                        if op == '/':
+                            conv_factor = rate
+                        else:
+                            conv_factor = 1.0 / rate
+                else:
+                    # Log missing exchange rate for conversion
+                    pass
             
             # 1. Extract Unit Rates from pboq_items
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
@@ -388,14 +398,16 @@ class HistoricalBenchmarkingAnalytic(QWidget):
                         # 2. Try to find productivity (man-hours) if rcode is present
                         prod_val = 0.0
                         if rcode:
-                            cursor.execute("""
-                                SELECT SUM(l.hours) / t.quantity 
-                                FROM estimate_labor l 
-                                JOIN tasks t ON l.task_id = t.id 
-                                WHERE t.estimate_id = (SELECT id FROM estimates WHERE rate_code = ?)
-                            """, (rcode,))
-                            res = cursor.fetchone()
-                            if res and res[0]: prod_val = res[0]
+                            try:
+                                cursor.execute("""
+                                    SELECT SUM(l.hours) / t.quantity 
+                                    FROM estimate_labor l 
+                                    JOIN tasks t ON l.task_id = t.id 
+                                    WHERE t.estimate_id = (SELECT id FROM estimates WHERE rate_code = ?)
+                                """, (rcode,))
+                                res = cursor.fetchone()
+                                if res and res[0]: prod_val = res[0]
+                            except: pass
 
                         self.all_benchmarks[desc].append({
                             'project': project_name,
@@ -406,7 +418,8 @@ class HistoricalBenchmarkingAnalytic(QWidget):
                         
                         if not hasattr(self, 'benchmark_units'): self.benchmark_units = {}
                         self.benchmark_units[desc] = unit or "ea"
-                    except: continue
+                    except:
+                        continue
             conn.close()
         except: pass
 
