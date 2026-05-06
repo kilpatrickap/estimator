@@ -193,7 +193,11 @@ class AnalyticsDashboard(QWidget):
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading What-If Analysis: {e}")
         elif index == 4:
-            widget = PlaceholderAnalytic("Adjudication & Supply Chain Intelligence")
+            try:
+                from analytics_supply_chain import SupplyChainIntelligenceAnalytic
+                widget = SupplyChainIntelligenceAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading Supply Chain Intelligence: {e}")
         elif index == 5:
             widget = PlaceholderAnalytic("Sustainability & Compliance (ESG)")
         elif index == 6:
