@@ -7,6 +7,7 @@
   "PyTest/test_factor_currency.py::TestFactorWithMixedCurrencies::test_factor_with_multiply_operator",
   "PyTest/test_factor_currency.py::TestFactorWithRealProjectData::test_all_estimates_stay_in_project_currency",
   "PyTest/test_factor_currency.py::TestFactorWithRealProjectData::test_factor_roundtrip_consistency",
+  "PyTest/test_historical_benchmarking.py::test_benchmark_aggregation",
   "PyTest/test_iterative_revert.py::test_iterative_factor_changes",
   "PyTest/test_plug_rate_factor.py::test_custom_plug_factor_preserved",
   "PyTest/test_plug_rate_factor.py::test_plug_linked_bill_rate_updated",

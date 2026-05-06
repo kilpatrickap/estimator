@@ -46,7 +46,6 @@ class AnalyticsPane(QWidget):
             "Operational & Procurement Logistics",
             "Strategic Bidding & 'What-If' Analysis",
             "Adjudication & Supply Chain Intelligence",
-            "Sustainability & Compliance (ESG)",
             "Historical Benchmarking",
             "Automated Value Engineering (VE) Finder"
         ]
@@ -199,10 +198,12 @@ class AnalyticsDashboard(QWidget):
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Supply Chain Intelligence: {e}")
         elif index == 5:
-            widget = PlaceholderAnalytic("Sustainability & Compliance (ESG)")
+            try:
+                from analytics_historical_benchmarking import HistoricalBenchmarkingAnalytic
+                widget = HistoricalBenchmarkingAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading Historical Benchmarking: {e}")
         elif index == 6:
-            widget = PlaceholderAnalytic("Historical Benchmarking")
-        elif index == 7:
             widget = PlaceholderAnalytic("Automated Value Engineering (VE) Finder")
         else:
             widget = PlaceholderAnalytic("Unknown Module")

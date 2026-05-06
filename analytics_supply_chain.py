@@ -420,8 +420,8 @@ class SupplyChainIntelligenceAnalytic(QWidget):
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
-        root_layout.setContentsMargins(20, 20, 20, 20)
-        root_layout.setSpacing(20)
+        root_layout.setContentsMargins(15, 15, 15, 15)
+        root_layout.setSpacing(15)
 
         # Header
         header = QLabel("Adjudication & Supply Chain Intelligence")
@@ -435,7 +435,8 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         
         self.content_widget = QWidget()
         self.content_layout = QVBoxLayout(self.content_widget)
-        self.content_layout.setSpacing(25)
+        self.content_layout.setContentsMargins(0, 0, 10, 0) # Tighter margins for small screens
+        self.content_layout.setSpacing(15) # Reduced spacing
         
         # 1. KPI Row
         kpi_layout = QHBoxLayout()
@@ -494,10 +495,11 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         self.package_list.addStretch()
         
         self.table_scroll = QScrollArea()
-        self.table_scroll.setFixedHeight(450)
+        self.table_scroll.setMinimumHeight(300) # Flexible minimum instead of fixed 450
         self.table_scroll.setWidgetResizable(True)
-        self.table_scroll.setStyleSheet("border: none;")
+        self.table_scroll.setStyleSheet("border: none; background: transparent;")
         self.table_container = QWidget()
+        self.table_container.setStyleSheet("background: transparent;")
         self.table_container.setLayout(self.package_list)
         self.table_scroll.setWidget(self.table_container)
         

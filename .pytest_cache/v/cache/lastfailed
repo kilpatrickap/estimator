@@ -3,5 +3,6 @@
   "PyTest/test_factor_currency.py::TestFactorWithRealProjectData": true,
   "PyTest/test_factor_currency.py::TestBulkMarginUpdate": true,
   "test_analytics.py::test_financial_aggregation": true,
-  "test_analytics_meticulous.py::test_refresh_data_meticulous": true
+  "test_analytics_meticulous.py::test_refresh_data_meticulous": true,
+  "PyTest/test_historical_benchmarking.py::test_benchmark_aggregation": true
 }

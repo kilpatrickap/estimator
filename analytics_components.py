@@ -217,3 +217,114 @@ class WaterfallChart(ChartWidget):
             painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
             val_txt = f"{self.currency_symbol}{val:,.2f}"
             painter.drawText(QRectF(x_start - 60, y - 22, col_w + 120, 20), Qt.AlignmentFlag.AlignCenter, val_txt)
+
+class TrendLineChart(ChartWidget):
+    """A responsive line chart showing historical trends across projects."""
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.points = [] # List of (label, value)
+        self.setMouseTracking(True)
+        self.hover_idx = -1
+
+    def set_data(self, data):
+        self.points = data
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        rect = self.rect()
+        
+        if not self.points:
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "Select an item to view trend")
+            return
+
+        margin_y, margin_x = 50, 60
+        chart_h = rect.height() - margin_y * 2
+        chart_w = rect.width() - margin_x * 2
+        
+        vals = [p[1] for p in self.points]
+        min_v, max_v = min(vals) * 0.9, max(vals) * 1.1
+        if max_v == min_v: max_v += 1
+        
+        def to_y(v): return margin_y + chart_h - ((v - min_v) / (max_v - min_v) * chart_h)
+        def to_x(i): return margin_x + (i * (chart_w / (len(self.points) - 1))) if len(self.points) > 1 else margin_x + chart_w / 2
+
+        # 1. Draw Grid Lines & Y-Axis Labels
+        for i in range(5):
+            y = margin_y + (i * chart_h / 4)
+            # Grid Line (Light Gray)
+            painter.setPen(QPen(QColor("#e2e8f0"), 1))
+            painter.drawLine(margin_x, int(y), margin_x + chart_w, int(y))
+            
+            # Y-Axis Label (Green)
+            painter.setPen(QPen(QColor("#166534"), 1))
+            painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
+            val = max_v - (i * (max_v - min_v) / 4)
+            painter.drawText(margin_x - 58, int(y + 5), f"{self.currency_symbol}{val:,.0f}")
+
+        # 2. Draw Line
+        path_pen = QPen(QColor("#2e7d32"), 3, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(path_pen)
+        
+        for i in range(len(self.points) - 1):
+            p1 = QPointF(to_x(i), to_y(self.points[i][1]))
+            p2 = QPointF(to_x(i+1), to_y(self.points[i+1][1]))
+            painter.drawLine(p1, p2)
+
+        # 3. Draw Points
+        for i, (label, val) in enumerate(self.points):
+            px, py = to_x(i), to_y(val)
+            
+            # Area Fill under curve
+            if i < len(self.points) - 1:
+                next_val = self.points[i+1][1]
+                nx, ny = to_x(i+1), to_y(next_val)
+                poly = [QPointF(px, py), QPointF(nx, ny), QPointF(nx, margin_y + chart_h), QPointF(px, margin_y + chart_h)]
+                grad = QLinearGradient(0, py, 0, margin_y + chart_h)
+                grad.setColorAt(0, QColor(46, 125, 50, 40))
+                grad.setColorAt(1, QColor(46, 125, 50, 0))
+                painter.setBrush(grad)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawPolygon(poly)
+
+            # Dot
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QBrush(QColor("#1b5e20")))
+            painter.drawEllipse(QPointF(px, py), 5, 5)
+            
+            # Highlight if hovered
+            if i == self.hover_idx:
+                painter.setBrush(QBrush(QColor(255, 255, 255, 200)))
+                painter.setPen(QPen(QColor("#1b5e20"), 2))
+                painter.drawEllipse(QPointF(px, py), 8, 8)
+
+            # Label (Project Name)
+            painter.setPen(QPen(QColor("#64748b")))
+            painter.setFont(QFont("Inter", 7, QFont.Weight.Medium))
+            metrics = QFontMetrics(painter.font())
+            elided = metrics.elidedText(label, Qt.TextElideMode.ElideRight, 80)
+            
+            painter.save()
+            painter.translate(px, margin_y + chart_h + 10)
+            painter.rotate(45)
+            painter.drawText(0, 0, elided)
+            painter.restore()
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        margin_x = 60
+        chart_w = self.width() - margin_x * 2
+        
+        if not self.points: return
+        
+        spacing = chart_w / (len(self.points) - 1) if len(self.points) > 1 else chart_w
+        idx = round((pos.x() - margin_x) / spacing)
+        idx = max(0, min(idx, len(self.points) - 1))
+        
+        if idx != self.hover_idx:
+            self.hover_idx = idx
+            label, val = self.points[idx]
+            self.setToolTip(f"Project: {label}\nRate: {self.currency_symbol}{val:,.2f}")
+            self.update()
+        super().mouseMoveEvent(event)
