@@ -142,13 +142,13 @@ class SubmittedBiddersDialog(QDialog):
         btn_box = QHBoxLayout()
         btn_box.addStretch()
         close_btn = QPushButton("Done")
-        close_btn.setFixedSize(120, 40)
+        close_btn.setFixedSize(140, 45)
         close_btn.setStyleSheet("""
             QPushButton {
-                background-color: #1e293b; color: white; border-radius: 8px; 
+                background-color: #2e7d32; color: #ffeb3b; border-radius: 8px; 
                 font-family: 'Inter'; font-weight: 700; font-size: 13px;
             }
-            QPushButton:hover { background-color: #334155; }
+            QPushButton:hover { background-color: #1b5e20; }
         """)
         close_btn.clicked.connect(self.accept)
         btn_box.addWidget(close_btn)
@@ -184,7 +184,7 @@ class SupplyChainRow(QFrame):
         name_lbl.setStyleSheet(style + " border: none;")
         name_lbl.setWordWrap(True)
         name_lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        layout.addWidget(name_lbl, 5)
+        layout.addWidget(name_lbl, 4)
         
         # 2. Bids Count Pill (Interactive Button)
         b_border = "#6366f1" if not is_total else "none"
@@ -228,20 +228,32 @@ class SupplyChainRow(QFrame):
         w_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(w_lbl, 2)
         
-        # 5. Variance (Saving)
+        # 5. Savings (Absolute)
+        savings = target_val - winner_val
+        s_lbl = QLabel(f"$ {savings:,.2f}" if not is_header else "Savings")
+        s_lbl.setStyleSheet(style + " font-family: 'Consolas'; font-weight: 700; color: #1e293b;")
+        if not is_header and not is_total:
+            s_lbl.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 12px;")
+        s_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(s_lbl, 2)
+        
+        # 6. Variance %
         var = target_val - winner_val
         var_pct = (var / target_val * 100) if target_val > 0 else 0
         var_color = "#166534" if var >= 0 else "#991b1b"
         var_str = f"{var_pct:+.1f}%" if not is_header else "Var %"
-        if is_total: var_str = f"$ {var:,.2f}"
+        if is_total: 
+            var_str = f"AVG: {var_pct:+.1f}%"
         
         var_lbl = QLabel(var_str)
         if not is_header:
-            var_lbl.setStyleSheet(f"font-family: 'Inter'; font-weight: 800; color: {var_color}; font-size: 11px;")
+            v_style = f"font-family: 'Inter'; font-weight: 800; color: {var_color}; font-size: 11px;"
+            if is_total: v_style = f"font-family: 'Inter'; font-weight: 800; color: {var_color}; font-size: 12px;"
+            var_lbl.setStyleSheet(v_style)
         else:
             var_lbl.setStyleSheet(style)
-        var_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(var_lbl, 1)
+        var_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        layout.addWidget(var_lbl, 2)
 
     def _update_style(self):
         if self.is_header:
@@ -278,20 +290,52 @@ class SupplyChainRow(QFrame):
         super().mousePressEvent(event)
 
 class BidSpreadChart(ChartWidget):
-    """Custom chart showing Min, Max, and Winning bid relative to Target."""
+    """Custom chart showing Min, Max, and Winning bid relative to Target with annotations and interactive hints."""
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.setMouseTracking(True)
+        self.hit_boxes = [] # List of (rect, tooltip_text)
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = self.rect()
+        self.hit_boxes = [] # Reset for this frame
+        
         if not self.data:
             painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No Adjudication Data Available")
             return
 
-        margin_left, margin_right, margin_top, margin_bottom = 120, 40, 40, 60
+        # 1. Legend (Top Right)
+        legend_font = QFont("Inter", 8, QFont.Weight.Medium)
+        painter.setFont(legend_font)
+        legend_x = rect.width() - 360
+        legend_y = 15
+        
+        # Target
+        painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
+        painter.drawLine(legend_x, legend_y + 6, legend_x + 20, legend_y + 6)
+        painter.setPen(QPen(QColor("#64748b")))
+        painter.drawText(legend_x + 25, legend_y + 10, "Internal Target")
+        
+        # Spread
+        painter.setPen(QPen(QColor("#e2e8f0"), 4, cap=Qt.PenCapStyle.RoundCap))
+        painter.drawLine(legend_x + 110, legend_y + 6, legend_x + 130, legend_y + 6)
+        painter.setPen(QPen(QColor("#64748b")))
+        painter.drawText(legend_x + 135, legend_y + 10, "Market Spread")
+        
+        # Winner
+        painter.setBrush(QBrush(QColor("#166534")))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawEllipse(QPointF(legend_x + 235, legend_y + 6), 4, 4)
+        painter.setPen(QPen(QColor("#64748b")))
+        painter.drawText(legend_x + 245, legend_y + 10, "Selected Winner")
+
+        # 2. Main Chart
+        margin_left, margin_right, margin_top, margin_bottom = 120, 60, 50, 40
         chart_w = rect.width() - margin_left - margin_right
         chart_h = rect.height() - margin_top - margin_bottom
         
-        # Data: list of (pkg_name, {target, min, max, winner})
         pkg_count = len(self.data)
         row_h = min(40, chart_h / pkg_count)
         
@@ -306,22 +350,26 @@ class BidSpreadChart(ChartWidget):
             painter.drawText(QRectF(10, y, margin_left - 20, row_h), Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter, name)
             
             # Scaling
-            # We scale relative to the max of all values in this row
             local_max = max(d['target'], d['max'], d['winner'])
             if local_max == 0: continue
             
             def to_x(val): return margin_left + (val / local_max * chart_w)
             
-            # 1. Target Line (Vertical dashed)
+            # 1. Target Line
             target_x = to_x(d['target'])
             painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
             painter.drawLine(int(target_x), int(y + 5), int(target_x), int(y + row_h - 5))
+            self.hit_boxes.append((QRectF(target_x - 5, y + 5, 10, row_h - 10), f"Budget Target: ${d['target']:,.2f}"))
             
             # 2. Spread Bar (Min to Max)
             min_x = to_x(d['min'])
             max_x = to_x(d['max'])
             painter.setPen(QPen(QColor("#e2e8f0"), 4, cap=Qt.PenCapStyle.RoundCap))
             painter.drawLine(int(min_x), int(center_y), int(max_x), int(center_y))
+            
+            spread_pct = ((d['max'] - d['min']) / d['min'] * 100) if d['min'] > 0 else 0
+            self.hit_boxes.append((QRectF(min_x, center_y - 5, max_x - min_x, 10), 
+                                  f"Market Range: ${d['min']:,.2f} - ${d['max']:,.2f}\nSpread: {spread_pct:.1f}%"))
             
             # 3. Min/Max Dots
             painter.setPen(Qt.PenStyle.NoPen)
@@ -331,13 +379,32 @@ class BidSpreadChart(ChartWidget):
             
             # 4. Winner Dot
             winner_x = to_x(d['winner'])
-            win_color = "#166534" if d['winner'] <= d['target'] else "#991b1b"
+            is_saving = d['winner'] <= d['target']
+            win_color = "#166534" if is_saving else "#991b1b"
             painter.setBrush(QBrush(QColor(win_color)))
             painter.drawEllipse(QPointF(winner_x, center_y), 5, 5)
+            
+            var = d['target'] - d['winner']
+            var_pct = (abs(var) / d['target'] * 100) if d['target'] > 0 else 0
+            status = "SAVING" if is_saving else "OVERRUN"
+            self.hit_boxes.append((QRectF(winner_x - 8, center_y - 8, 16, 16), 
+                                  f"Winner Quote: ${d['winner']:,.2f}\n{status}: ${abs(var):,.2f} ({var_pct:.1f}%)"))
             
             # 5. Connecting Winner to Target
             painter.setPen(QPen(QColor(win_color), 1))
             painter.drawLine(int(target_x), int(center_y), int(winner_x), int(center_y))
+
+    def mouseMoveEvent(self, event):
+        pos = event.position()
+        found = False
+        for rect, text in self.hit_boxes:
+            if rect.contains(pos):
+                self.setToolTip(text)
+                found = True
+                break
+        if not found:
+            self.setToolTip("")
+        super().mouseMoveEvent(event)
 
 class SupplyChainIntelligenceAnalytic(QWidget):
     def __init__(self, project_dir, parent=None):
@@ -385,7 +452,31 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         charts_layout = QHBoxLayout()
         self.spread_chart = BidSpreadChart("Bid Spread Analysis")
         
-        charts_layout.addWidget(self._create_card_frame("BID SPREAD ANALYSIS (MIN / MAX / WINNER vs TARGET)", self.spread_chart), 1)
+        charts_layout.addWidget(self._create_card_frame("BID SPREAD ANALYSIS (MIN / MAX / WINNER vs TARGET)", self.spread_chart), 3)
+        
+        # Intelligence Guide Card
+        guide_frame = QFrame()
+        guide_frame.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        guide_vbox = QVBoxLayout(guide_frame)
+        guide_vbox.setContentsMargins(20, 20, 20, 20)
+        
+        guide_title = QLabel("HOW TO READ THE INTELLIGENCE")
+        guide_title.setStyleSheet("font-family: 'Inter'; font-size: 13px; font-weight: 800; color: #64748b; letter-spacing: 1px;")
+        guide_vbox.addWidget(guide_title)
+        
+        guide_text = QLabel("""
+            <div style='font-family: Inter; color: #1e293b; line-height: 1.4;'>
+                <p><b>• Wide Spread:</b> Indicates <b>Scope Ambiguity</b>. Market interpretations differ significantly.</p>
+                <p><b>• Tight Spread:</b> Indicates <b>Market Certainty</b>. Scope and pricing are well-defined.</p>
+                <p><b>• Winner far from Min:</b> Suggests a <b>Quality/Reliability</b> preference over lowest price.</p>
+                <p><b>• Winner left of Target:</b> Represents a successful <b>Procurement Saving</b>.</p>
+            </div>
+        """)
+        guide_text.setWordWrap(True)
+        guide_vbox.addWidget(guide_text)
+        guide_vbox.addStretch()
+        
+        charts_layout.addWidget(guide_frame, 1)
         self.content_layout.addLayout(charts_layout)
 
         # 3. Supply Chain Intelligence Table
