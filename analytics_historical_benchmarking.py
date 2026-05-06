@@ -12,9 +12,10 @@ from analytics_components import MetricCard, TrendLineChart
 class BenchmarkRow(QFrame):
     clicked = pyqtSignal(object)
 
-    def __init__(self, description, unit, current_rate, avg_rate, last_rate, is_header=False, parent=None):
+    def __init__(self, description, unit, current_rate, avg_rate, last_rate, currency_symbol="$", is_header=False, parent=None):
         super().__init__(parent)
         self.is_header = is_header
+        self.currency_symbol = currency_symbol
         self.data = (description, unit, current_rate, avg_rate, last_rate)
         self.is_selected = False
         self._update_style()
@@ -40,13 +41,13 @@ class BenchmarkRow(QFrame):
         layout.addWidget(unit_lbl, 1)
         
         # 3. Current Rate
-        curr_lbl = QLabel(f"$ {current_rate:,.2f}" if not is_header else "Current")
+        curr_lbl = QLabel(f"{self.currency_symbol} {current_rate:,.2f}" if not is_header else "Current")
         curr_lbl.setStyleSheet(style + " font-family: 'Consolas'; font-weight: 700;")
         curr_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(curr_lbl, 2)
         
         # 4. Historical Avg
-        avg_lbl = QLabel(f"$ {avg_rate:,.2f}" if not is_header else "Hist. Avg")
+        avg_lbl = QLabel(f"{self.currency_symbol} {avg_rate:,.2f}" if not is_header else "Hist. Avg")
         avg_lbl.setStyleSheet(style + " font-family: 'Consolas'; color: #475569;")
         avg_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(avg_lbl, 2)
@@ -250,16 +251,20 @@ class HistoricalBenchmarkingAnalytic(QWidget):
         return f
 
     def refresh_data(self):
-        """Scans project databases for historical benchmarks."""
+        """Scans project databases for historical benchmarks with currency normalization."""
         self.all_benchmarks = {}
         self.current_project_rates = {}
+        self.exchange_rates = {} # currency -> rate relative to base
+        self.base_currency = "USD"
         
-        # 1. Load Current Project Rates
-        curr_db_path = os.path.join(self.project_dir, "Project Database")
-        if os.path.exists(curr_db_path):
-            dbs = [f for f in os.listdir(curr_db_path) if f.endswith('.db')]
+        # 1. Load Current Project Settings & Exchange Rates
+        curr_db_dir = os.path.join(self.project_dir, "Project Database")
+        if os.path.exists(curr_db_dir):
+            dbs = [f for f in os.listdir(curr_db_dir) if f.endswith('.db')]
             if dbs:
-                self._extract_rates(os.path.join(curr_db_path, dbs[0]), "CURRENT", is_current=True)
+                db_path = os.path.join(curr_db_dir, dbs[0])
+                self._load_current_project_context(db_path)
+                self._extract_rates(db_path, "CURRENT", is_current=True)
 
         # 2. Use Selected Benchmark Files
         if self.selected_benchmark_files:
@@ -314,17 +319,61 @@ class HistoricalBenchmarkingAnalytic(QWidget):
         # Update Table
         self._selected_row = None # Safety reset before clearing
         self._clear_layout(self.benchmark_list)
-        self.benchmark_list.insertWidget(0, BenchmarkRow("ITEM DESCRIPTION", "UNIT", 0, 0, 0, is_header=True))
+        self.benchmark_list.insertWidget(0, BenchmarkRow("ITEM DESCRIPTION", "UNIT", 0, 0, 0, currency_symbol=self.currency_symbol, is_header=True))
         
         for item in sorted(benchmarked_items, key=lambda x: abs(x['var']), reverse=True):
-            row = BenchmarkRow(item['desc'], item['unit'], item['curr'], item['avg'], item['last'])
+            row = BenchmarkRow(item['desc'], item['unit'], item['curr'], item['avg'], item['last'], currency_symbol=self.currency_symbol)
             row.clicked.connect(self._handle_row_click)
             self.benchmark_list.insertWidget(self.benchmark_list.count()-1, row)
+
+    def _load_current_project_context(self, db_path):
+        """Loads the base currency and exchange rates of the current project."""
+        try:
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Get Base Currency
+            cursor.execute("SELECT value FROM settings WHERE key = 'base_currency'")
+            res = cursor.fetchone()
+            if res: self.base_currency = res[0]
+            else:
+                cursor.execute("SELECT currency FROM estimates LIMIT 1")
+                res = cursor.fetchone()
+                if res: self.base_currency = res[0]
+            
+            self.currency_symbol = "₵" if "GHS" in self.base_currency else "$"
+            
+            # Get Exchange Rates
+            cursor.execute("SELECT currency, rate FROM estimate_exchange_rates")
+            for curr, rate in cursor.fetchall():
+                self.exchange_rates[curr] = rate
+            conn.close()
+        except: pass
 
     def _extract_rates(self, db_path, project_name, is_current=False):
         try:
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
+            
+            # A. Get Historical Project Currency
+            hist_currency = ""
+            cursor.execute("SELECT value FROM settings WHERE key = 'base_currency'")
+            res = cursor.fetchone()
+            if res: hist_currency = res[0]
+            else:
+                cursor.execute("SELECT currency FROM estimates LIMIT 1")
+                res = cursor.fetchone()
+                if res: hist_currency = res[0]
+            
+            # B. Calculate Conversion Factor to Current Base Currency
+            conv_factor = 1.0
+            if not is_current and hist_currency and hist_currency != self.base_currency:
+                # We need to convert FROM hist_currency TO current base_currency
+                # In Estimator, rates are usually (1 Base = X Foreign)
+                # So to get Base value: Foreign / rate
+                rate_in_curr_proj = self.exchange_rates.get(hist_currency)
+                if rate_in_curr_proj and rate_in_curr_proj > 0:
+                    conv_factor = 1.0 / rate_in_curr_proj
             
             # 1. Extract Unit Rates from pboq_items
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
@@ -333,8 +382,11 @@ class HistoricalBenchmarkingAnalytic(QWidget):
                 rows = cursor.fetchall()
                 for desc, unit, rate, rcode in rows:
                     try:
-                        rate_val = float(str(rate).replace(',', '').replace(' ', '').replace('$','').strip())
-                        if rate_val <= 0: continue
+                        raw_val = float(str(rate).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+                        if raw_val <= 0: continue
+                        
+                        # Apply Currency Normalization
+                        rate_val = raw_val * conv_factor
                         
                         if is_current:
                             self.current_project_rates[desc] = rate_val
@@ -357,7 +409,8 @@ class HistoricalBenchmarkingAnalytic(QWidget):
                         self.all_benchmarks[desc].append({
                             'project': project_name,
                             'rate': rate_val,
-                            'prod': prod_val
+                            'prod': prod_val,
+                            'currency': hist_currency
                         })
                         
                         if not hasattr(self, 'benchmark_units'): self.benchmark_units = {}
@@ -385,6 +438,7 @@ class HistoricalBenchmarkingAnalytic(QWidget):
         
         # Trend data for Unit Rates
         plot_data = [(r['project'], r['rate']) for r in rates_data if r['project'] != "CURRENT"]
+        self.trend_chart.currency_symbol = self.currency_symbol # Sync chart currency
         self.trend_chart.set_data(plot_data)
         
         # Productivity Analysis
