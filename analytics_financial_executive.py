@@ -6,16 +6,15 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics
 
-from analytics_components import MetricCard, SelectionFrame
+from analytics_components import get_project_currency_symbol, MetricCard, SelectionFrame, ChartWidget, DonutChart, ParetoBarChart, WaterfallChart
 from pboq_logic import PBOQLogic
-
-from analytics_components import MetricCard, ChartWidget, DonutChart, ParetoBarChart, WaterfallChart
 
 class MetricRow(QFrame):
     clicked = pyqtSignal(object) # Custom signal that sends the row instance
 
-    def __init__(self, name, bid, cost, margin, is_total=False, parent=None):
+    def __init__(self, name, bid, cost, margin, currency_symbol="$", is_total=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_total = is_total
         self.is_selected = False
         self.bg_base = "#f1f8e9" if is_total else "#ffffff"
@@ -40,7 +39,7 @@ class MetricRow(QFrame):
         bid_pill.setStyleSheet(f"background-color: #f0fdf4; border-radius: 4px; border: 1px solid {p_border};")
         bp_layout = QHBoxLayout(bid_pill)
         bp_layout.setContentsMargins(5, 2, 5, 2)
-        bid_val = QLabel(f"$ {bid:,.2f}")
+        bid_val = QLabel(f"{self.currency_symbol} {bid:,.2f}")
         bid_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 13px; border: none;")
         bp_layout.addWidget(bid_val)
         layout.addWidget(bid_pill, 2)
@@ -51,7 +50,7 @@ class MetricRow(QFrame):
         cost_pill.setStyleSheet(f"background-color: #eff6ff; border-radius: 4px; border: 1px solid {c_border};")
         cp_layout = QHBoxLayout(cost_pill)
         cp_layout.setContentsMargins(5, 2, 5, 2)
-        cost_val = QLabel(f"$ {cost:,.2f}")
+        cost_val = QLabel(f"{self.currency_symbol} {cost:,.2f}")
         cost_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #1e40af; font-size: 13px; border: none;")
         cp_layout.addWidget(cost_val)
         layout.addWidget(cost_pill, 2)
@@ -63,7 +62,7 @@ class MetricRow(QFrame):
         profit_pill.setStyleSheet(f"background-color: #fffbeb; border-radius: 4px; border: 1px solid {pr_border};")
         pp_layout = QHBoxLayout(profit_pill)
         pp_layout.setContentsMargins(5, 2, 5, 2)
-        profit_val = QLabel(f"$ {profit:,.2f}")
+        profit_val = QLabel(f"{self.currency_symbol} {profit:,.2f}")
         profit_val.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #b45309; font-size: 13px; border: none;")
         profit_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         pp_layout.addWidget(profit_val)
@@ -269,17 +268,8 @@ class FinancialExecutiveAnalytic(QWidget):
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     
-                    # 1. Load Currency
-                    try:
-                        cursor.execute("SELECT value FROM settings WHERE key='currency'")
-                        row = cursor.fetchone()
-                        if row:
-                            curr_str = row[0]
-                            if '(' in curr_str:
-                                self.currency_symbol = curr_str.split('(')[-1].strip(')') + " "
-                            else:
-                                self.currency_symbol = curr_str + " "
-                    except: pass
+                    # 1. Load Currency using standardized helper
+                    self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
                     
                     # 2. Load Overhead & Profit rates
                     try:
@@ -681,7 +671,7 @@ class FinancialExecutiveAnalytic(QWidget):
     def _add_table_row(self, layout, data, is_total=False):
         bid, cost = data.get('bid', 0.0), data.get('cost', 0.0)
         margin = ((bid - cost) / bid * 100) if bid > 0 else 0
-        r = MetricRow(data.get('name', 'Unknown'), bid, cost, margin, is_total=is_total)
+        r = MetricRow(data.get('name', 'Unknown'), bid, cost, margin, currency_symbol=self.currency_symbol.strip(), is_total=is_total)
         r.clicked.connect(self._handle_row_click)
         layout.insertWidget(layout.count() - 1, r)
 

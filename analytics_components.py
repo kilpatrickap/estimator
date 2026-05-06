@@ -1,6 +1,58 @@
+import os
+import sqlite3
 from PyQt6.QtWidgets import (QFrame, QVBoxLayout, QLabel, QGraphicsDropShadowEffect, QWidget, QSizePolicy, QHBoxLayout)
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QFontMetrics, QLinearGradient
 from PyQt6.QtCore import pyqtSignal, Qt, QRectF, QPointF, QSize
+
+def get_project_currency_symbol(project_dir):
+    """Discovers the project-wide currency symbol from the master project database."""
+    symbol = "$" # Default fallback
+    try:
+        pj_db_dir = os.path.join(project_dir, "Project Database")
+        if not os.path.exists(pj_db_dir):
+            # Try to find a Project Database folder anywhere in the tree if we're not at root
+            curr = project_dir
+            for _ in range(3):
+                test_dir = os.path.join(curr, "Project Database")
+                if os.path.exists(test_dir):
+                    pj_db_dir = test_dir
+                    break
+                curr = os.path.dirname(curr)
+
+        if os.path.exists(pj_db_dir):
+            dbs = [f for f in os.listdir(pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+            if dbs:
+                db_path = os.path.join(pj_db_dir, dbs[0])
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                
+                curr_str = None
+                
+                # Primary: Read from settings table
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT value FROM settings WHERE key='currency'")
+                    row = cursor.fetchone()
+                    if row: curr_str = row[0]
+                
+                # Fallback: Read from estimates table
+                if not curr_str:
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+                    if cursor.fetchone():
+                        cursor.execute("SELECT currency FROM estimates LIMIT 1")
+                        row = cursor.fetchone()
+                        if row and row[0]: curr_str = row[0]
+                
+                if curr_str:
+                    if '(' in curr_str:
+                        # Extract symbol from brackets e.g. "GHS (₵)" -> "₵"
+                        symbol = curr_str.split('(')[-1].strip(')')
+                    else:
+                        # Use first 3 chars or the whole thing if short
+                        symbol = curr_str.split(' ')[0]
+                conn.close()
+    except: pass
+    return symbol
 
 class SelectionFrame(QFrame):
     """A frame that emits a clicked signal, used for row selection in analytics tables."""

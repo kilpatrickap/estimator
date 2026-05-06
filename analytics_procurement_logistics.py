@@ -4,13 +4,14 @@ import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QScrollArea, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
-from analytics_components import MetricCard, DonutChart, ParetoBarChart, ChartWidget
+from analytics_components import get_project_currency_symbol, MetricCard, DonutChart, ParetoBarChart, ChartWidget
 
 class LogisticsRow(QFrame):
     clicked = pyqtSignal(object)
 
-    def __init__(self, name, unit, qty, rate, amount, is_header=False, is_total=False, parent=None):
+    def __init__(self, name, unit, qty, rate, amount, currency_symbol="$", is_header=False, is_total=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_header = is_header
         self.is_total = is_total
         self.is_selected = False
@@ -67,7 +68,7 @@ class LogisticsRow(QFrame):
         rate_pill.setStyleSheet(f"background-color: #fffbeb; border-radius: 4px; border: 1px solid {r_border};")
         rp_layout = QHBoxLayout(rate_pill)
         rp_layout.setContentsMargins(5, 2, 5, 2)
-        rate_str = f"$ {rate:,.2f}" if not is_header else rate
+        rate_str = f"{self.currency_symbol} {rate:,.2f}" if not is_header else rate
         r_lbl = QLabel(rate_str)
         r_lbl.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #b45309; font-size: 12px; border: none;")
         if is_header: r_lbl.setStyleSheet(style)
@@ -82,7 +83,7 @@ class LogisticsRow(QFrame):
         amt_pill.setStyleSheet(f"background-color: #f0fdf4; border-radius: 4px; border: 1px solid {a_border};")
         ap_layout = QHBoxLayout(amt_pill)
         ap_layout.setContentsMargins(5, 2, 5, 2)
-        amount_str = f"$ {amount:,.2f}" if not is_header else amount
+        amount_str = f"{self.currency_symbol} {amount:,.2f}" if not is_header else amount
         a_lbl = QLabel(amount_str)
         a_lbl.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 12px; border: none;")
         if is_header: a_lbl.setStyleSheet(style)
@@ -121,8 +122,9 @@ class LogisticsRow(QFrame):
 class PackageRow(QFrame):
     clicked = pyqtSignal(object)
 
-    def __init__(self, name, subbee, amount, is_header=False, is_total=False, parent=None):
+    def __init__(self, name, subbee, amount, currency_symbol="$", is_header=False, is_total=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_header = is_header
         self.is_total = is_total
         self.is_selected = False
@@ -165,7 +167,7 @@ class PackageRow(QFrame):
         val_pill.setStyleSheet(f"background-color: #f0f9ff; border-radius: 4px; border: 1px solid {v_border};")
         vp_layout = QHBoxLayout(val_pill)
         vp_layout.setContentsMargins(8, 2, 8, 2)
-        val_str = f"$ {amount:,.2f}" if not is_header else amount
+        val_str = f"{self.currency_symbol} {amount:,.2f}" if not is_header else amount
         v_lbl = QLabel(val_str)
         v_lbl.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 12px; border: none;")
         if is_header: v_lbl.setStyleSheet(style)
@@ -226,7 +228,7 @@ class ProcurementLogisticsAnalytic(QWidget):
         self.pboq_state_dir = os.path.join(project_dir, "PBOQ States")
         self._selected_row = None
         
-        self.currency_symbol = "$"
+        self.currency_symbol = get_project_currency_symbol(project_dir) + " "
         self._init_ui()
         self.refresh_data()
 
@@ -251,8 +253,8 @@ class ProcurementLogisticsAnalytic(QWidget):
         
         # 1. KPI Row
         kpi_layout = QHBoxLayout()
-        self.card_mat_total = MetricCard("TOTAL MATERIAL VALUE", "$ 0.00", "Procurement budget")
-        self.card_lab_total = MetricCard("TOTAL LABOR VALUE", "$ 0.00", "Workforce budget")
+        self.card_mat_total = MetricCard("TOTAL MATERIAL VALUE", f"{self.currency_symbol}0.00", "Procurement budget")
+        self.card_lab_total = MetricCard("TOTAL LABOR VALUE", f"{self.currency_symbol}0.00", "Workforce budget")
         self.card_pkg_count = MetricCard("PROCUREMENT PACKAGES", "0", "Vendor packages")
         self.card_completion = MetricCard("PROCUREMENT STATUS", "0%", "Allocated to subs")
         
@@ -527,13 +529,13 @@ class ProcurementLogisticsAnalytic(QWidget):
             if it.widget(): it.widget().deleteLater()
 
     def _add_bom_row(self, data, is_header=False, is_total=False):
-        row = LogisticsRow(data[0], data[1], data[2], data[3], data[4], is_header=is_header, is_total=is_total)
+        row = LogisticsRow(data[0], data[1], data[2], data[3], data[4], currency_symbol=self.currency_symbol.strip(), is_header=is_header, is_total=is_total)
         if not is_header and not is_total:
             row.clicked.connect(self._handle_row_click)
         self.bom_list.insertWidget(self.bom_list.count()-1, row)
 
     def _add_pkg_row(self, data, is_header=False, is_total=False):
-        row = PackageRow(data[0], data[1], data[2], is_header=is_header, is_total=is_total)
+        row = PackageRow(data[0], data[1], data[2], currency_symbol=self.currency_symbol.strip(), is_header=is_header, is_total=is_total)
         if not is_header and not is_total:
             row.clicked.connect(self._handle_row_click)
         self.pkg_list.insertWidget(self.pkg_list.count()-1, row)

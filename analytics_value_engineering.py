@@ -5,12 +5,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QScrollArea, QSpacerItem, QSizePolicy, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
-from analytics_components import MetricCard, DonutChart, SelectionFrame
+from analytics_components import get_project_currency_symbol, MetricCard, DonutChart, SelectionFrame
 
 class VERow(SelectionFrame):
     """A styled row for Value Engineering tables."""
-    def __init__(self, description, unit, quantity, rate, total, source="Manual", is_header=False, parent=None):
+    def __init__(self, description, unit, quantity, rate, total, currency_symbol="$", source="Manual", is_header=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_header = is_header
         self.data = (description, unit, quantity, rate, total, source)
         self.is_selected = False
@@ -43,13 +44,13 @@ class VERow(SelectionFrame):
         layout.addWidget(source_lbl, 1)
 
         # 3. Rate
-        rate_lbl = QLabel(f"{rate:,.2f}" if not is_header else "Rate")
+        rate_lbl = QLabel(f"{self.currency_symbol} {rate:,.2f}" if not is_header else "Rate")
         rate_lbl.setStyleSheet(style + " font-family: 'Consolas';")
         rate_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(rate_lbl, 2)
         
         # 4. Total Value
-        total_lbl = QLabel(f"{total:,.2f}" if not is_header else "Total Value")
+        total_lbl = QLabel(f"{self.currency_symbol} {total:,.2f}" if not is_header else "Total Value")
         total_lbl.setStyleSheet(style + (" font-family: 'Consolas'; font-weight: 800; color: #0f172a;" if not is_header else ""))
         total_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(total_lbl, 2)
@@ -73,7 +74,7 @@ class ValueEngineeringAnalytic(QWidget):
         super().__init__(parent)
         self.project_dir = project_dir
         self._selected_row = None
-        self.currency_symbol = "$"
+        self.currency_symbol = get_project_currency_symbol(project_dir) + " "
         self._init_ui()
         self.refresh_data()
 
@@ -119,8 +120,8 @@ class ValueEngineeringAnalytic(QWidget):
         # 1. KPI Row
         kpi_layout = QHBoxLayout()
         self.card_opportunities = MetricCard("VE OPPORTUNITIES", "0", "Manual Plug items identified", color="#991b1b")
-        self.card_outliers_val = MetricCard("HIGH-VALUE RISK", "$0", "Total value of Top 50 items", color="#0369a1")
-        self.card_savings = MetricCard("EST. SAVINGS TARGET", "$0", "Potential @ 5% reduction", color="#166534")
+        self.card_outliers_val = MetricCard("HIGH-VALUE RISK", f"{self.currency_symbol}0", "Total value of Top 50 items", color="#0369a1")
+        self.card_savings = MetricCard("EST. SAVINGS TARGET", f"{self.currency_symbol}0", "Potential @ 5% reduction", color="#166534")
         
         for c in [self.card_opportunities, self.card_outliers_val, self.card_savings]:
             kpi_layout.addWidget(c)
@@ -261,9 +262,7 @@ class ValueEngineeringAnalytic(QWidget):
             cursor = conn.cursor()
             
             # Get Currency
-            cursor.execute("SELECT value FROM settings WHERE key='currency'")
-            res = cursor.fetchone()
-            if res: self.currency_symbol = "₵" if "GHS" in res[0] else "$"
+            self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
             
             # Find Column Roles
             cursor.execute("PRAGMA table_info(pboq_items)")
@@ -330,7 +329,7 @@ class ValueEngineeringAnalytic(QWidget):
         
         # Add Rows
         for item in items:
-            row = VERow(item['desc'], item['unit'], item['qty'], item['rate'], item['total'], source=item['source'])
+            row = VERow(item['desc'], item['unit'], item['qty'], item['rate'], item['total'], currency_symbol=self.currency_symbol.strip(), source=item['source'])
             row.clicked.connect(self._handle_row_click)
             layout.insertWidget(layout.count() - 1, row)
 

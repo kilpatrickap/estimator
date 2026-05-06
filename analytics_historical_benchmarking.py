@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
-from analytics_components import MetricCard, TrendLineChart
+from analytics_components import get_project_currency_symbol, MetricCard, TrendLineChart
 
 class BenchmarkRow(QFrame):
     clicked = pyqtSignal(object)
@@ -103,7 +103,7 @@ class HistoricalBenchmarkingAnalytic(QWidget):
         self.all_benchmarks = {} # description -> [ {project, rate, prod}, ... ]
         self.current_project_rates = {} # description -> rate
         
-        self.currency_symbol = "$"
+        self.currency_symbol = get_project_currency_symbol(project_dir) + " "
         self._init_ui()
         
         # Load persistent selection or fallback to default scan
@@ -332,16 +332,7 @@ class HistoricalBenchmarkingAnalytic(QWidget):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
-            # Get Base Currency
-            cursor.execute("SELECT value FROM settings WHERE key = 'base_currency'")
-            res = cursor.fetchone()
-            if res: self.base_currency = res[0]
-            else:
-                cursor.execute("SELECT currency FROM estimates LIMIT 1")
-                res = cursor.fetchone()
-                if res: self.base_currency = res[0]
-            
-            self.currency_symbol = "₵" if "GHS" in self.base_currency else "$"
+            self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
             
             # Get Exchange Rates
             cursor.execute("SELECT currency, rate FROM estimate_exchange_rates")

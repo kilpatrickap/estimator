@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QGridLayout, QScrollArea, QSpacerItem, QSizePolicy)
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from analytics_components import MetricCard, SelectionFrame, DonutChart, ParetoBarChart
+from analytics_components import get_project_currency_symbol, MetricCard, SelectionFrame, DonutChart, ParetoBarChart
 from pboq_logic import PBOQLogic
 
 class ProjectPerformanceAnalytic(QWidget):
@@ -124,45 +124,7 @@ class ProjectPerformanceAnalytic(QWidget):
 
     def _load_currency(self):
         """Discovers the project-wide currency symbol from the master project database."""
-        self.currency_symbol = "$" 
-        try:
-            pj_db_dir = os.path.join(self.project_dir, "Project Database")
-            if os.path.exists(pj_db_dir):
-                dbs = [f for f in os.listdir(pj_db_dir) if f.lower().endswith('.db')]
-                if dbs:
-                    db_path = os.path.join(pj_db_dir, dbs[0])
-                    conn = sqlite3.connect(db_path)
-                    cursor = conn.cursor()
-                    
-                    curr_str = None
-                    
-                    # Primary: Read from settings table
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='settings'")
-                    if cursor.fetchone():
-                        cursor.execute("SELECT value FROM settings WHERE key='currency'")
-                        row = cursor.fetchone()
-                        if row:
-                            curr_str = row[0]
-                    
-                    # Fallback: Read from estimates table (source of truth for active project currency)
-                    if not curr_str:
-                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
-                        if cursor.fetchone():
-                            cursor.execute("SELECT currency FROM estimates LIMIT 1")
-                            row = cursor.fetchone()
-                            if row and row[0]:
-                                curr_str = row[0]
-                    
-                    if curr_str:
-                        if '(' in curr_str:
-                            code = curr_str.split('(')[0].strip()
-                            symbol = curr_str.split('(')[-1].strip(')')
-                            self.currency_symbol = f"{code} {symbol} "
-                        else:
-                            self.currency_symbol = f"{curr_str} "
-                    conn.close()
-        except Exception as e:
-            print(f"Analytics Project Performance: Currency detection error: {e}")
+        self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
 
     def refresh_data(self):
         """Aggregates data across all PBOQ databases."""
@@ -442,7 +404,7 @@ class ProjectPerformanceAnalytic(QWidget):
         ac_layout = QHBoxLayout(amount_container)
         ac_layout.setContentsMargins(8, 2, 8, 2)
         
-        amount = QLabel(f"{self.currency_symbol} {data['amount']:,.2f}")
+        amount = QLabel(f"{self.currency_symbol}{data['amount']:,.2f}")
         amount.setStyleSheet("font-weight: 700; color: #1b5e20; font-size: 9pt; font-family: 'Consolas'; border: none; background: transparent;")
         amount.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         ac_layout.addWidget(amount)

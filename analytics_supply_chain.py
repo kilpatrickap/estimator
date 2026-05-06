@@ -6,12 +6,13 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
                              QFrame, QScrollArea, QSpacerItem, QSizePolicy, QDialog, QPushButton)
 from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient
-from analytics_components import MetricCard, ChartWidget
+from analytics_components import get_project_currency_symbol, MetricCard, ChartWidget
 
 class BidderRow(QFrame):
     """A row in the submitted bidders table, matching analytics UI consistency."""
-    def __init__(self, name, amount, target_val, is_winner=False, is_header=False, parent=None):
+    def __init__(self, name, amount, target_val, currency_symbol="$", is_winner=False, is_header=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_header = is_header
         self.is_winner = is_winner
         self._update_style()
@@ -31,7 +32,7 @@ class BidderRow(QFrame):
         layout.addWidget(n_lbl, 3)
         
         # 2. Amount
-        a_lbl = QLabel(f"${amount:,.2f}" if not is_header else "Quote Amount")
+        a_lbl = QLabel(f"{self.currency_symbol}{amount:,.2f}" if not is_header else "Quote Amount")
         a_lbl.setStyleSheet(style + " font-family: 'Consolas'; font-weight: 700; color: #334155;")
         a_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(a_lbl, 2)
@@ -85,8 +86,9 @@ class BidderRow(QFrame):
 
 class SubmittedBiddersDialog(QDialog):
     """A premium dialog showing a detailed table of all submitted bidders for a package."""
-    def __init__(self, package_name, target_val, all_bids, winner_name, parent=None):
+    def __init__(self, package_name, target_val, all_bids, winner_name, currency_symbol="$", parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.setWindowTitle(f"Submitted Bidders - {package_name}")
         self.setMinimumSize(650, 500)
         self.setStyleSheet("background-color: #f1f5f9;") # Match main dashboard bg
@@ -105,7 +107,7 @@ class SubmittedBiddersDialog(QDialog):
         title_lbl.setStyleSheet("font-family: 'Inter'; font-size: 20px; font-weight: 800; color: #1e293b;")
         hc_layout.addWidget(title_lbl)
         
-        target_info = QLabel(f"Internal Target Budget: <span style='font-family: Consolas; font-weight: bold; color: #166534;'>${target_val:,.2f}</span>")
+        target_info = QLabel(f"Internal Target Budget: <span style='font-family: Consolas; font-weight: bold; color: #166534;'>{self.currency_symbol}{target_val:,.2f}</span>")
         target_info.setStyleSheet("font-family: 'Inter'; font-size: 13px; color: #64748b;")
         hc_layout.addWidget(target_info)
         layout.addWidget(header_card)
@@ -117,7 +119,7 @@ class SubmittedBiddersDialog(QDialog):
         table_layout.setContentsMargins(15, 15, 15, 15)
         
         # Header Row
-        table_layout.addWidget(BidderRow("SUBCONTRACTOR NAME", 0, 0, is_header=True))
+        table_layout.addWidget(BidderRow("SUBCONTRACTOR NAME", 0, 0, currency_symbol=self.currency_symbol, is_header=True))
         
         # List Area
         scroll = QScrollArea()
@@ -131,7 +133,7 @@ class SubmittedBiddersDialog(QDialog):
         
         sorted_bids = sorted(all_bids.items(), key=lambda x: x[1])
         for s_name, s_val in sorted_bids:
-            row = BidderRow(s_name, s_val, target_val, is_winner=(s_name == winner_name))
+            row = BidderRow(s_name, s_val, target_val, currency_symbol=self.currency_symbol, is_winner=(s_name == winner_name))
             list_layout.insertWidget(list_layout.count()-1, row)
             
         scroll.setWidget(container)
@@ -158,8 +160,9 @@ class SupplyChainRow(QFrame):
     clicked = pyqtSignal(object)
     bidsClicked = pyqtSignal(object) # New signal for bids interaction
 
-    def __init__(self, name, bids_count, target_val, min_val, max_val, winner_val, winner_name="", all_bids=None, is_header=False, is_total=False, parent=None):
+    def __init__(self, name, bids_count, target_val, min_val, max_val, winner_val, currency_symbol="$", winner_name="", all_bids=None, is_header=False, is_total=False, parent=None):
         super().__init__(parent)
+        self.currency_symbol = currency_symbol
         self.is_header = is_header
         self.is_total = is_total
         self.is_selected = False
@@ -202,7 +205,7 @@ class SupplyChainRow(QFrame):
             sorted_bids = sorted(all_bids.items(), key=lambda x: x[1])
             for s, v in sorted_bids:
                 is_win = " (Winner)" if s == winner_name else ""
-                tooltip += f"<br/>• {s}: <b>${v:,.2f}</b>{is_win}"
+                tooltip += f"<br/>• {s}: <b>{self.currency_symbol}{v:,.2f}</b>{is_win}"
             self.bids_pill.setToolTip(tooltip)
             self.bids_pill.setCursor(Qt.CursorShape.PointingHandCursor)
             
@@ -213,14 +216,14 @@ class SupplyChainRow(QFrame):
         layout.addWidget(self.bids_pill, 1)
         
         # 3. Target Value
-        t_lbl = QLabel(f"$ {target_val:,.2f}" if not is_header else "Target")
+        t_lbl = QLabel(f"{self.currency_symbol} {target_val:,.2f}" if not is_header else "Target")
         t_lbl.setStyleSheet(style + " font-family: 'Consolas'; color: #475569;")
         t_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         layout.addWidget(t_lbl, 2)
         
         # 4. Winning Quote
         w_color = "#166534" if winner_val <= target_val else "#991b1b"
-        w_lbl = QLabel(f"$ {winner_val:,.2f}" if not is_header else "Winner")
+        w_lbl = QLabel(f"{self.currency_symbol} {winner_val:,.2f}" if not is_header else "Winner")
         if not is_header and not is_total:
             w_lbl.setStyleSheet(f"font-family: 'Consolas'; font-weight: 700; color: {w_color}; font-size: 12px;")
         else:
@@ -230,7 +233,7 @@ class SupplyChainRow(QFrame):
         
         # 5. Savings (Absolute)
         savings = target_val - winner_val
-        s_lbl = QLabel(f"$ {savings:,.2f}" if not is_header else "Savings")
+        s_lbl = QLabel(f"{self.currency_symbol} {savings:,.2f}" if not is_header else "Savings")
         s_lbl.setStyleSheet(style + " font-family: 'Consolas'; font-weight: 700; color: #1e293b;")
         if not is_header and not is_total:
             s_lbl.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 12px;")
@@ -303,7 +306,7 @@ class BidSpreadChart(ChartWidget):
         self.hit_boxes = [] # Reset for this frame
         
         if not self.data:
-            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, "No Adjudication Data Available")
+            painter.drawText(rect, Qt.AlignmentFlag.AlignCenter, f"No Adjudication Data Available ({self.currency_symbol})")
             return
 
         # 1. Legend (Top Right)
@@ -359,7 +362,7 @@ class BidSpreadChart(ChartWidget):
             target_x = to_x(d['target'])
             painter.setPen(QPen(QColor("#94a3b8"), 1, Qt.PenStyle.DashLine))
             painter.drawLine(int(target_x), int(y + 5), int(target_x), int(y + row_h - 5))
-            self.hit_boxes.append((QRectF(target_x - 5, y + 5, 10, row_h - 10), f"Budget Target: ${d['target']:,.2f}"))
+            self.hit_boxes.append((QRectF(target_x - 5, y + 5, 10, row_h - 10), f"Budget Target: {self.currency_symbol}{d['target']:,.2f}"))
             
             # 2. Spread Bar (Min to Max)
             min_x = to_x(d['min'])
@@ -369,7 +372,7 @@ class BidSpreadChart(ChartWidget):
             
             spread_pct = ((d['max'] - d['min']) / d['min'] * 100) if d['min'] > 0 else 0
             self.hit_boxes.append((QRectF(min_x, center_y - 5, max_x - min_x, 10), 
-                                  f"Market Range: ${d['min']:,.2f} - ${d['max']:,.2f}\nSpread: {spread_pct:.1f}%"))
+                                  f"Market Range: {self.currency_symbol}{d['min']:,.2f} - {self.currency_symbol}{d['max']:,.2f}\nSpread: {spread_pct:.1f}%"))
             
             # 3. Min/Max Dots
             painter.setPen(Qt.PenStyle.NoPen)
@@ -388,7 +391,7 @@ class BidSpreadChart(ChartWidget):
             var_pct = (abs(var) / d['target'] * 100) if d['target'] > 0 else 0
             status = "SAVING" if is_saving else "OVERRUN"
             self.hit_boxes.append((QRectF(winner_x - 8, center_y - 8, 16, 16), 
-                                  f"Winner Quote: ${d['winner']:,.2f}\n{status}: ${abs(var):,.2f} ({var_pct:.1f}%)"))
+                                  f"Winner Quote: {self.currency_symbol}{d['winner']:,.2f}\n{status}: {self.currency_symbol}{abs(var):,.2f} ({var_pct:.1f}%)"))
             
             # 5. Connecting Winner to Target
             painter.setPen(QPen(QColor(win_color), 1))
@@ -414,7 +417,7 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         self.pboq_state_dir = os.path.join(project_dir, "PBOQ States")
         self._selected_row = None
         
-        self.currency_symbol = "$"
+        self.currency_symbol = get_project_currency_symbol(project_dir) + " "
         self._init_ui()
         self.refresh_data()
 
@@ -441,9 +444,9 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         # 1. KPI Row
         kpi_layout = QHBoxLayout()
         self.card_heat = MetricCard("MARKET HEAT", "0.0", "Avg bids per package", color="#6366f1")
-        self.card_savings = MetricCard("ADJUDICATION SAVINGS", "$ 0.00", "Total vs. Target", color="#166534")
+        self.card_savings = MetricCard("ADJUDICATION SAVINGS", f"{self.currency_symbol} 0.00", "Total vs. Target", color="#166534")
         self.card_risk = MetricCard("SINGLE SOURCE RISK", "0", "Packages with 1 bid", color="#991b1b")
-        self.card_awarded = MetricCard("AWARDED VALUE", "$ 0.00", "Adjudicated total", color="#0369a1")
+        self.card_awarded = MetricCard("AWARDED VALUE", f"{self.currency_symbol} 0.00", "Adjudicated total", color="#0369a1")
         
         for c in [self.card_heat, self.card_savings, self.card_risk, self.card_awarded]:
             kpi_layout.addWidget(c)
@@ -682,9 +685,9 @@ class SupplyChainIntelligenceAnalytic(QWidget):
 
     def _add_row(self, data, is_header=False, is_total=False):
         if is_header or is_total:
-            row = SupplyChainRow(data[0], data[1], data[2], data[3], data[4], data[5], is_header=is_header, is_total=is_total)
+            row = SupplyChainRow(data[0], data[1], data[2], data[3], data[4], data[5], currency_symbol=self.currency_symbol.strip(), is_header=is_header, is_total=is_total)
         else:
-            row = SupplyChainRow(data[0], data[1], data[2], data[3], data[4], data[5], winner_name=data[6], all_bids=data[7], is_header=is_header, is_total=is_total)
+            row = SupplyChainRow(data[0], data[1], data[2], data[3], data[4], data[5], currency_symbol=self.currency_symbol.strip(), winner_name=data[6], all_bids=data[7], is_header=is_header, is_total=is_total)
             row.bidsClicked.connect(self._show_bidders_details)
             
         if not is_header and not is_total:
@@ -694,7 +697,7 @@ class SupplyChainIntelligenceAnalytic(QWidget):
     def _show_bidders_details(self, context):
         """Opens the nice 'Submitted Bidders' table dialog."""
         pkg_name, target, bids, winner = context
-        dialog = SubmittedBiddersDialog(pkg_name, target, bids, winner, self)
+        dialog = SubmittedBiddersDialog(pkg_name, target, bids, winner, currency_symbol=self.currency_symbol.strip(), parent=self)
         dialog.exec()
 
     def _handle_row_click(self, row):

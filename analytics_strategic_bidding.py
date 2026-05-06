@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from PyQt6.QtCore import Qt, QRectF, QPointF, pyqtSignal, QSize
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics, QDoubleValidator
 
-from analytics_components import MetricCard, ChartWidget, WaterfallChart
+from analytics_components import get_project_currency_symbol, MetricCard, ChartWidget, WaterfallChart
 from pboq_logic import PBOQLogic
 
 
@@ -24,7 +24,7 @@ class StrategicBiddingAnalytic(QWidget):
         self.current_overhead = 0.0
         self.current_profit = 0.0
         self.current_factor = 1.0
-        self.currency_symbol = "$"
+        self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
         
         self.scenario_overhead = 0.0
         self.scenario_profit = 0.0
@@ -244,14 +244,14 @@ class StrategicBiddingAnalytic(QWidget):
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     
-                    cursor.execute("SELECT key, value FROM settings WHERE key IN ('overhead', 'profit', 'factor', 'currency')")
+                    cursor.execute("SELECT key, value FROM settings WHERE key IN ('overhead', 'profit', 'factor')")
                     for k, v in cursor.fetchall():
                         if k == 'overhead': self.current_overhead = float(v)
                         elif k == 'profit': self.current_profit = float(v)
                         elif k == 'factor': self.current_factor = float(v)
-                        elif k == 'currency':
-                            if '(' in v: self.currency_symbol = v.split('(')[-1].strip(')') + " "
-                            else: self.currency_symbol = v + " "
+                    
+                    # 1. Load Currency using standardized helper
+                    self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
                     conn.close()
         except: pass
 
