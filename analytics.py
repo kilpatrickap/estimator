@@ -204,7 +204,11 @@ class AnalyticsDashboard(QWidget):
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Historical Benchmarking: {e}")
         elif index == 6:
-            widget = PlaceholderAnalytic("Automated Value Engineering (VE) Finder")
+            try:
+                from analytics_value_engineering import ValueEngineeringAnalytic
+                widget = ValueEngineeringAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading Value Engineering Finder: {e}")
         else:
             widget = PlaceholderAnalytic("Unknown Module")
 
