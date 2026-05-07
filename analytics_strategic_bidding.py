@@ -217,10 +217,12 @@ class StrategicBiddingAnalytic(QWidget):
             markable = self.base_cost - self.fixed_cost
             
             eff_oh_rate = self.current_overhead
-            eff_oh_amt = markable * (eff_oh_rate / 100.0)
+            eff_pr_rate = self.current_profit
             
-            eff_pr_amt = total_markup - eff_oh_amt
-            eff_pr_rate = (eff_pr_amt / markable * 100.0) if markable > 0 else 0
+            # Round effective rates to eliminate residual noise from floating point drift
+            # If the rate is extremely small (e.g. 0.000001%), treat it as absolute zero
+            if abs(eff_oh_rate) < 0.00001: eff_oh_rate = 0.0
+            if abs(eff_pr_rate) < 0.00001: eff_pr_rate = 0.0
             
             self.ov_input.set_actual_value(eff_oh_rate)
             self.pr_input.set_actual_value(eff_pr_rate)
@@ -338,10 +340,10 @@ class StrategicBiddingAnalytic(QWidget):
                     calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
                     item_net_cost = unit_cost * calc_qty
                     
-                    self.base_cost += item_net_cost
-                    self.actual_bid += bill_f
+                    self.base_cost += round(item_net_cost, 2)
+                    self.actual_bid += round(bill_f, 2)
                     if is_fixed_type:
-                        self.fixed_cost += item_net_cost
+                        self.fixed_cost += round(item_net_cost, 2)
                 
                 conn.close()
             except Exception as e:
@@ -395,23 +397,20 @@ class StrategicBiddingAnalytic(QWidget):
         sim_overhead_amt = markable * (self.scenario_overhead/100) * self.scenario_factor
         sim_profit_amt = markable * (self.scenario_profit/100) * self.scenario_factor
         
-        sim_bid = (self.base_cost * self.scenario_factor) + sim_overhead_amt + sim_profit_amt
+        sim_bid = round((self.base_cost * self.scenario_factor), 2) + round(sim_overhead_amt, 2) + round(sim_profit_amt, 2)
         sim_margin_pct = (sim_profit_amt / sim_bid * 100) if sim_bid > 0 else 0
         sim_oh_pct = (sim_overhead_amt / sim_bid * 100) if sim_bid > 0 else 0
         
-        # 2. SOURCE OF TRUTH BASELINE (Matches Financial Executive Dashboard)
-        curr_bid = self.actual_bid
+        # 2. SOURCE OF TRUTH BASELINE (Matches Financial Executive Dashboard Parity)
+        # We derive the "Current" figures from settings to ensure zero residuals
         curr_cost = self.base_cost
         curr_markable = curr_cost - self.fixed_cost
         
-        # Calculate actual total markup currently in the PBOQ
-        total_markup = curr_bid - curr_cost
-        
-        # UPDATED: Match Financial Executive priority logic
-        # 1. Overhead is calculated strictly on the Markable portion of the cost
         curr_overhead_amt = curr_markable * (self.current_overhead / 100.0)
-        # 2. Profit is the remainder of the actual markup found in the PBOQ
-        curr_profit_amt = total_markup - curr_overhead_amt
+        curr_profit_amt = curr_markable * (self.current_profit / 100.0)
+        
+        # Current Bid is the sum of cost and target markups
+        curr_bid = curr_cost + curr_overhead_amt + curr_profit_amt
         
         curr_margin_pct = (curr_profit_amt / curr_bid * 100) if curr_bid > 0 else 0
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0

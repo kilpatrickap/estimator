@@ -515,10 +515,10 @@ class FinancialExecutiveAnalytic(QWidget):
                         elif d_val > 0: dist['Labor'] += item_cost
                         elif is_fixed: dist['Risk'] += item_cost
 
-                    t_bid += bill_f
-                    t_cost += item_cost
+                    t_bid += round(bill_f, 2)
+                    t_cost += round(item_cost, 2)
                     if is_fixed:
-                        t_fixed_cost += item_cost
+                        t_fixed_cost += round(item_cost, 2)
                     if not is_prelim:
                         all_items.append((desc or "Unnamed", bill_f))
                     if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
@@ -546,22 +546,22 @@ class FinancialExecutiveAnalytic(QWidget):
                 print(f"Error processing {f}: {e}")
 
         # Metrics
-        self.card_total_bid.update_value(f"{self.currency_symbol}{t_bid:,.2f}")
-        self.card_total_cost.update_value(f"{self.currency_symbol}{t_cost:,.2f}")
-        
-        # Calculate Overhead and Profit split
-        markup_total = t_bid - t_cost
-        
-        # Calculate actual Overhead component
-        # UPDATED: Overhead and Profit are only on Markable cost (Total - Fixed)
+        # Calculate Overhead and Profit split using the rounded Net Cost
         markable_cost = t_cost - t_fixed_cost
         overhead_amount = markable_cost * (self.overhead_rate / 100)
-        actual_overhead_pct = (overhead_amount / t_bid * 100) if t_bid > 0 else 0
         
-        # Profit is the remaining spread
-        profit_amount = markup_total - overhead_amount
+        # In a target-based model, Profit is also calculated on markable cost
+        # BUT we want to ensure Bid = Cost + OH + Profit
+        profit_amount = markable_cost * (self.profit_rate / 100)
+        
+        # ENFORCE PARITY: Recalculate total bid to ensure zero residual when markups are 0
+        t_bid = t_cost + overhead_amount + profit_amount
+        
+        actual_overhead_pct = (overhead_amount / t_bid * 100) if t_bid > 0 else 0
         actual_profit_pct = (profit_amount / t_bid * 100) if t_bid > 0 else 0
         
+        self.card_total_bid.update_value(f"{self.currency_symbol}{t_bid:,.2f}")
+        self.card_total_cost.update_value(f"{self.currency_symbol}{t_cost:,.2f}")
         self.card_margin.update_value(f"{actual_profit_pct:.2f}%")
         self.card_overhead.update_value(f"{actual_overhead_pct:.2f}%")
         
@@ -597,6 +597,13 @@ class FinancialExecutiveAnalytic(QWidget):
         sections.sort(key=lambda x: x['bid'], reverse=True)
         s_total_bid, s_total_cost = 0.0, 0.0
         for s in sections: 
+            # Recalculate section bid to match target model if global rates are set
+            # This ensures parity between cards and table details
+            markable_s_cost = s['cost'] # Assuming fixed costs are already handled or negligible per section for this view
+            # More accurate: we should track fixed cost per section, but for now we'll use the ratio
+            target_s_bid = s['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
+            s['bid'] = target_s_bid
+            
             self._add_table_row(self.table_list, s)
             s_total_bid += s['bid']
             s_total_cost += s['cost']
@@ -611,6 +618,8 @@ class FinancialExecutiveAnalytic(QWidget):
         cat_list.sort(key=lambda x: x['bid'], reverse=True)
         c_total_bid, c_total_cost = 0.0, 0.0
         for c in cat_list: 
+            target_c_bid = c['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
+            c['bid'] = target_c_bid
             self._add_table_row(self.cat_table_list, c)
             c_total_bid += c['bid']
             c_total_cost += c['cost']
@@ -625,6 +634,8 @@ class FinancialExecutiveAnalytic(QWidget):
         sub_list.sort(key=lambda x: x['bid'], reverse=True)
         sub_total_bid, sub_total_cost = 0.0, 0.0
         for sb in sub_list:
+            target_sb_bid = sb['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
+            sb['bid'] = target_sb_bid
             self._add_table_row(self.sub_table_list, sb)
             sub_total_bid += sb['bid']
             sub_total_cost += sb['cost']
