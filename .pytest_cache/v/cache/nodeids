@@ -17,6 +17,8 @@
   "PyTest/test_plug_rate_factor.py::test_plug_linked_bill_rate_updated",
   "PyTest/test_plug_rate_factor.py::test_plug_rates_updated_on_factor_change",
   "PyTest/test_plug_rate_factor.py::test_plug_rates_updated_on_factor_decrease",
+  "PyTest/test_project_performance_full.py::test_full_project_analytics_parity",
+  "PyTest/test_project_performance_parity.py::test_pricing_mix_parity",
   "PyTest/test_revert_issue.py::test_revert_factor_from_4_to_1",
   "PyTest/test_supply_chain.py::test_market_heat_logic",
   "PyTest/test_supply_chain.py::test_to_float_logic",

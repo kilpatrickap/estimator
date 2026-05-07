@@ -209,8 +209,8 @@ class ProjectPerformanceAnalytic(QWidget):
                         
                         sani = "'0'"
                         if bill_amt_name:
-                            # Sanitize: Strip symbols (GH¢, GHC, GHS, ¢, ₵), commas, spaces
-                            sani = f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', '')"
+                            # Sanitize: Strip symbols (GH¢, GHC, GHS, ¢, ₵, $), commas, spaces
+                            sani = f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', ''), '$', '')"
                         
                         amt_sum_expr = f"SUM(CAST({sani} AS REAL))"
                         
@@ -241,7 +241,9 @@ class ProjectPerformanceAnalytic(QWidget):
                             src_cols = ["GrossRate", "PlugRate", "SubbeeRate", "ProvSum", "PCSum", "Daywork"]
                             for sc in src_cols:
                                 if sc in actual_cols:
-                                    priced_parts.append(f"(\"{sc}\" != '' AND \"{sc}\" IS NOT NULL)")
+                                    # Clean and cast to check if > 0. Handle symbols just in case.
+                                    sc_clean = f"CAST(REPLACE(REPLACE(REPLACE(IFNULL(\"{sc}\", '0'), ',', ''), ' ', ''), '$', '') AS REAL)"
+                                    priced_parts.append(f"({sc_clean} > 0)")
  
                             if or_parts:
                                 item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}) AND (LOWER(\"{desc_name}\") NOT LIKE '%collection%' AND LOWER(\"{desc_name}\") NOT LIKE '%summary%'))"
@@ -274,13 +276,14 @@ class ProjectPerformanceAnalytic(QWidget):
                         
                     cursor.execute(f"""
                         SELECT 
-                            SUM(CASE WHEN GrossRate != '' AND GrossRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN PlugRate != '' AND PlugRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN SubbeeRate != '' AND SubbeeRate IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN ProvSum != '' AND ProvSum IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN PCSum != '' AND PCSum IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN Daywork != '' AND Daywork IS NOT NULL THEN CAST({sani} AS REAL) ELSE 0 END)
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(GrossRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(PlugRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(SubbeeRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(ProvSum, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(PCSum, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
+                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(Daywork, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END)
                         FROM pboq_items
+                        WHERE {item_clause}
                     """)
                     src_row = cursor.fetchone()
                     if src_row:
