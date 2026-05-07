@@ -127,177 +127,143 @@ class ProjectPerformanceAnalytic(QWidget):
         self.currency_symbol = get_project_currency_symbol(self.project_dir) + " "
 
     def refresh_data(self):
-        """Aggregates data across all PBOQ databases."""
+        """Aggregates data across all PBOQ databases with executive parity."""
         self._load_currency()
+        
+        # Load global settings for parity
+        overhead_rate, profit_rate = 0.0, 0.0
+        try:
+            pj_db_dir = os.path.join(self.project_dir, "Project Database")
+            if os.path.exists(pj_db_dir):
+                dbs = [f for f in os.listdir(pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+                if dbs:
+                    conn = sqlite3.connect(os.path.join(pj_db_dir, dbs[0]))
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT value FROM settings WHERE key='overhead'")
+                    row = cursor.fetchone()
+                    if row: overhead_rate = float(row[0])
+                    cursor.execute("SELECT value FROM settings WHERE key='profit'")
+                    row = cursor.fetchone()
+                    if row: profit_rate = float(row[0])
+                    conn.close()
+        except: pass
+
         if not os.path.exists(self.pboq_folder):
             return
 
-        total_bid = 0.0
-        total_items = 0
-        priced_items = 0
-        flagged_items = 0
-        
-        sources = {
-            'gross': 0.0, 
-            'plug': 0.0, 
-            'sub': 0.0, 
-            'provisional': 0.0,
-            'pc_sum': 0.0,
-            'daywork': 0.0
-        }
+        t_cost, t_fixed_cost = 0.0, 0.0
+        total_items, priced_items, flagged_items = 0, 0, 0
+        sources = {'gross': 0.0, 'plug': 0.0, 'sub': 0.0, 'provisional': 0.0, 'pc_sum': 0.0, 'daywork': 0.0}
         sheet_data = []
 
-        for f in os.listdir(self.pboq_folder):
-            if f.lower().endswith('.db'):
-                db_path = os.path.join(self.pboq_folder, f)
+        files = [f for f in os.listdir(self.pboq_folder) if f.lower().endswith('.db')]
+        for f in files:
+            db_path = os.path.join(self.pboq_folder, f)
+            mapping = self._get_pboq_mapping(f)
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                cols = [info[1] for info in cursor.fetchall()]
                 
-                qty_col = -1
-                unit_col = -1
-                desc_col = -1
-                bill_amt_col = -1
-                state_file = os.path.join(self.project_dir, "PBOQ States", f + ".json")
-                if os.path.exists(state_file):
-                    try:
-                        with open(state_file, 'r') as sf:
-                            state = json.load(sf)
-                            m = state.get('mappings', {})
-                            qty_col = m.get('qty', -1)
-                            unit_col = m.get('unit', -1)
-                            desc_col = m.get('desc', -1)
-                            bill_amt_col = m.get('bill_amount', -1)
-                    except: pass
+                b_idx, q_idx, d_idx = mapping.get('bill_amount'), mapping.get('qty'), mapping.get('desc')
+                b_col = cols[b_idx + 1] if b_idx is not None and (b_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount"]), "Column 5")
+                q_col = cols[q_idx + 1] if q_idx is not None and (q_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), "Column 2")
+                d_col = cols[d_idx + 1] if d_idx is not None and (d_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), "Column 1")
                 
-                try:
-                    conn = sqlite3.connect(db_path)
-                    PBOQLogic.ensure_schema(conn)
-                    cursor = conn.cursor()
-                    
-                    if qty_col < 0 or unit_col < 0 or desc_col < 0:
-                        cursor.execute("PRAGMA table_info(pboq_items)")
-                        cols = [info[1] for info in cursor.fetchall()]
-                        for i, name in enumerate(cols):
-                            clean_name = name.lower().replace(" ", "").replace("_", "")
-                            if qty_col < 0 and clean_name in ["quantity", "qty"]:
-                                qty_col = i - 1 
-                            if unit_col < 0 and clean_name == "unit":
-                                unit_col = i - 1
-                            if desc_col < 0 and clean_name in ["description", "desc"]:
-                                desc_col = i - 1
-                    
-                    item_clause = "(1=0)"
-                    priced_clause = "(1=0)"
-                    amt_sum_expr = "0.0"
-                    
-                    if desc_col >= 0 or unit_col >= 0 or qty_col >= 0:
-                        cursor.execute("PRAGMA table_info(pboq_items)")
-                        actual_cols = [info[1] for info in cursor.fetchall()]
-                        
-                        desc_name = actual_cols[desc_col+1] if desc_col >= 0 and (desc_col+1) < len(actual_cols) else None
-                        qty_name = actual_cols[qty_col+1] if qty_col >= 0 and (qty_col+1) < len(actual_cols) else None
-                        unit_name = actual_cols[unit_col+1] if unit_col >= 0 and (unit_col+1) < len(actual_cols) else None
-                        
-                        # Detect Bill Amount column: Use mapping first
-                        bill_amt_name = None
-                        if bill_amt_col >= 0 and (bill_amt_col + 1) < len(actual_cols):
-                            bill_amt_name = actual_cols[bill_amt_col + 1]
-                        
-                        if not bill_amt_name:
-                            bill_amt_name = next((pv for pv in ["Bill Amount", "BillAmount"] if pv in actual_cols), None)
-                            
-                        if not bill_amt_name and "Column 5" in actual_cols:
-                            bill_amt_name = "Column 5"
-                        
-                        sani = "'0'"
-                        if bill_amt_name:
-                            # Sanitize: Strip symbols (GH¢, GHC, GHS, ¢, ₵, $), commas, spaces
-                            sani = f"REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{bill_amt_name}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', ''), '$', '')"
-                        
-                        amt_sum_expr = f"SUM(CAST({sani} AS REAL))"
-                        
-                        if desc_name:
-                            desc_check = f"(TRIM(\"{desc_name}\") != '' AND \"{desc_name}\" IS NOT NULL)"
-                            or_parts = []
-                            if qty_name:
-                                qty_check = f"(CAST(REPLACE(\"{qty_name}\", ',', '') AS REAL) != 0)"
-                                if unit_name:
-                                    unit_check = f"(TRIM(\"{unit_name}\") != '' AND \"{unit_name}\" IS NOT NULL)"
-                                    or_parts.append(f"({qty_check} AND {unit_check})")
-                                else:
-                                    or_parts.append(qty_check)
-                            
-                            priced_parts = []
-                            # Include the detected bill_amt_name (which might be Column 5) in price variants
-                            price_variants = ["Bill Amount", "BillAmount", "Bill Rate", "BillRate"]
-                            if bill_amt_name and bill_amt_name not in price_variants:
-                                price_variants.append(bill_amt_name)
-                                
-                            for pv in price_variants:
-                                if pv in actual_cols:
-                                    pv_clean = f"CAST(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(IFNULL(\"{pv}\", '0'), ',', ''), ' ', ''), 'GH¢', ''), 'GHC', ''), 'GHS', ''), '¢', ''), '₵', '') AS REAL)"
-                                    or_parts.append(f"({pv_clean} > 0)")
-                                    # Removed original Bill Amount from priced_parts to honor user requirement:
-                                    # "only bill amounts with price types have to be considered"
-                            
-                            src_cols = ["GrossRate", "PlugRate", "SubbeeRate", "ProvSum", "PCSum", "Daywork"]
-                            for sc in src_cols:
-                                if sc in actual_cols:
-                                    # Clean and cast to check if > 0. Handle symbols just in case.
-                                    sc_clean = f"CAST(REPLACE(REPLACE(REPLACE(IFNULL(\"{sc}\", '0'), ',', ''), ' ', ''), '$', '') AS REAL)"
-                                    priced_parts.append(f"({sc_clean} > 0)")
- 
-                            if or_parts:
-                                item_clause = f"({desc_check} AND ({' OR '.join(or_parts)}) AND (LOWER(\"{desc_name}\") NOT LIKE '%collection%' AND LOWER(\"{desc_name}\") NOT LIKE '%summary%'))"
-                            if priced_parts:
-                                priced_clause = f"({desc_check} AND ({' OR '.join(priced_parts)}))"
- 
-                    q1 = f"""
-                        SELECT Sheet, 
-                               SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
-                               SUM(CASE WHEN {item_clause} AND {priced_clause} THEN 1 ELSE 0 END), 
-                               SUM(CASE WHEN {item_clause} AND {priced_clause} THEN CAST({sani} AS REAL) ELSE 0.0 END)
-                        FROM pboq_items 
-                        GROUP BY Sheet
-                    """
-                    cursor.execute(q1)
-                    rows = cursor.fetchall()
-                    for sheet, count, priced, amt in rows:
-                        sheet_data.append({
-                            'name': f"{f.replace('.db','')} - {sheet}",
-                            'total': count,
-                            'priced': priced,
-                            'amount': amt or 0.0
-                        })
-                        total_items += count
-                        priced_items += priced
-                        total_bid += (amt or 0.0)
-                    
-                    cursor.execute("SELECT SUM(IsFlagged) FROM pboq_items")
-                    flagged_items += (cursor.fetchone()[0] or 0)
-                        
-                    cursor.execute(f"""
-                        SELECT 
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(GrossRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(PlugRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(SubbeeRate, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(ProvSum, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(PCSum, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END),
-                            SUM(CASE WHEN CAST(REPLACE(REPLACE(REPLACE(IFNULL(Daywork, '0'), ',', ''), ' ', ''), '$', '') AS REAL) > 0 THEN CAST({sani} AS REAL) ELSE 0 END)
-                        FROM pboq_items
-                        WHERE {item_clause}
-                    """)
-                    src_row = cursor.fetchone()
-                    if src_row:
-                        sources['gross'] += src_row[0] or 0.0
-                        sources['plug'] += src_row[1] or 0.0
-                        sources['sub'] += src_row[2] or 0.0
-                        sources['provisional'] += src_row[3] or 0.0
-                        sources['pc_sum'] += src_row[4] or 0.0
-                        sources['daywork'] += src_row[5] or 0.0
-                        
-                    conn.close()
-                except Exception as e:
-                    print(f"Error reading {f}: {e}")
+                src_cols = {
+                    'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), "PlugRate"),
+                    'plug_code': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), "PlugCode"),
+                    'plug_cat': next((c for c in cols if c.lower() in ["plugcategory", "plug_category"]), "PlugCategory"),
+                    'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), "SubbeeRate"),
+                    'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), "GrossRate"),
+                    'rate_code': next((c for c in cols if c.lower() in ["rate code", "ratecode"]), "Rate Code"),
+                    'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), "ProvSum"),
+                    'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), "PCSum"),
+                    'dw': next((c for c in cols if c.lower() in ["daywork"]), "Daywork"),
+                    'flagged': "IsFlagged" if "IsFlagged" in cols else None
+                }
+                
+                query_parts = ["Sheet", f"\"{d_col}\"", f"\"{q_col}\"", f"\"{b_col}\""]
+                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw']:
+                    v = src_cols.get(k)
+                    query_parts.append(f"\"{v}\"" if v else "''")
+                if src_cols['flagged']: query_parts.append(f"\"{src_cols['flagged']}\"")
+                
+                cursor.execute(f"SELECT {', '.join(query_parts)} FROM pboq_items")
+                rows = cursor.fetchall()
+                s_agg = {}
 
+                for r in rows:
+                    sheet = r[0]
+                    desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw = r[1:13]
+                    is_fl = r[13] if len(r) > 13 else 0
+                    
+                    desc_low = (desc or "").lower()
+                    if "collection" in desc_low or "summary" in desc_low: continue
+                    
+                    qty_f, bill_f = self._to_float(q), self._to_float(b)
+                    if bill_f == 0 and qty_f == 0: continue
+                    
+                    total_items += 1
+                    if is_fl: flagged_items += 1
+                    
+                    p_val, s_val, g_val, pr_val, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
+                    is_prelim = (str(p_cat).lower() == "preliminaries" or "prelim" in desc_low)
+                    is_fixed = (pr_val > 0 or pc_val > 0 or d_val > 0 or is_prelim)
+                    
+                    # Logic Sync: Check for cost build-up
+                    active_code = p_code if p_code and str(p_code).strip() else r_code
+                    master_net_cost = 0.0
+                    if active_code:
+                        try:
+                            # Re-use the simple lookup logic
+                            pj_db_dir = os.path.join(self.project_dir, "Project Database")
+                            dbs_p = [fp for fp in os.listdir(pj_db_dir) if fp.lower().endswith('.db') and "rates" not in fp.lower()]
+                            if dbs_p:
+                                conn_p = sqlite3.connect(os.path.join(pj_db_dir, dbs_p[0]))
+                                cursor_p = conn_p.cursor()
+                                cursor_p.execute("SELECT net_total FROM estimates WHERE rate_code = ?", (active_code,))
+                                res_p = cursor_p.fetchone()
+                                if res_p: master_net_cost = float(res_p[0] or 0.0)
+                                conn_p.close()
+                        except: pass
+
+                    # Determine item cost
+                    item_is_priced = False
+                    if pr_val > 0: unit_cost = pr_val; sources['provisional'] += bill_f; item_is_priced = True
+                    elif pc_val > 0: unit_cost = pc_val; sources['pc_sum'] += bill_f; item_is_priced = True
+                    elif d_val > 0: unit_cost = d_val; sources['daywork'] += bill_f; item_is_priced = True
+                    elif master_net_cost > 0: unit_cost = master_net_cost; sources['gross'] += bill_f; item_is_priced = True
+                    else:
+                        if p_val > 0: unit_cost = p_val; sources['plug'] += bill_f; item_is_priced = True
+                        elif s_val > 0: unit_cost = s_val; sources['sub'] += bill_f; item_is_priced = True
+                        elif g_val > 0: unit_cost = g_val; sources['gross'] += bill_f; item_is_priced = True
+                        else: unit_cost = bill_f if (is_prelim or is_fixed) and bill_f > 0 and qty_f <= 1 else 0.0
+                    
+                    if item_is_priced: priced_items += 1
+                    
+                    item_cost = round(unit_cost * (qty_f if qty_f > 0 else (1.0 if is_fixed else 0.0)), 2)
+                    t_cost += item_cost
+                    if is_fixed: t_fixed_cost += item_cost
+                    
+                    if sheet not in s_agg: s_agg[sheet] = [0.0, 0, 0]
+                    s_agg[sheet][0] += item_cost
+                    s_agg[sheet][1] += 1 # total
+                    if item_is_priced: s_agg[sheet][2] += 1
+
+                for s, v in s_agg.items():
+                    # Sectional Bid Parity
+                    target_s_bid = v[0] * (1 + (overhead_rate + profit_rate)/100)
+                    sheet_data.append({'name': f"{f.replace('.db','')} - {s}", 'total': v[1], 'priced': v[2], 'amount': target_s_bid})
+                conn.close()
+            except Exception as e:
+                print(f"Error reading {f}: {e}")
+
+        # Final Parity Enforcement
+        markable_cost = t_cost - t_fixed_cost
+        total_bid = t_cost + (markable_cost * (overhead_rate + profit_rate) / 100)
+                    
         self.card_total_bid.update_value(f"{self.currency_symbol}{total_bid:,.2f}", f"Total cross-project value")
         
         progress_pct = (priced_items / total_items * 100) if total_items > 0 else 0
@@ -431,3 +397,19 @@ class ProjectPerformanceAnalytic(QWidget):
         row.clicked.connect(on_click)
         
         self.breakdown_list.insertWidget(self.breakdown_list.count() - 1, row)
+
+    def _get_pboq_mapping(self, db_filename):
+        mapping_file = os.path.join(self.project_dir, "PBOQ States", db_filename + ".json")
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get('mappings', {})
+            except: pass
+        return {}
+
+    def _to_float(self, val):
+        if not val: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+        except: return 0.0
