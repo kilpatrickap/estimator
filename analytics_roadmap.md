@@ -33,14 +33,6 @@ This document outlines the strategic vision for advanced analytics and reporting
 *   **"Budget vs. Actual" Adjudication:** Comparing winning subcontractor quotes against internal "Target Rates" from Buildups.
 *   **Market Heat Report:** Tracking the number of bids per package to identify "Single Source" risk areas.
 
-## 6. Historical Benchmarking (The "Golden Record")
-*   **Unit Rate Comparison:** Tracking the current unit rates for "Excavation" or "Masonry" against the last 5 projects to flag if the current estimate is trending too high or low.
-*   **Productivity Benchmark Tracer:** Comparing man-hours per m3 across historical project data to verify if labor estimates are realistic.
-
-## 7. Automated Value Engineering (VE) Finder
-*   **The "VE Opportunity" List:** Automatically identifying "Manual Plug" items in the project that represent high-cost custom work, prompting the estimator to look for cheaper "Library/SOR" alternatives.
-*   **High-Cost Outlier Detection:** A diagnostic report that pulls the Top 50 most expensive items for review.
-
 
 ---
 > [!TIP]

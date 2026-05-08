@@ -45,9 +45,7 @@ class AnalyticsPane(QWidget):
             "Financial & Executive Dashboards",
             "Operational & Procurement Logistics",
             "Strategic Bidding & 'What-If' Analysis",
-            "Adjudication & Supply Chain Intelligence",
-            "Historical Benchmarking",
-            "Automated Value Engineering (VE) Finder"
+            "Adjudication & Supply Chain Intelligence"
         ]
         
         self.buttons = []
@@ -197,18 +195,6 @@ class AnalyticsDashboard(QWidget):
                 widget = SupplyChainIntelligenceAnalytic(self.project_dir, self)
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Supply Chain Intelligence: {e}")
-        elif index == 5:
-            try:
-                from analytics_historical_benchmarking import HistoricalBenchmarkingAnalytic
-                widget = HistoricalBenchmarkingAnalytic(self.project_dir, self)
-            except Exception as e:
-                widget = PlaceholderAnalytic(f"Error loading Historical Benchmarking: {e}")
-        elif index == 6:
-            try:
-                from analytics_value_engineering import ValueEngineeringAnalytic
-                widget = ValueEngineeringAnalytic(self.project_dir, self)
-            except Exception as e:
-                widget = PlaceholderAnalytic(f"Error loading Value Engineering Finder: {e}")
         else:
             widget = PlaceholderAnalytic("Unknown Module")
 
