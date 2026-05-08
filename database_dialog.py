@@ -148,7 +148,9 @@ class DatabaseManagerDialog(QDialog):
     def filter_table(self, text, table):
         query = text.lower()
         for row in range(table.rowCount()):
-            table.setRowHidden(row, query not in table.item(row, 1).text().lower())
+            item = table.item(row, 1)
+            text = item.text().lower() if item else ""
+            table.setRowHidden(row, query not in text)
 
     def load_data(self, table_name):
         """Loads and formats library data into the tab table."""
@@ -260,7 +262,6 @@ class DatabaseManagerDialog(QDialog):
         if col == 4:
             # If user manually typed a number, we should clear the formula
             item.setData(Qt.ItemDataRole.UserRole, None)
-            item.setData(Qt.ItemDataRole.UserRole, None)
             self.db_manager.update_item_field(table_name, 'formula', None, int(table.item(row, 0).text()))
             self.stateChanged.emit()
         
@@ -360,9 +361,7 @@ class DatabaseManagerDialog(QDialog):
         date_edit = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
         qdate = QDate.fromString(str(current_val), "yyyy-MM-dd")
         date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
-        date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
         date_edit.dateChanged.connect(lambda d: (self.db_manager.update_item_date(table_name, item_id, d.toString("yyyy-MM-dd")), self.stateChanged.emit()))
-        table.setCellWidget(row, col, date_edit)
         table.setCellWidget(row, col, date_edit)
         table.setItem(row, col, QTableWidgetItem(date_edit.date().toString("yyyy-MM-dd")))
 
@@ -424,7 +423,6 @@ class DatabaseManagerDialog(QDialog):
             table.scrollToBottom()
             table.selectRow(new_row_idx)
             
-            # Start editing the name cell immediately
             # Start editing the name cell immediately
             table.editItem(table.item(new_row_idx, 1))
             self.stateChanged.emit()

@@ -162,8 +162,8 @@ class PBOQDialog(QDialog):
                 self.pboq_file_selector.setCurrentIndex(index)
         
         # Apply pane visibility state
-            if hasattr(self, 'tools_dock') and self.tools_dock:
-                self.tools_dock.show()
+        if hasattr(self, 'tools_dock') and self.tools_dock:
+            self.tools_dock.show()
         
         if self.pboq_file_selector.count() > 0:
             self._load_pboq_db(self.pboq_file_selector.currentIndex())
