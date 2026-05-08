@@ -1423,7 +1423,10 @@ class NewEstimateDialog(QDialog):
 
         self.project_name = QLineEdit("New Project")
         self.location = QLineEdit("Location")
-        self.project_date = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy", date=QDate.currentDate())
+        self.project_date = QDateEdit()
+        self.project_date.setCalendarPopup(True)
+        self.project_date.setDisplayFormat("dd-MM-yy")
+        self.project_date.setDate(QDate.currentDate())
         
         self.currency = QComboBox()
         self.currency.addItems(["USD ($)", "EUR (€)", "GBP (£)", "JPY (¥)", "CAD ($)", "GHS (₵)", "CNY (¥)", "INR (₹)"])
@@ -1563,7 +1566,9 @@ class EditEstimateDialog(QDialog):
 
         self.project_name_input = QLineEdit(project_name)
         self.location_input = QLineEdit(location)
-        self.project_date_input = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
+        self.project_date_input = QDateEdit()
+        self.project_date_input.setCalendarPopup(True)
+        self.project_date_input.setDisplayFormat("dd-MM-yy")
         
         qdate = QDate.fromString(project_date[:10], "yyyy-MM-dd")
         self.project_date_input.setDate(qdate if qdate.isValid() else QDate.currentDate())
@@ -1595,7 +1600,8 @@ class LoadEstimateDialog(QDialog):
         self.setMinimumSize(800, 500)
 
         layout = QVBoxLayout(self)
-        self.table = QTableWidget(columnCount=4)
+        self.table = QTableWidget()
+        self.table.setColumnCount(4)
         self.table.setHorizontalHeaderLabels(["ID", "Project Name", "Location", "Date Created"])
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)

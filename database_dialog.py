@@ -106,7 +106,8 @@ class DatabaseManagerDialog(QDialog):
         layout.addLayout(search_layout)
 
         # Table
-        table = QTableWidget(columnCount=len(headers))
+        table = QTableWidget()
+        table.setColumnCount(len(headers))
         table.setHorizontalHeaderLabels(headers)
         table.setEditTriggers(QTableWidget.EditTrigger.DoubleClicked | 
                             QTableWidget.EditTrigger.EditKeyPressed | 
@@ -358,7 +359,9 @@ class DatabaseManagerDialog(QDialog):
         table.setItem(row, col, QTableWidgetItem(combo.currentText())) # For search/sort
 
     def _add_date_widget(self, table, row, col, current_val, table_name, item_id):
-        date_edit = QDateEdit(calendarPopup=True, displayFormat="dd-MM-yy")
+        date_edit = QDateEdit()
+        date_edit.setCalendarPopup(True)
+        date_edit.setDisplayFormat("dd-MM-yy")
         qdate = QDate.fromString(str(current_val), "yyyy-MM-dd")
         date_edit.setDate(qdate if qdate.isValid() else QDate.currentDate())
         date_edit.dateChanged.connect(lambda d: (self.db_manager.update_item_date(table_name, item_id, d.toString("yyyy-MM-dd")), self.stateChanged.emit()))

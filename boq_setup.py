@@ -384,7 +384,7 @@ class BOQSetupWindow(QWidget):
                             is_bold = False
                             if is_xlsx:
                                 try:
-                                    cell = ws.cell(row=r+1, column=c+1)
+                                    cell = ws.cell(r+1, c+1)
                                     if cell.font and cell.font.bold: is_bold = True
                                 except: pass
                             else:
@@ -743,7 +743,7 @@ class BOQSetupWindow(QWidget):
                     fmt = {}
                     if ws and is_xlsx:
                         try:
-                            cell = ws.cell(row=r+1, column=c+1)
+                            cell = ws.cell(r+1, c+1)
                             if cell.font:
                                 if cell.font.bold: fmt['bold'] = True
                                 if cell.font.italic: fmt['italic'] = True

@@ -380,7 +380,7 @@ class PBOQDialog(QDialog):
                     state = json.load(f)
                     self.tabs.setCurrentIndex(state.get('active_tab', 0))
                     if self.tools_pane.collect_btn.text() == "Revert":
-                        self._run_collect_logic(force_collect=True)
+                        self._run_collect_logic(force_refresh=True)
             except: pass
             
         self._update_column_headers(skip_cells=True)
@@ -2486,7 +2486,7 @@ class PBOQDialog(QDialog):
                     
                     # If sticky mode was active, refresh it
                     if self.tools_pane.collect_btn.text() == "Revert":
-                        self._run_collect_logic(force_collect=True)
+                        self._run_collect_logic(force_refresh=True)
 
     def _save_viewer_state(self):
         settings_file = os.path.join(self.project_dir, "PBOQ States", "viewer_state.json")
