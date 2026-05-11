@@ -155,6 +155,11 @@ class RateManagerDialog(QDialog):
         self.combine_btn.setStyleSheet("padding: 4px 10px; font-weight: bold; background-color: #2e7d32; color: white;")
         self.combine_btn.clicked.connect(self._combine_libraries)
         header_layout.addWidget(self.combine_btn)
+
+        self.price_pboq_btn = QPushButton("Price PBOQ")
+        self.price_pboq_btn.setStyleSheet("padding: 4px 10px; font-weight: bold; background-color: #0277bd; color: white;")
+        self.price_pboq_btn.clicked.connect(self._price_pboq_from_historical)
+        header_layout.addWidget(self.price_pboq_btn)
         
         header_layout.addStretch()
 
@@ -301,6 +306,57 @@ class RateManagerDialog(QDialog):
                 self.db_manager = DatabaseManager(db_path)
         self.load_rates()
 
+
+
+    def _price_pboq_from_historical(self):
+        """Iterates through all open SOR/PBOQ windows and prices items matching historical descriptions."""
+        # 1. Collect mappings from the Historical Table (self.table)
+        historical_mapping = {} # desc.lower().strip() -> (rate_str, code_str)
+        for row in range(self.table.rowCount()):
+            code_item = self.table.item(row, 1) # Code column
+            desc_item = self.table.item(row, 2) # Description column
+            rate_item = self.table.item(row, 5) # Gross Rate column
+            
+            if desc_item and rate_item:
+                desc = desc_item.text().strip().lower()
+                rate = rate_item.text().strip()
+                code = code_item.text().strip() if code_item else ""
+                
+                if desc and rate:
+                    historical_mapping[desc] = (rate, code)
+
+        if not historical_mapping:
+            QMessageBox.information(self, "No Data", "No historical rates found in the current view to apply.")
+            return
+
+        # 2. Find target windows in MDI area
+        if not self.main_window or not hasattr(self.main_window, 'mdi_area'):
+            QMessageBox.warning(self, "Error", "Main window or MDI area not found.")
+            return
+
+        updated_stats = [] # list of (window_title, count)
+        
+        for sub in self.main_window.mdi_area.subWindowList():
+            win = sub.widget()
+            if not win: continue
+            
+            # Check if window has our custom pricing method
+            if hasattr(win, '_price_by_description'):
+                try:
+                    count = win._price_by_description(historical_mapping)
+                    if count > 0:
+                        updated_stats.append((win.windowTitle(), count))
+                except Exception as e:
+                    print(f"Error pricing window '{win.windowTitle()}': {e}")
+
+        # 3. Final Summary
+        if updated_stats:
+            msg = "Pricing complete!\n\n"
+            for title, count in updated_stats:
+                msg += f"- {title}: {count} items updated.\n"
+            QMessageBox.information(self, "Pricing Summary", msg)
+        else:
+            QMessageBox.information(self, "No Matches", "No matching descriptions found in any open SOR or PBOQ windows.")
 
 
     def _extract_rates_from_db(self, db_manager, lib_name):

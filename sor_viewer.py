@@ -520,6 +520,45 @@ class SORDialog(QDialog):
             conn.close()
         except Exception as e:
             QMessageBox.critical(self, "Database Error", f"Failed to persist SOR data:\n{e}")
+
+    def _price_by_description(self, description_mapping):
+        """
+        Prices items in the SOR table where the description matches one in description_mapping.
+        description_mapping: {desc.lower().strip(): (rate_str, code_str)}
+        """
+        updated_count = 0
+        
+        for row in range(self.table_widget.rowCount()):
+            desc_item = self.table_widget.item(row, 3) # Description
+            if not desc_item: continue
+            
+            desc = desc_item.text().strip().lower()
+            if desc in description_mapping:
+                rate, code = description_mapping[desc]
+                
+                # Update UI
+                it_rate = self.table_widget.item(row, 6) # Gross Rate
+                if not it_rate:
+                    it_rate = QTableWidgetItem()
+                    self.table_widget.setItem(row, 6, it_rate)
+                it_rate.setText(rate)
+                it_rate.setBackground(const.COL_COLOR_GREEN)
+                it_rate.setForeground(const.COLOR_GRAY_TEXT)
+                
+                it_code = self.table_widget.item(row, 7) # Rate Code
+                if not it_code:
+                    it_code = QTableWidgetItem()
+                    self.table_widget.setItem(row, 7, it_code)
+                it_code.setText(code)
+                
+                # Persist to SOR DB
+                self._persist_to_sor_db(row, rate, code)
+                updated_count += 1
+                
+        if updated_count > 0:
+            self._update_priced_stats()
+            
+        return updated_count
         
     def _build_rate(self, index, callback=None):
         row = index.row()

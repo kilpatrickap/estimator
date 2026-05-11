@@ -2671,6 +2671,78 @@ class PBOQDialog(QDialog):
 
         self._update_stats()
 
+    def _price_by_description(self, description_mapping):
+        """
+        Prices items in the PBOQ where the description matches one in description_mapping.
+        description_mapping: {desc.lower().strip(): (rate_str, code_str)}
+        """
+        m = self.tools_pane.get_mappings()
+        rate_col = m.get('rate', -1)
+        code_col = m.get('rate_code', -1)
+        desc_col = m.get('desc', -1)
+        
+        if desc_col < 0 or rate_col < 0 or code_col < 0:
+            return 0
+            
+        updated_count = 0
+        
+        # We'll group updates by sheet to avoid too many UI refreshes if possible
+        # However, _persist_updates handles batching if we call it correctly.
+        
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable): continue
+            
+            sheet_updates_rate = []
+            sheet_updates_code = []
+            
+            for r in range(table.rowCount()):
+                desc_item = table.item(r, desc_col)
+                if not desc_item: continue
+                
+                desc = desc_item.text().strip().lower()
+                if desc in description_mapping:
+                    rate, code = description_mapping[desc]
+                    rowid = table.item(r, 0).data(Qt.ItemDataRole.UserRole)
+                    
+                    # Update UI directly for immediate feedback
+                    it_rate = table.item(r, rate_col)
+                    if not it_rate: 
+                        it_rate = QTableWidgetItem()
+                        table.setItem(r, rate_col, it_rate)
+                    it_rate.setText(rate)
+                    it_rate.setBackground(const.COL_COLOR_GREEN)
+                    it_rate.setForeground(const.COLOR_GRAY_TEXT)
+                    
+                    it_code = table.item(r, code_col)
+                    if not it_code:
+                        it_code = QTableWidgetItem()
+                        table.setItem(r, code_col, it_code)
+                    it_code.setText(code)
+                    
+                    # Highlight row (Light Green) as feedback
+                    for c in range(table.columnCount()):
+                        item = table.item(r, c)
+                        if item:
+                            item.setBackground(QColor("#e8f5e9"))
+
+                    sheet_updates_rate.append((rowid, rate))
+                    sheet_updates_code.append((rowid, code))
+                    updated_count += 1
+            
+            # Persist for this sheet
+            if sheet_updates_rate:
+                self._persist_updates(rate_col, sheet_updates_rate)
+            if sheet_updates_code:
+                self._persist_updates(code_col, sheet_updates_code)
+
+        if updated_count > 0:
+            self._update_stats()
+            # Try to auto-link to bill rate to complete the pricing flow
+            self._run_link_bill_to_rate_logic()
+            
+        return updated_count
+
     def _revert_sor_pricing(self):
         """Reverts Gross Rate and Rate Code to their original state before SOR pricing."""
         pboq_db_path = self.pboq_file_selector.itemData(self.pboq_file_selector.currentIndex())
