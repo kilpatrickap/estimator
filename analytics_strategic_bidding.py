@@ -33,6 +33,10 @@ class StrategicBiddingAnalytic(QWidget):
         self._init_ui()
         self.load_baseline()
 
+    def refresh_data(self):
+        """Reload all data from the database to ensure freshness."""
+        self.load_baseline()
+
     def _resolve_project_root(self, path):
         """Ensures the project directory points to the root (above Project Database)."""
         if not path: return ""
