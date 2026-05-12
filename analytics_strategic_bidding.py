@@ -388,32 +388,25 @@ class StrategicBiddingAnalytic(QWidget):
         self.update_simulation()
 
     def update_simulation(self):
-        # 1. Calculate Scenario Bid
-        # Markable cost is Base Cost minus fixed costs (PC Sums/Prov Sums)
-        markable = self.base_cost - self.fixed_cost
+        # The actual bill amounts (self.actual_bid) ARE the base/net cost — constant.
+        # Overhead and profit are add-ons: Final Bid = Base Cost + OH + Profit.
+        # This matches the Financial Executive dashboard model exactly.
         
-        # Calculate simulation totals
-        # UPDATED: Overhead is now also calculated on Markable cost (matching user's request)
-        sim_overhead_amt = markable * (self.scenario_overhead/100) * self.scenario_factor
-        sim_profit_amt = markable * (self.scenario_profit/100) * self.scenario_factor
-        
-        sim_bid = round((self.base_cost * self.scenario_factor), 2) + round(sim_overhead_amt, 2) + round(sim_profit_amt, 2)
-        sim_margin_pct = (sim_profit_amt / sim_bid * 100) if sim_bid > 0 else 0
-        sim_oh_pct = (sim_overhead_amt / sim_bid * 100) if sim_bid > 0 else 0
-        
-        # 2. SOURCE OF TRUTH BASELINE (Matches Financial Executive Dashboard Parity)
-        # We derive the "Current" figures from settings to ensure zero residuals
-        curr_cost = self.base_cost
-        curr_markable = curr_cost - self.fixed_cost
-        
-        curr_overhead_amt = curr_markable * (self.current_overhead / 100.0)
-        curr_profit_amt = curr_markable * (self.current_profit / 100.0)
-        
-        # Current Bid is the sum of cost and target markups
+        # Current baseline (from project settings)
+        curr_cost = self.actual_bid
+        curr_overhead_amt = curr_cost * (self.current_overhead / 100.0)
+        curr_profit_amt = curr_cost * (self.current_profit / 100.0)
         curr_bid = curr_cost + curr_overhead_amt + curr_profit_amt
-        
         curr_margin_pct = (curr_profit_amt / curr_bid * 100) if curr_bid > 0 else 0
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0
+        
+        # Scenario simulation: factor scales the base cost, then markups apply
+        sim_cost = self.actual_bid * self.scenario_factor
+        sim_overhead_amt = sim_cost * (self.scenario_overhead / 100.0)
+        sim_profit_amt = sim_cost * (self.scenario_profit / 100.0)
+        sim_bid = sim_cost + sim_overhead_amt + sim_profit_amt
+        sim_margin_pct = (sim_profit_amt / sim_bid * 100) if sim_bid > 0 else 0
+        sim_oh_pct = (sim_overhead_amt / sim_bid * 100) if sim_bid > 0 else 0
         
         # Update Cards
         self.card_bid.update_value(f"{self.currency_symbol}{sim_bid:,.2f}", f"Current: {self.currency_symbol}{curr_bid:,.2f}")
@@ -425,7 +418,7 @@ class StrategicBiddingAnalytic(QWidget):
         # Update Waterfall
         self.waterfall.currency_symbol = self.currency_symbol
         self.waterfall.set_data([
-            ("Base Cost", self.base_cost * self.scenario_factor, "#0277bd"),
+            ("Base Cost", sim_cost, "#0277bd"),
             ("Overhead", sim_overhead_amt, "#546e7a"),
             ("Profit", sim_profit_amt, "#ef6c00"),
             ("Final Bid", sim_bid, "#1b5e20")

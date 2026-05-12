@@ -254,7 +254,7 @@ class ProjectPerformanceAnalytic(QWidget):
                         SELECT Sheet, 
                                SUM(CASE WHEN {item_clause} THEN 1 ELSE 0 END), 
                                SUM(CASE WHEN {item_clause} AND {priced_clause} THEN 1 ELSE 0 END), 
-                               SUM(CASE WHEN {item_clause} AND {priced_clause} THEN CAST({sani} AS REAL) ELSE 0.0 END)
+                               SUM(CASE WHEN {item_clause} THEN CAST({sani} AS REAL) ELSE 0.0 END)
                         FROM pboq_items 
                         GROUP BY Sheet
                     """

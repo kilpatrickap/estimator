@@ -546,22 +546,19 @@ class FinancialExecutiveAnalytic(QWidget):
                 print(f"Error processing {f}: {e}")
 
         # Metrics
-        # Calculate Overhead and Profit split using the rounded Net Cost
-        markable_cost = t_cost - t_fixed_cost
-        overhead_amount = markable_cost * (self.overhead_rate / 100)
+        # The actual bill amounts (t_bid) ARE the base/net cost — this is constant.
+        # Overhead and profit are add-ons calculated as percentages of the base cost.
+        # Final Bid = Base Cost + Overhead + Profit.
+        t_base_cost = t_bid
+        overhead_amount = t_base_cost * (self.overhead_rate / 100.0)
+        profit_amount = t_base_cost * (self.profit_rate / 100.0)
+        t_final_bid = t_base_cost + overhead_amount + profit_amount
         
-        # In a target-based model, Profit is also calculated on markable cost
-        # BUT we want to ensure Bid = Cost + OH + Profit
-        profit_amount = markable_cost * (self.profit_rate / 100)
+        actual_overhead_pct = (overhead_amount / t_final_bid * 100) if t_final_bid > 0 else 0
+        actual_profit_pct = (profit_amount / t_final_bid * 100) if t_final_bid > 0 else 0
         
-        # ENFORCE PARITY: Recalculate total bid to ensure zero residual when markups are 0
-        t_bid = t_cost + overhead_amount + profit_amount
-        
-        actual_overhead_pct = (overhead_amount / t_bid * 100) if t_bid > 0 else 0
-        actual_profit_pct = (profit_amount / t_bid * 100) if t_bid > 0 else 0
-        
-        self.card_total_bid.update_value(f"{self.currency_symbol}{t_bid:,.2f}")
-        self.card_total_cost.update_value(f"{self.currency_symbol}{t_cost:,.2f}")
+        self.card_total_bid.update_value(f"{self.currency_symbol}{t_final_bid:,.2f}")
+        self.card_total_cost.update_value(f"{self.currency_symbol}{t_base_cost:,.2f}")
         self.card_margin.update_value(f"{actual_profit_pct:.2f}%")
         self.card_overhead.update_value(f"{actual_overhead_pct:.2f}%")
         
@@ -569,7 +566,7 @@ class FinancialExecutiveAnalytic(QWidget):
         self.pareto_chart.currency_symbol = self.currency_symbol
         self.bridge_chart.currency_symbol = self.currency_symbol
 
-        # Donut (Using exact ratios from buildups)
+        # Donut (Using exact ratios from bottom-up buildup analysis)
         self.donut_chart.set_data([
             ("Materials", dist['Materials'], "#2e7d32"),
             ("Labor", dist['Labor'], "#0277bd"),
@@ -583,13 +580,16 @@ class FinancialExecutiveAnalytic(QWidget):
         self.pareto_chart.set_data([(d, v, "#43a047") for d, v in top_10])
         
         self.bridge_chart.set_data([
-            ("Base Cost", t_cost, "#0277bd"),
+            ("Base Cost", t_base_cost, "#0277bd"),
             ("Overhead", overhead_amount, "#546e7a"),
             ("Profit", profit_amount, "#ef6c00"),
-            ("Final Bid", t_bid, "#1b5e20")
+            ("Final Bid", t_final_bid, "#1b5e20")
         ])
 
         # 5. Populate Tables
+        # Each section/category/sub cost = its actual bill amounts (constant base).
+        # Its bid = cost + cost × markup%.
+        combined_markup_pct = (self.overhead_rate + self.profit_rate) / 100.0
         
         # Sectional Table
         self._clear_table(self.table_list)
@@ -597,13 +597,8 @@ class FinancialExecutiveAnalytic(QWidget):
         sections.sort(key=lambda x: x['bid'], reverse=True)
         s_total_bid, s_total_cost = 0.0, 0.0
         for s in sections: 
-            # Recalculate section bid to match target model if global rates are set
-            # This ensures parity between cards and table details
-            markable_s_cost = s['cost'] # Assuming fixed costs are already handled or negligible per section for this view
-            # More accurate: we should track fixed cost per section, but for now we'll use the ratio
-            target_s_bid = s['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
-            s['bid'] = target_s_bid
-            
+            s['cost'] = s['bid']  # bill amounts = base cost
+            s['bid'] = s['cost'] * (1.0 + combined_markup_pct)  # final bid = base + markup
             self._add_table_row(self.table_list, s)
             s_total_bid += s['bid']
             s_total_cost += s['cost']
@@ -618,8 +613,8 @@ class FinancialExecutiveAnalytic(QWidget):
         cat_list.sort(key=lambda x: x['bid'], reverse=True)
         c_total_bid, c_total_cost = 0.0, 0.0
         for c in cat_list: 
-            target_c_bid = c['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
-            c['bid'] = target_c_bid
+            c['cost'] = c['bid']
+            c['bid'] = c['cost'] * (1.0 + combined_markup_pct)
             self._add_table_row(self.cat_table_list, c)
             c_total_bid += c['bid']
             c_total_cost += c['cost']
@@ -634,8 +629,8 @@ class FinancialExecutiveAnalytic(QWidget):
         sub_list.sort(key=lambda x: x['bid'], reverse=True)
         sub_total_bid, sub_total_cost = 0.0, 0.0
         for sb in sub_list:
-            target_sb_bid = sb['cost'] * (1 + (self.overhead_rate + self.profit_rate) / 100)
-            sb['bid'] = target_sb_bid
+            sb['cost'] = sb['bid']
+            sb['bid'] = sb['cost'] * (1.0 + combined_markup_pct)
             self._add_table_row(self.sub_table_list, sb)
             sub_total_bid += sb['bid']
             sub_total_cost += sb['cost']
