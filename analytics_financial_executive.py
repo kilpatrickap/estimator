@@ -627,7 +627,9 @@ class FinancialExecutiveAnalytic(QWidget):
         sub_list.sort(key=lambda x: x['cost'], reverse=True)
         sub_total_bid, sub_total_cost = 0.0, 0.0
         for sb in sub_list:
-            sb['bid'] = sb['cost'] * (1.0 + combined_markup_pct)
+            # We explicitly do NOT apply the uniform markup formula here.
+            # The Bid Amount (sb['bid']) retains its original value v[0], 
+            # which is the true BOQ target/bill amount for this sub-contract package.
             self._add_table_row(self.sub_table_list, sb)
             sub_total_bid += sb['bid']
             sub_total_cost += sb['cost']
