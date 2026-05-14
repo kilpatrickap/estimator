@@ -94,7 +94,7 @@ class RateManagerDialog(QDialog):
         project_dir = ""
         if self.main_window:
             active_est = self.main_window._get_active_estimate_window()
-            if active_est and type(active_est).__name__ == "EstimateWindow":
+            if active_est and hasattr(active_est, 'db_path'):
                 project_dir = os.path.dirname(active_est.db_path) if active_est.db_path else ""
                 if project_dir and os.path.basename(project_dir) == "Project Database":
                     project_dir = os.path.dirname(project_dir)

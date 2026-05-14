@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPu
 from PyQt6.QtGui import QFont, QDoubleValidator, QAction, QColor
 from PyQt6.QtCore import Qt, QDate, QSize
 from database_dialog import DatabaseManagerDialog
-from estimate_window import EstimateWindow
 from database import DatabaseManager
 from settings_dialog import SettingsDialog
 from rate_manager_dialog import RateManagerDialog
@@ -482,17 +481,31 @@ class MainWindow(QMainWindow):
         dialog = NewEstimateDialog(self)
         if dialog.exec():
             data = dialog.get_data()
-            est_window = EstimateWindow(estimate_data=data, main_window=self)
             
-            # Instantly persist this newly minted estimate into the project DB so it's not "empty"
-            est_window.db_manager.save_estimate(est_window.estimate)
-            
-            import os
+            # Initialize the database and save the project metadata
             if data.get('db_path'):
+                from database import DatabaseManager
+                from models import Estimate
+                import os
+                
+                # Ensure the directory exists
+                os.makedirs(os.path.dirname(data['db_path']), exist_ok=True)
+                
+                db_manager = DatabaseManager(data['db_path'])
+                estimate = Estimate(
+                    project_name=data['name'],
+                    client_name=data['client'],
+                    overhead=data.get('overhead', 0.0),
+                    profit=data.get('profit', 0.0),
+                    currency=data['currency'],
+                    date=data['date']
+                )
+                db_manager.save_estimate(estimate)
+                
                 new_project_dir = os.path.dirname(os.path.dirname(data['db_path']))
                 self._update_project_pane_directory(new_project_dir)
-
-            self._add_estimate_window(est_window)
+                
+                self.statusBar().showMessage(f"Project '{data['name']}' created successfully.")
 
     def load_estimate(self):
         from PyQt6.QtWidgets import QFileDialog
@@ -502,38 +515,9 @@ class MainWindow(QMainWindow):
             # Update the project pane whenever a project is loaded
             project_dir = os.path.dirname(os.path.dirname(file_path)) if os.path.basename(os.path.dirname(file_path)) == "Project Database" else os.path.dirname(file_path)
             self._update_project_pane_directory(project_dir)
+            self.statusBar().showMessage(f"Loaded Project from {file_path}")
 
-            from database import DatabaseManager
-            temp_db = DatabaseManager(file_path)
-            summaries = temp_db.get_saved_estimates_summary()
-            
-            if summaries:
-                # We assume a project DB holds one main estimate
-                self._load_and_show_estimate(summaries[0]['id'], db_path=file_path)
-            # Removed the "Empty Project" warning to satisfy prior request of updating pane instead.
 
-    def _load_and_show_estimate(self, est_id, db_path=None):
-        db_path = db_path or "construction_costs.db"
-        
-        # Check if already open
-        for sub in self.mdi_area.subWindowList():
-            widget = sub.widget()
-            if isinstance(widget, EstimateWindow) and widget.estimate.id == est_id and getattr(widget, 'db_path', None) == db_path:
-                sub.showNormal()
-                sub.show()
-                sub.widget().show()
-                sub.raise_()
-                self.mdi_area.setActiveSubWindow(sub)
-                return
-
-        from database import DatabaseManager
-        temp_db = DatabaseManager(db_path)
-        estimate_obj = temp_db.load_estimate_details(est_id)
-        if estimate_obj:
-            est_window = EstimateWindow(estimate_object=estimate_obj, main_window=self, db_path=db_path)
-            self._add_estimate_window(est_window)
-        else:
-            QMessageBox.critical(self, "Error", "Failed to load project from the file.")
 
     def open_rate_buildup_window(self, estimate_obj, db_path=None):
         """Opens a rate build-up in an MDI window."""
@@ -650,14 +634,7 @@ class MainWindow(QMainWindow):
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
-    def _add_estimate_window(self, est_window):
-        # Ensure fresh state on next open
-        est_window.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        sub = self.mdi_area.addSubWindow(est_window)
-        est_window.stateChanged.connect(self._update_toolbar_state)
-        sub.resize(1100, 700)
-        self._apply_zoom_to_subwindow(sub)
-        sub.show()
+
 
     def manage_database(self):
         for sub in self.mdi_area.subWindowList():
@@ -791,10 +768,15 @@ class MainWindow(QMainWindow):
         
         project_dir_fallback = self.db_manager.get_setting('last_project_dir', '')
         
-        if active_est and type(active_est).__name__ == "EstimateWindow":
+        db_path = None
+        estimate_obj = None
+        library_path = ""
+        project_dir = ""
+        
+        if active_est and hasattr(active_est, 'db_path'):
             db_path = active_est.db_path
-            estimate_obj = active_est.estimate
-            library_path = active_est.library_path
+            estimate_obj = getattr(active_est, 'estimate', None)
+            library_path = getattr(active_est, 'library_path', '')
             project_dir = os.path.dirname(db_path) if db_path else ""
             if project_dir and os.path.basename(project_dir) == "Project Database":
                 project_dir = os.path.dirname(project_dir)
@@ -897,19 +879,11 @@ class MainWindow(QMainWindow):
                                         win._load_pboq_db(idx)
                         
                         # Manual Title/State update for active estimate specifically
-                        if active_est and type(active_est).__name__ == "EstimateWindow":
-                            active_est.save_state()
-                            active_est.setWindowTitle(f"Estimate: {data['name']}")
+                        if active_est and hasattr(active_est, 'setWindowTitle'):
+                            active_est.setWindowTitle(f"Project: {data['name']}")
                     else:
                         # Fallback for when no project_dir is identified (singleton db or library edit)
-                        if active_est and type(active_est).__name__ == "EstimateWindow":
-                             active_est.save_state()
-                             active_est.estimate.currency = data['currency']
-                             active_est.estimate.overhead_percent = data['overhead']
-                             active_est.estimate.profit_margin_percent = data['profit']
-                             active_est.db_manager.bulk_update_estimate_currency(data['currency'])
-                             active_est.db_manager.set_setting('overhead', str(data['overhead']))
-                             active_est.db_manager.set_setting('profit', str(data['profit']))
+                        if active_est and hasattr(active_est, 'refresh_view'):
                              active_est.refresh_view()
                         elif db_path:
                             from database import DatabaseManager
@@ -925,7 +899,7 @@ class MainWindow(QMainWindow):
         
         import os
         project_dir = ""
-        if active_est and type(active_est).__name__ == "EstimateWindow":
+        if active_est and hasattr(active_est, 'db_path'):
             db_path = active_est.db_path
             project_dir = os.path.dirname(db_path) if db_path else ""
         else:
@@ -979,7 +953,7 @@ class MainWindow(QMainWindow):
             
         import os
         project_dir = ""
-        if active_est and type(active_est).__name__ == "EstimateWindow":
+        if active_est and hasattr(active_est, 'db_path'):
             db_path = active_est.db_path
             project_dir = os.path.dirname(db_path) if db_path else ""
         else:
@@ -1017,7 +991,7 @@ class MainWindow(QMainWindow):
             
         import os
         project_dir = ""
-        if active_est and type(active_est).__name__ == "EstimateWindow":
+        if active_est and hasattr(active_est, 'db_path'):
             db_path = active_est.db_path
             project_dir = os.path.dirname(db_path) if db_path else ""
         else:
@@ -1175,21 +1149,19 @@ class MainWindow(QMainWindow):
                 is_matching = True
 
             if is_matching:
-                # Update Estimate / Rate Buildup Windows
-                if win_type in ["EstimateWindow", "RateBuildUpDialog"]:
-                    if hasattr(win, 'estimate'):
-                        win.estimate.currency = new_currency
-                        win.estimate.overhead_percent = new_overhead
-                        win.estimate.profit_margin_percent = new_profit
-                        win.estimate.adjustment_factor = new_factor
-                        
-                        # NOTE: Do NOT overwrite individual resource currencies here.
-                        # Resources retain their original currency so that 
-                        # convert_to_base_currency() can detect foreign currencies
-                        # and apply exchange rates correctly.
+                if hasattr(win, 'estimate'):
+                    win.estimate.currency = new_currency
+                    win.estimate.overhead_percent = new_overhead
+                    win.estimate.profit_margin_percent = new_profit
+                    win.estimate.adjustment_factor = new_factor
                     
-                    if hasattr(win, 'db_manager') and library_path and win_type == "EstimateWindow":
-                        win.db_manager.set_setting('library_path', library_path)
+                    # NOTE: Do NOT overwrite individual resource currencies here.
+                    # Resources retain their original currency so that 
+                    # convert_to_base_currency() can detect foreign currencies
+                    # and apply exchange rates correctly.
+                
+                if hasattr(win, 'db_manager') and library_path:
+                    win.db_manager.set_setting('library_path', library_path)
 
                     match = re.search(r'\((.*?)\)', new_currency)
                     sym = match.group(1) if match else "$"
@@ -1621,45 +1593,6 @@ class NewEstimateDialog(QDialog):
             "boq_files": getattr(self, 'boq_files', []),
             "db_path": db_path
         }
-
-
-
-
-class EditEstimateDialog(QDialog):
-    """Dialog for metadata updates."""
-    def __init__(self, project_name, location, project_date, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("Edit Estimate Details")
-        self.setMinimumWidth(400)
-        layout = QFormLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-
-        self.project_name_input = QLineEdit(project_name)
-        self.location_input = QLineEdit(location)
-        self.project_date_input = QDateEdit()
-        self.project_date_input.setCalendarPopup(True)
-        self.project_date_input.setDisplayFormat("dd-MM-yy")
-        
-        qdate = QDate.fromString(project_date[:10], "yyyy-MM-dd")
-        self.project_date_input.setDate(qdate if qdate.isValid() else QDate.currentDate())
-
-        layout.addRow("Project Name:", self.project_name_input)
-        layout.addRow("Location:", self.location_input)
-        layout.addRow("Project Date:", self.project_date_input)
-
-        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-        buttons.accepted.connect(self.accept)
-        buttons.rejected.connect(self.reject)
-        layout.addRow(buttons)
-
-    def get_data(self):
-        return (
-            self.project_name_input.text(), 
-            self.location_input.text(),
-            self.project_date_input.date().toString("yyyy-MM-dd")
-        )
-
 
 class LoadEstimateDialog(QDialog):
     """Dialog for browsing and managing saved estimates."""
