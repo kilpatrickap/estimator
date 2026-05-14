@@ -612,7 +612,9 @@ class FinancialExecutiveAnalytic(QWidget):
         cat_list.sort(key=lambda x: x['cost'], reverse=True)
         c_total_bid, c_total_cost = 0.0, 0.0
         for c in cat_list: 
-            c['bid'] = c['cost'] * (1.0 + combined_markup_pct)
+            if not c['name'].startswith('Sub-Contract:'):
+                c['bid'] = c['cost'] * (1.0 + combined_markup_pct)
+            # If it is a Sub-Contract, it retains its original BOQ Target bid (c['bid'])
             self._add_table_row(self.cat_table_list, c)
             c_total_bid += c['bid']
             c_total_cost += c['cost']
