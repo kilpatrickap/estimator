@@ -289,6 +289,9 @@ class MainWindow(QMainWindow):
         analytics_action = self._create_action("Analytics Dashboard", "Ctrl+A", self.open_analytics_dashboard)
         project_menu.addAction(analytics_action)
         
+        reports_action = self._create_action("Project Reports", "Ctrl+Shift+R", self.open_reports_window)
+        project_menu.addAction(reports_action)
+        
         # Window Menu
         window_menu = menubar.addMenu("Window")
         
@@ -398,7 +401,8 @@ class MainWindow(QMainWindow):
             ("BOQ Setup", self.open_boq_setup),
             ("SOR", self.open_sor_dialog),
             ("PBOQ", self.open_pboq_dialog),
-            ("Analytics", self.open_analytics_dashboard)
+            ("Analytics", self.open_analytics_dashboard),
+            ("Reports", self.open_reports_window)
         ]
 
         for text, slot in nav_items:
@@ -508,14 +512,27 @@ class MainWindow(QMainWindow):
                 self.statusBar().showMessage(f"Project '{data['name']}' created successfully.")
 
     def load_estimate(self):
-        from PyQt6.QtWidgets import QFileDialog
-        import os
-        file_path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "Project Files (*.db);;All Files (*)")
-        if file_path:
-            # Update the project pane whenever a project is loaded
-            project_dir = os.path.dirname(os.path.dirname(file_path)) if os.path.basename(os.path.dirname(file_path)) == "Project Database" else os.path.dirname(file_path)
-            self._update_project_pane_directory(project_dir)
-            self.statusBar().showMessage(f"Loaded Project from {file_path}")
+        """Opens the Project Management dialog to load, edit, or delete projects."""
+        dialog = LoadEstimateDialog(self)
+        if dialog.exec():
+            # If the user selected an estimate from the list
+            if dialog.selected_estimate_id:
+                # We need to find the db_path for this estimate. 
+                # For now, we assume it's in the default database or we let the dialog handle it.
+                # If the dialog returned a specific file path (via Browse), we use that.
+                file_path = getattr(dialog, 'selected_file_path', None)
+                if not file_path:
+                    # Fallback: get summary to identify the project
+                    summaries = self.db_manager.get_saved_estimates_summary()
+                    selected = next((s for s in summaries if s['id'] == dialog.selected_estimate_id), None)
+                    if selected:
+                        self.statusBar().showMessage(f"Project '{selected['project_name']}' is active.")
+                        return
+
+                if file_path:
+                    project_dir = os.path.dirname(os.path.dirname(file_path)) if os.path.basename(os.path.dirname(file_path)) == "Project Database" else os.path.dirname(file_path)
+                    self._update_project_pane_directory(project_dir)
+                    self.statusBar().showMessage(f"Loaded Project from {file_path}")
 
 
 
@@ -1075,6 +1092,24 @@ class MainWindow(QMainWindow):
         self._apply_zoom_to_subwindow(sub)
         sub.show()
 
+    def open_reports_window(self):
+        """Opens the Reports & Exports window in the MDI area."""
+        from reports import ReportsDialog
+        # Check if already open
+        for sub in self.mdi_area.subWindowList():
+            if isinstance(sub.widget(), ReportsDialog):
+                sub.showNormal()
+                sub.raise_()
+                self.mdi_area.setActiveSubWindow(sub)
+                return
+                
+        dialog = ReportsDialog(self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        sub = self.mdi_area.addSubWindow(dialog)
+        sub.resize(800, 600)
+        self._apply_zoom_to_subwindow(sub)
+        sub.show()
+
 
     # --- Global Action Handlers ---
     
@@ -1594,6 +1629,46 @@ class NewEstimateDialog(QDialog):
             "db_path": db_path
         }
 
+class EditEstimateDialog(QDialog):
+    """Dialog for editing project metadata."""
+    def __init__(self, name, location, date_str, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Project Metadata")
+        self.setMinimumWidth(350)
+        
+        layout = QFormLayout(self)
+        
+        self.project_name = QLineEdit(name)
+        self.location = QLineEdit(location)
+        self.project_date = QDateEdit()
+        self.project_date.setCalendarPopup(True)
+        self.project_date.setDisplayFormat("dd-MM-yy")
+        
+        # Parse date_str (yyyy-MM-dd)
+        qdate = QDate.fromString(date_str, "yyyy-MM-dd")
+        if not qdate.isValid():
+            qdate = QDate.fromString(date_str, "dd-MM-yy") # fallback
+        if not qdate.isValid():
+             qdate = QDate.currentDate()
+             
+        self.project_date.setDate(qdate)
+        
+        layout.addRow("Project Name:", self.project_name)
+        layout.addRow("Location:", self.location)
+        layout.addRow("Project Date:", self.project_date)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+        
+    def get_data(self):
+        return (
+            self.project_name.text().strip(),
+            self.location.text().strip(),
+            self.project_date.date().toString("yyyy-MM-dd")
+        )
+
 class LoadEstimateDialog(QDialog):
     """Dialog for browsing and managing saved estimates."""
     def __init__(self, parent=None):
@@ -1626,6 +1701,10 @@ class LoadEstimateDialog(QDialog):
         
         btn_layout.addStretch()
         
+        self.browse_btn = QPushButton("Browse from Disk...")
+        self.browse_btn.clicked.connect(self.browse_from_disk)
+        btn_layout.addWidget(self.browse_btn)
+
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Open | QDialogButtonBox.StandardButton.Cancel)
         buttons.button(QDialogButtonBox.StandardButton.Open).setText("Load Selected")
         buttons.accepted.connect(self.accept_selection)
@@ -1633,7 +1712,17 @@ class LoadEstimateDialog(QDialog):
         btn_layout.addWidget(buttons)
         layout.addLayout(btn_layout)
 
+        self.selected_file_path = None
         self.load_estimates()
+
+    def browse_from_disk(self):
+        from PyQt6.QtWidgets import QFileDialog
+        import os
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open Project Database", "", "Project Files (*.db);;All Files (*)")
+        if file_path:
+            self.selected_file_path = file_path
+            # Close dialog and signal success
+            self.accept()
 
     def load_estimates(self):
         self.table.setRowCount(0)
