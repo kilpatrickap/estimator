@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.abspath('.'))
 
 from analytics_strategic_bidding import StrategicBiddingAnalytic
 from analytics_financial_executive import FinancialExecutiveAnalytic
+from analytics_project_performance import ProjectPerformanceAnalytic
 from PyQt6.QtWidgets import QApplication
 
 def test_project():
@@ -18,14 +19,16 @@ def test_project():
     
     # Simulate current state
     curr_bid = sb.base_cost + (sb.base_cost * (sb.current_overhead / 100)) + (sb.base_cost * (sb.current_profit / 100))
-    print(f"Current Settings: OH={sb.current_overhead}%, Profit={sb.current_profit}%")
     print(f"Current Calculated Final Bid: {curr_bid:.2f}")
     
     print("\n=== Testing Financial Executive ===")
     fe = FinancialExecutiveAnalytic(project_dir)
-    # the metrics flow labels contain the current values
     print(f"FE Base Cost text: {fe.card_total_cost.value_label.text()}")
     print(f"FE Final Bid text: {fe.card_total_bid.value_label.text()}")
+
+    print("\n=== Testing Project Performance ===")
+    pp = ProjectPerformanceAnalytic(project_dir)
+    print(f"PP Final Bid text: {pp.card_total_bid.value_label.text()}")
 
 if __name__ == '__main__':
     test_project()
