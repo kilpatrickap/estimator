@@ -368,21 +368,21 @@ class MainWindow(QMainWindow):
         # Ribbon toggle button (small flap underneath)
         self.ribbon_toggle_btn = QPushButton("≡")
         self.ribbon_toggle_btn.setObjectName("RibbonToggleBtn")
-        self.ribbon_toggle_btn.setFixedSize(40, 6) # Made as thin as possible
+        self.ribbon_toggle_btn.setFixedSize(40, 8) # Increased thickness by 2
         self.ribbon_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.ribbon_toggle_btn.setToolTip("Toggle Toolbar (Ctrl+T)")
         self.ribbon_toggle_btn.setStyleSheet("""
             QPushButton#RibbonToggleBtn {
-                background: #2e7d32;
+                background: #007bff; /* Bright blue */
                 color: white;
                 border: none;
                 border-bottom-left-radius: 4px;
                 border-bottom-right-radius: 4px;
-                font-size: 6px; /* Extremely small */
+                font-size: 8px; /* Adjusted slightly for new height */
                 padding: 0px;
             }
             QPushButton#RibbonToggleBtn:hover {
-                background: #1b5e20;
+                background: #0056b3; /* Darker bright blue for hover */
             }
         """)
         self.ribbon_toggle_btn.clicked.connect(self.toggle_toolbar)
