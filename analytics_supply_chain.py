@@ -455,6 +455,7 @@ class SupplyChainIntelligenceAnalytic(QWidget):
         # 2. Charts Row
         charts_layout = QHBoxLayout()
         self.spread_chart = BidSpreadChart("Bid Spread Analysis")
+        self.spread_chart.currency_symbol = self.currency_symbol.strip()
         
         charts_layout.addWidget(self._create_card_frame("BID SPREAD ANALYSIS (MIN / MAX / WINNER vs TARGET)", self.spread_chart), 3)
         
