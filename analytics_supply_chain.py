@@ -284,7 +284,8 @@ class SupplyChainRow(QFrame):
         # Check if click is on the bids pill
         child = self.childAt(event.pos())
         if hasattr(self, 'bids_pill') and (child == self.bids_pill or self.bids_pill.isAncestorOf(child)):
-            self.bidsClicked.emit(self.bid_context)
+            if hasattr(self, 'bid_context'):
+                self.bidsClicked.emit(self.bid_context)
             event.accept()
             return
 
