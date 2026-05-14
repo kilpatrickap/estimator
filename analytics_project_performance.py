@@ -214,18 +214,24 @@ class ProjectPerformanceAnalytic(QWidget):
                 
                 qty_col_idx = -1
                 desc_col_idx = -1
+                bill_rate_col_idx = -1
                 bill_amt_col_idx = -1
                 
                 state_file = os.path.join(self.project_dir, "PBOQ States", f + ".json")
+                state_data = {}
                 if os.path.exists(state_file):
                     try:
                         with open(state_file, 'r') as sf:
-                            state = json.load(sf)
-                            m = state.get('mappings', {})
+                            state_data = json.load(sf)
+                            m = state_data.get('mappings', {})
                             qty_col_idx = m.get('qty', -1)
                             desc_col_idx = m.get('desc', -1)
+                            bill_rate_col_idx = m.get('bill_rate', -1)
                             bill_amt_col_idx = m.get('bill_amount', -1)
                     except: pass
+                
+                # Fetch dummy rate from state or default to 0.1
+                dummy_val = state_data.get('dummy_rate', 0.1)
                     
                 try:
                     conn = sqlite3.connect(db_path)
@@ -236,13 +242,15 @@ class ProjectPerformanceAnalytic(QWidget):
                     
                     qty_name = cols[qty_col_idx + 1] if qty_col_idx >= 0 and (qty_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
                     desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
-                    bill_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                    bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate", "column 4"]), None)
+                    bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
                     
                     col_map = {
                         'sheet': next((c for c in cols if c.lower() == 'sheet'), None),
                         'desc': desc_name,
                         'qty': qty_name,
-                        'bill': bill_name,
+                        'bill_rate': bill_rate_name,
+                        'bill_amt': bill_amt_name,
                         'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
                         'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
                         'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
@@ -258,7 +266,7 @@ class ProjectPerformanceAnalytic(QWidget):
                         continue
                         
                     query_cols = []
-                    for k in ['sheet', 'desc', 'qty', 'bill', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'flag', 'rcode', 'pcode']:
+                    for k in ['sheet', 'desc', 'qty', 'bill_rate', 'bill_amt', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'flag', 'rcode', 'pcode']:
                         if col_map[k]: query_cols.append(f"\"{col_map[k]}\"")
                         else: query_cols.append("''")
                         
@@ -266,15 +274,16 @@ class ProjectPerformanceAnalytic(QWidget):
                     rows = cursor.fetchall()
                     
                     for r in rows:
-                        sheet, desc, q, b, gross, plug, sub, prov, pc, dw, flag, rcode, pcode = r
+                        sheet, desc, q, br, ba, gross, plug, sub, prov, pc, dw, flag, rcode, pcode = r
                         desc_low = (desc or "").lower()
                         if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
                             continue
                             
                         qty_f = self._to_float(q)
-                        bill_f = self._to_float(b)
+                        bill_rate_f = self._to_float(br)
+                        bill_amt_f = self._to_float(ba)
                         
-                        if qty_f == 0 and bill_f == 0:
+                        if qty_f == 0 and bill_amt_f == 0:
                             continue
                         
                         g_val = self._to_float(gross)
@@ -284,7 +293,14 @@ class ProjectPerformanceAnalytic(QWidget):
                         pc_val = self._to_float(pc)
                         d_val = self._to_float(dw)
                         
-                        is_priced = (g_val > 0 or p_val > 0 or s_val > 0 or pr_val > 0 or pc_val > 0 or d_val > 0 or bill_f > 0)
+                        # Dummy rate exclusion: bill_rate_f is only priced if it's NOT the dummy rate.
+                        # However, if any other tool (Gross, Plug, etc) has a value, it's always priced.
+                        is_row_priced = (g_val > 0 or p_val > 0 or s_val > 0 or pr_val > 0 or pc_val > 0 or d_val > 0)
+                        if not is_row_priced:
+                            if bill_rate_f > 0 and abs(bill_rate_f - dummy_val) > 0.0001:
+                                is_row_priced = True
+                                
+                        is_priced = is_row_priced
                         
                         active_code = pcode if pcode and str(pcode).strip() else rcode
                         master_net_cost = self._get_net_rate(active_code) if active_code else 0.0
@@ -301,12 +317,12 @@ class ProjectPerformanceAnalytic(QWidget):
                             elif s_val > 0: unit_cost = s_val; src = 'sub'
                             elif g_val > 0: unit_cost = g_val; src = 'gross'
                             else:
-                                if bill_f > 0:
-                                    unit_cost = bill_f if qty_f <= 1 else 0.0
+                                if bill_amt_f > 0:
+                                    unit_cost = bill_amt_f if qty_f <= 1 else 0.0
                                     src = 'gross'
                                 
-                        calc_qty = qty_f if qty_f > 0 else (1.0 if bill_f > 0 else 0.0)
-                        item_net_cost = round(unit_cost * calc_qty, 2)
+                        calc_qty = qty_f if qty_f > 0 else (1.0 if bill_amt_f > 0 else 0.0)
+                        item_net_cost = round(unit_cost * calc_qty, 2) if is_priced else 0.0
                         
                         total_items += 1
                         if is_priced: priced_items += 1
