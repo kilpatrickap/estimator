@@ -258,7 +258,7 @@ class MainWindow(QMainWindow):
         
         file_menu.addSeparator()
         
-        settings_action = self._create_action("Settings...", None, self.open_settings)
+        settings_action = self._create_action("Settings...", "Ctrl+,", self.open_settings)
         file_menu.addAction(settings_action)
         
         exit_action = self._create_action("Exit", "Alt+F4", self.close)
@@ -272,22 +272,42 @@ class MainWindow(QMainWindow):
         
         redo_action = self._create_action("Redo", "Ctrl+Y", self.trigger_redo)
         edit_menu.addAction(redo_action)
+
+        # Project Menu
+        project_menu = menubar.addMenu("Project")
         
-        # Windows Menu
+        boq_setup_action = self._create_action("BOQ Setup", "Ctrl+B", self.open_boq_setup)
+        project_menu.addAction(boq_setup_action)
+        
+        sor_action = self._create_action("SOR (Rates Library)", "Ctrl+R", self.open_sor_dialog)
+        project_menu.addAction(sor_action)
+        
+        pboq_action = self._create_action("PBOQ Viewer", "Ctrl+P", self.open_pboq_dialog)
+        project_menu.addAction(pboq_action)
+        
+        project_menu.addSeparator()
+        
+        analytics_action = self._create_action("Analytics Dashboard", "Ctrl+A", self.open_analytics_dashboard)
+        project_menu.addAction(analytics_action)
+        
+        # Window Menu
         window_menu = menubar.addMenu("Window")
         
-        db_action = self._create_action("Resources", None, self.manage_database)
+        db_action = self._create_action("Resources Database", "Ctrl+D", self.manage_database)
         window_menu.addAction(db_action)
         
-        rate_db_action = self._create_action("Libraries", None, self.manage_rate_database)
+        rate_db_action = self._create_action("Historical Libraries", "Ctrl+L", self.manage_rate_database)
         window_menu.addAction(rate_db_action)
 
         # View Menu
         view_menu = menubar.addMenu("View")
-        self.toggle_toolbar_action = self._create_action("Toggle Toolbar", "Ctrl+T", self.toggle_toolbar)
+        self.toggle_toolbar_action = self._create_action("Toggle Toolbar Ribbon", "Ctrl+T", self.toggle_toolbar)
         self.toggle_toolbar_action.setCheckable(True)
         self.toggle_toolbar_action.setChecked(True)
         view_menu.addAction(self.toggle_toolbar_action)
+
+        self.toggle_project_pane_action = self._create_action("Toggle Project Explorer", "Ctrl+E", self.toggle_project_pane)
+        view_menu.addAction(self.toggle_project_pane_action)
 
     def _create_action(self, text, shortcut, slot):
         action = QAction(text, self)
