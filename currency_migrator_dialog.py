@@ -232,6 +232,14 @@ class MigrationWorker(QThread):
                 if curr_updates:
                     cursor.execute(f'UPDATE pboq_items SET {", ".join(curr_updates)}', [self.new_currency] * len(curr_updates))
                     
+                # Update subcontractor quotes
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subcontractor_quotes'")
+                if cursor.fetchone():
+                    if self.operator == '*':
+                        cursor.execute("UPDATE subcontractor_quotes SET rate = rate * ?", (self.rate,))
+                    else:
+                        cursor.execute("UPDATE subcontractor_quotes SET rate = rate / ?", (self.rate,))
+                        
                 conn.commit()
             except Exception as e:
                 conn.rollback()
