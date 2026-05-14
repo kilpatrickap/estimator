@@ -546,10 +546,10 @@ class FinancialExecutiveAnalytic(QWidget):
                 print(f"Error processing {f}: {e}")
 
         # Metrics
-        # The actual bill amounts (t_bid) ARE the base/net cost — this is constant.
+        # The base net cost (t_cost) IS the constant base cost.
         # Overhead and profit are add-ons calculated as percentages of the base cost.
         # Final Bid = Base Cost + Overhead + Profit.
-        t_base_cost = t_bid
+        t_base_cost = t_cost
         overhead_amount = t_base_cost * (self.overhead_rate / 100.0)
         profit_amount = t_base_cost * (self.profit_rate / 100.0)
         t_final_bid = t_base_cost + overhead_amount + profit_amount
@@ -594,10 +594,9 @@ class FinancialExecutiveAnalytic(QWidget):
         # Sectional Table
         self._clear_table(self.table_list)
         self._add_table_header(self.table_list, "Section Description")
-        sections.sort(key=lambda x: x['bid'], reverse=True)
+        sections.sort(key=lambda x: x['cost'], reverse=True)
         s_total_bid, s_total_cost = 0.0, 0.0
         for s in sections: 
-            s['cost'] = s['bid']  # bill amounts = base cost
             s['bid'] = s['cost'] * (1.0 + combined_markup_pct)  # final bid = base + markup
             self._add_table_row(self.table_list, s)
             s_total_bid += s['bid']
@@ -610,10 +609,9 @@ class FinancialExecutiveAnalytic(QWidget):
         self._clear_table(self.cat_table_list)
         self._add_table_header(self.cat_table_list, "Trade Category")
         cat_list = [{'name': k, 'bid': v[0], 'cost': v[1]} for k, v in c_agg.items()]
-        cat_list.sort(key=lambda x: x['bid'], reverse=True)
+        cat_list.sort(key=lambda x: x['cost'], reverse=True)
         c_total_bid, c_total_cost = 0.0, 0.0
         for c in cat_list: 
-            c['cost'] = c['bid']
             c['bid'] = c['cost'] * (1.0 + combined_markup_pct)
             self._add_table_row(self.cat_table_list, c)
             c_total_bid += c['bid']
@@ -626,10 +624,9 @@ class FinancialExecutiveAnalytic(QWidget):
         self._clear_table(self.sub_table_list)
         self._add_table_header(self.sub_table_list, "Sub-Contractor Package")
         sub_list = [{'name': k, 'bid': v[0], 'cost': v[1]} for k, v in sub_agg.items()]
-        sub_list.sort(key=lambda x: x['bid'], reverse=True)
+        sub_list.sort(key=lambda x: x['cost'], reverse=True)
         sub_total_bid, sub_total_cost = 0.0, 0.0
         for sb in sub_list:
-            sb['cost'] = sb['bid']
             sb['bid'] = sb['cost'] * (1.0 + combined_markup_pct)
             self._add_table_row(self.sub_table_list, sb)
             sub_total_bid += sb['bid']

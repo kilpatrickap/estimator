@@ -392,12 +392,12 @@ class StrategicBiddingAnalytic(QWidget):
         self.update_simulation()
 
     def update_simulation(self):
-        # The actual bill amounts (self.actual_bid) ARE the base/net cost — constant.
+        # The net cost (self.base_cost) IS the base cost — constant.
         # Overhead and profit are add-ons: Final Bid = Base Cost + OH + Profit.
         # This matches the Financial Executive dashboard model exactly.
         
         # Current baseline (from project settings)
-        curr_cost = self.actual_bid
+        curr_cost = self.base_cost
         curr_overhead_amt = curr_cost * (self.current_overhead / 100.0)
         curr_profit_amt = curr_cost * (self.current_profit / 100.0)
         curr_bid = curr_cost + curr_overhead_amt + curr_profit_amt
@@ -405,7 +405,7 @@ class StrategicBiddingAnalytic(QWidget):
         curr_oh_pct = (curr_overhead_amt / curr_bid * 100) if curr_bid > 0 else 0
         
         # Scenario simulation: factor scales the base cost, then markups apply
-        sim_cost = self.actual_bid * self.scenario_factor
+        sim_cost = self.base_cost * self.scenario_factor
         sim_overhead_amt = sim_cost * (self.scenario_overhead / 100.0)
         sim_profit_amt = sim_cost * (self.scenario_profit / 100.0)
         sim_bid = sim_cost + sim_overhead_amt + sim_profit_amt
