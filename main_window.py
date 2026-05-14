@@ -69,7 +69,43 @@ class MainWindow(QMainWindow):
         # This catches the MDI minimize, restore, and close buttons
         self.main_layout.addWidget(self.menuBar())
 
-        # 2. MDI Area
+        # 2. Workspace Area (MDI + Toggle)
+        self.workspace_container = QWidget()
+        self.workspace_layout = QHBoxLayout(self.workspace_container)
+        self.workspace_layout.setContentsMargins(0, 0, 0, 0)
+        self.workspace_layout.setSpacing(0)
+
+        # Project Pane toggle button (vertical left side)
+        self.project_pane_toggle_btn = QPushButton("⋮")
+        self.project_pane_toggle_btn.setObjectName("ProjectPaneToggleBtn")
+        self.project_pane_toggle_btn.setFixedSize(8, 40)
+        self.project_pane_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.project_pane_toggle_btn.setToolTip("Toggle Project Explorer")
+        self.project_pane_toggle_btn.setStyleSheet("""
+            QPushButton#ProjectPaneToggleBtn {
+                background: #007bff; /* Bright blue */
+                color: white;
+                border: none;
+                border-top-right-radius: 4px;
+                border-bottom-right-radius: 4px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton#ProjectPaneToggleBtn:hover {
+                background: #0056b3; /* Darker bright blue for hover */
+            }
+        """)
+        self.project_pane_toggle_btn.clicked.connect(self.toggle_project_pane)
+
+        toggle_container = QWidget()
+        toggle_layout = QVBoxLayout(toggle_container)
+        toggle_layout.setContentsMargins(0, 20, 0, 0)
+        toggle_layout.setSpacing(0)
+        toggle_layout.addWidget(self.project_pane_toggle_btn)
+        toggle_layout.addStretch()
+
+        self.workspace_layout.addWidget(toggle_container)
+
         self.mdi_area = RestrictedMdiArea()
         self.mdi_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         self.mdi_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -79,7 +115,8 @@ class MainWindow(QMainWindow):
         # Apply a subtle background to the workspace
         self.mdi_area.setStyleSheet("QMdiArea { background-color: #eceff1; }")
         
-        self.main_layout.addWidget(self.mdi_area)
+        self.workspace_layout.addWidget(self.mdi_area)
+        self.main_layout.addWidget(self.workspace_container)
         
         # 3. Status Bar (Zoom Controls)
         self._setup_statusbar()
@@ -145,6 +182,20 @@ class MainWindow(QMainWindow):
         # Reduced height by 65% to make room for other tools (like PBOQ tools)
         self.project_dock.setMaximumHeight(250)
         self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, self.project_dock)
+
+    def toggle_project_pane(self):
+        """Toggle ALL dock widgets in the left dock area."""
+        from PyQt6.QtWidgets import QDockWidget
+        left_docks = [
+            dock for dock in self.findChildren(QDockWidget)
+            if self.dockWidgetArea(dock) == Qt.DockWidgetArea.LeftDockWidgetArea
+        ]
+        if not left_docks:
+            return
+        # If any are visible, hide all; otherwise show all
+        any_visible = any(dock.isVisible() for dock in left_docks)
+        for dock in left_docks:
+            dock.setVisible(not any_visible)
 
     def _update_project_pane_directory(self, project_dir):
         import os
