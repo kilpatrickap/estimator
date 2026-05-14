@@ -1594,6 +1594,43 @@ class NewEstimateDialog(QDialog):
             "db_path": db_path
         }
 
+class EditEstimateDialog(QDialog):
+    """Dialog for editing basic project metadata."""
+    def __init__(self, name, location, date, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Edit Project Details")
+        self.setMinimumWidth(350)
+        
+        layout = QFormLayout(self)
+        self.name_edit = QLineEdit(name)
+        self.location_edit = QLineEdit(location)
+        self.date_edit = QDateEdit()
+        self.date_edit.setCalendarPopup(True)
+        self.date_edit.setDisplayFormat("yyyy-MM-dd")
+        
+        # Parse the incoming date string
+        qdate = QDate.fromString(date, "yyyy-MM-dd")
+        if qdate.isValid():
+            self.date_edit.setDate(qdate)
+        else:
+            self.date_edit.setDate(QDate.currentDate())
+            
+        layout.addRow("Project Name:", self.name_edit)
+        layout.addRow("Location / Client:", self.location_edit)
+        layout.addRow("Project Date:", self.date_edit)
+        
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addRow(buttons)
+
+    def get_data(self):
+        return (
+            self.name_edit.text().strip(),
+            self.location_edit.text().strip(),
+            self.date_edit.date().toString("yyyy-MM-dd")
+        )
+
 class LoadEstimateDialog(QDialog):
     """Dialog for browsing and managing saved estimates."""
     def __init__(self, parent=None):
