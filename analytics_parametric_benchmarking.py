@@ -6,9 +6,9 @@ import json
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, 
                              QFrame, QGridLayout, QScrollArea, QGraphicsDropShadowEffect,
                              QPushButton, QComboBox, QDoubleSpinBox, QSpinBox, QSlider, 
-                             QSizePolicy, QSpacerItem)
-from PyQt6.QtCore import Qt, QRectF, QPointF, QSize
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics
+                             QSizePolicy, QSpacerItem, QMessageBox)
+from PyQt6.QtCore import Qt, QRectF, QPointF, QSize, QUrl
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, QFontMetrics, QDesktopServices
 
 from analytics_components import get_project_currency_symbol, MetricCard
 
@@ -695,6 +695,52 @@ class ParametricBenchmarkingAnalytic(QWidget):
         body_lay.addLayout(col2_layout, 1)
         edu_layout.addLayout(body_lay)
         
+        # Source Citation & PDF Open Section
+        source_box = QFrame()
+        source_box.setStyleSheet("background-color: #f1f5f9; border-radius: 12px; border: 1px solid #e2e8f0; padding: 15px; margin-top: 10px;")
+        source_lay = QHBoxLayout(source_box)
+        source_lay.setContentsMargins(15, 10, 15, 10)
+        source_lay.setSpacing(15)
+        
+        cite_icon = QLabel("📖")
+        cite_icon.setStyleSheet("font-size: 20px; border: none; background: transparent;")
+        
+        cite_txt = QLabel(
+            "<b>Institutional Reference Source:</b> "
+            "Ghana Institution of Surveyors (GhIS) Standard Cost Indices & "
+            "<b>AECOM Africa Property & Construction Cost Guide 2025</b>."
+        )
+        cite_txt.setStyleSheet("color: #334155; font-size: 11px; font-family: 'Inter'; border: none; background: transparent;")
+        cite_txt.setWordWrap(True)
+        
+        self.open_pdf_btn = QPushButton("📄 Open AECOM Cost Guide 2025")
+        self.open_pdf_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.open_pdf_btn.clicked.connect(self.open_aecom_guide)
+        self.open_pdf_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1e40af;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 16px;
+                font-weight: bold;
+                font-size: 11px;
+                font-family: 'Inter';
+            }
+            QPushButton:hover {
+                background-color: #1d4ed8;
+            }
+            QPushButton:pressed {
+                background-color: #1e3a8a;
+            }
+        """)
+        
+        source_lay.addWidget(cite_icon)
+        source_lay.addWidget(cite_txt, 1)
+        source_lay.addWidget(self.open_pdf_btn)
+        
+        edu_layout.addWidget(source_box)
+        
         content_layout.addWidget(edu_card)
         content_layout.addStretch()
         
@@ -884,3 +930,40 @@ class ParametricBenchmarkingAnalytic(QWidget):
             self.wet_spin.blockSignals(False)
             self.site_combo.blockSignals(False)
             self.act_gfa_spin.blockSignals(False)
+
+    def open_aecom_guide(self):
+        """Attempts to open the AECOM Africa Cost Guide 2025 PDF using the default system viewer."""
+        possible_paths = [
+            # Workspace & Project Root directories
+            os.path.join(self.project_dir, "aecom_africa_cost_guide_2025.pdf"),
+            os.path.join(self.project_dir, "aecom_cost_guide_2025.pdf"),
+            os.path.join(os.path.dirname(self.project_dir), "aecom_africa_cost_guide_2025.pdf"),
+            os.path.join(os.path.dirname(self.project_dir), "aecom_cost_guide_2025.pdf"),
+            # User folders
+            r"C:\Users\Consar-Kilpatrick\Desktop\aecom_africa_cost_guide_2025.pdf",
+            r"C:\Users\Consar-Kilpatrick\Downloads\aecom_africa_cost_guide_2025.pdf",
+            os.path.expanduser(r"~\Desktop\aecom_africa_cost_guide_2025.pdf"),
+            os.path.expanduser(r"~\Downloads\aecom_africa_cost_guide_2025.pdf")
+        ]
+        
+        found_path = None
+        for p in possible_paths:
+            if os.path.exists(p):
+                found_path = p
+                break
+                
+        if found_path:
+            success = QDesktopServices.openUrl(QUrl.fromLocalFile(found_path))
+            if not success:
+                QMessageBox.warning(
+                    self, 
+                    "Failed to Open File", 
+                    f"Found the file at:\n{found_path}\n\nBut the system default viewer failed to open it. Please open it manually."
+                )
+        else:
+            QMessageBox.critical(
+                self,
+                "File Not Found",
+                "Could not locate the AECOM Africa Cost Guide 2025 PDF in standard locations.\n\n"
+                "Please ensure 'aecom_africa_cost_guide_2025.pdf' or 'aecom_cost_guide_2025.pdf' is placed in your project folder, Desktop, or Downloads folder."
+            )
