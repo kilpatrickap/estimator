@@ -12,6 +12,18 @@ from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QFont, QLinearGradient, 
 
 from analytics_components import get_project_currency_symbol, MetricCard
 
+class GfaSpinBox(QSpinBox):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSuffix(" m²")
+        
+    def setText(self, text):
+        try:
+            val_str = text.replace(" m²", "").replace(",", "").replace(" ", "").strip()
+            self.setValue(int(val_str))
+        except Exception:
+            pass
+
 class BenchmarkingRangeChart(QWidget):
     """
     A custom-painted visual gauge that places the calculated cost/m² rate 
@@ -391,8 +403,27 @@ class ParametricBenchmarkingAnalytic(QWidget):
         gfa_lbl_lay = QHBoxLayout()
         gfa_lbl = QLabel("Gross Floor Area (GFA):")
         gfa_lbl.setStyleSheet("font-weight: 600; color: #475569; font-size: 12px;")
-        self.gfa_val_lbl = QLabel("150 m²")
-        self.gfa_val_lbl.setStyleSheet("font-weight: 800; color: #166534; font-size: 13px; font-family: 'Consolas';")
+        self.gfa_val_lbl = GfaSpinBox()
+        self.gfa_val_lbl.setMinimum(10)
+        self.gfa_val_lbl.setMaximum(1000000) # Support huge projects up to 1,000,000 m²
+        self.gfa_val_lbl.setValue(150)
+        self.gfa_val_lbl.setStyleSheet("""
+            QSpinBox {
+                font-weight: 800;
+                color: #166534;
+                font-size: 13px;
+                font-family: 'Consolas';
+                background: white;
+                border: 1px solid #cbd5e1;
+                border-radius: 6px;
+                padding: 4px 8px;
+                min-width: 100px;
+            }
+            QSpinBox::up-button, QSpinBox::down-button {
+                width: 16px;
+                border-left: 1px solid #cbd5e1;
+            }
+        """)
         gfa_lbl_lay.addWidget(gfa_lbl)
         gfa_lbl_lay.addStretch()
         gfa_lbl_lay.addWidget(self.gfa_val_lbl)
@@ -400,7 +431,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         
         self.gfa_slider = QSlider(Qt.Orientation.Horizontal)
         self.gfa_slider.setMinimum(10)
-        self.gfa_slider.setMaximum(2500)
+        self.gfa_slider.setMaximum(100000) # Increased slider upper range to 100,000 m²
         self.gfa_slider.setValue(150)
         self.gfa_slider.setStyleSheet("""
             QSlider::groove:horizontal {
@@ -418,6 +449,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
             }
         """)
         self.gfa_slider.valueChanged.connect(self._on_gfa_slider_changed)
+        self.gfa_val_lbl.valueChanged.connect(self._on_gfa_spin_changed)
         input_layout.addWidget(self.gfa_slider)
         
         # Building Type Dropdown
@@ -748,7 +780,15 @@ class ParametricBenchmarkingAnalytic(QWidget):
         root_layout.addWidget(main_scroll)
 
     def _on_gfa_slider_changed(self, value):
-        self.gfa_val_lbl.setText(f"{value} m²")
+        self.gfa_val_lbl.blockSignals(True)
+        self.gfa_val_lbl.setValue(value)
+        self.gfa_val_lbl.blockSignals(False)
+        self.refresh_calculations()
+
+    def _on_gfa_spin_changed(self, value):
+        self.gfa_slider.blockSignals(True)
+        self.gfa_slider.setValue(min(value, self.gfa_slider.maximum()))
+        self.gfa_slider.blockSignals(False)
         self.refresh_calculations()
 
     def _on_complexity_changed(self, index):
@@ -766,7 +806,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         Main calculation engine that translates slider options 
         and inputs into beautiful visual cost models in real time.
         """
-        gfa = float(self.gfa_slider.value())
+        gfa = float(self.gfa_val_lbl.value())
         
         # 1. Base Rates for target types ( Accra baseline )
         base_rates = {
@@ -863,7 +903,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         state_file = os.path.join(state_dir, "parametric_state.json")
         
         state = {
-            "gfa": self.gfa_slider.value(),
+            "gfa": self.gfa_val_lbl.value(),
             "building_type_idx": self.type_combo.currentIndex(),
             "region_idx": self.region_combo.currentIndex(),
             "spec_idx": self.spec_combo.currentIndex(),
