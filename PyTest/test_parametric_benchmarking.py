@@ -73,3 +73,32 @@ def test_breakdown_drivers_match_total(qapp):
     # Retrieve simulated rate
     card_rate = float(analytic.card_sim_rate.value_label.text().replace(analytic.currency_symbol, "").replace(",", "").strip())
     assert abs(driver_sum - card_rate) < 0.01
+
+def test_parametric_currency_conversion(qapp):
+    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+    analytic = ParametricBenchmarkingAnalytic(project_dir)
+    
+    # 1. Base case: USD
+    analytic.currency_code = "USD"
+    analytic.currency_symbol = "$"
+    analytic.gfa_slider.setValue(200)
+    analytic.type_combo.setCurrentText("Residential House")
+    analytic.region_combo.setCurrentIndex(0) # Accra (1.0x)
+    analytic.spec_combo.setCurrentIndex(0)   # Standard (1.0x)
+    analytic.comp_combo.setCurrentIndex(0)   # Simple (1.0x)
+    analytic.site_combo.setCurrentIndex(0)   # Flat (1.0x)
+    analytic.wet_spin.setValue(0)
+    analytic.refresh_calculations()
+    
+    usd_rate = float(analytic.card_sim_rate.value_label.text().replace("$", "").replace(",", "").strip())
+    assert abs(usd_rate - 750.0) < 0.01
+    
+    # 2. Switch to GHS (₵) with a fallback exchange rate of 15.0
+    analytic.currency_code = "GHS"
+    analytic.currency_symbol = "₵"
+    analytic.refresh_calculations()
+    
+    ghs_rate = float(analytic.card_sim_rate.value_label.text().replace("₵", "").replace(",", "").strip())
+    # Should be scaled by 15.0: 750.0 * 15.0 = 11250.0
+    assert abs(ghs_rate - 11250.0) < 0.01
+

@@ -283,8 +283,71 @@ class ParametricBenchmarkingAnalytic(QWidget):
         self.refresh_calculations()
 
     def _load_currency(self):
-        """Standardized currency symbol discovery."""
-        self.currency_symbol = get_project_currency_symbol(self.project_dir)
+        """Standardized currency symbol and code discovery."""
+        from analytics_components import get_project_currency_info
+        symbol, code = get_project_currency_info(self.project_dir)
+        self.currency_symbol = symbol
+        self.currency_code = code
+
+    def _get_usd_to_active_exchange_rate(self):
+        """
+        Discovers the exchange rate from USD to the active currency.
+        Queries the master project database's settings table for 'currency_conversion_history'.
+        Sequential history transition traversal logic with standard market rate fallbacks.
+        """
+        from analytics_components import extract_currency_code
+        if getattr(self, 'currency_code', 'USD') == "USD":
+            return 1.0
+            
+        db_path = None
+        try:
+            db_dir = os.path.join(self.project_dir, "Project Database")
+            if os.path.exists(db_dir):
+                dbs = [f for f in os.listdir(db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+                if dbs:
+                    db_path = os.path.join(db_dir, dbs[0])
+        except Exception:
+            pass
+            
+        if db_path and os.path.exists(db_path):
+            try:
+                conn = sqlite3.connect(db_path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT value FROM settings WHERE key='currency_conversion_history'")
+                row = cursor.fetchone()
+                conn.close()
+                if row:
+                    history = json.loads(row[0])
+                    current_val = 1.0
+                    tracked_currency = "USD"
+                    
+                    for h in history:
+                        src = extract_currency_code(h.get('from', ''))
+                        dst = extract_currency_code(h.get('to', ''))
+                        val = float(h.get('rate', 1.0))
+                        op = h.get('operator', '*')
+                        
+                        if src == tracked_currency:
+                            if op == '*':
+                                current_val = current_val * val
+                            else:
+                                current_val = current_val / val
+                            tracked_currency = dst
+                            
+                    if tracked_currency == self.currency_code and current_val > 0:
+                        return current_val
+            except Exception:
+                pass
+                
+        # Prevailing market conversion ratios fallback
+        fallbacks = {
+            "GHS": 15.0,
+            "EUR": 0.92,
+            "GBP": 0.78,
+            "NGN": 1500.0,
+            "ZAR": 18.0
+        }
+        return fallbacks.get(self.currency_code, 1.0)
 
     def _scan_actual_project_cost(self):
         """
@@ -798,6 +861,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
 
     def refresh_data(self):
         """Re-scans databases and updates graphs/metric cards."""
+        self._load_currency()
         self._scan_actual_project_cost()
         self.refresh_calculations()
 
@@ -817,7 +881,8 @@ class ParametricBenchmarkingAnalytic(QWidget):
             "Extension / Add-on": 800.0
         }
         b_type = self.type_combo.currentText()
-        base_rate = base_rates.get(b_type, 750.0)
+        exchange_rate = self._get_usd_to_active_exchange_rate()
+        base_rate = base_rates.get(b_type, 750.0) * exchange_rate
         
         # 2. Regional Factors
         region_idx = self.region_combo.currentIndex()
@@ -842,7 +907,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         # 6. Wet Area Plumbing Premium
         # Premiums scale with specification choice
         wet_premiums = [8000.0, 12000.0, 20000.0, 35000.0]
-        wet_prem_rate = wet_premiums[spec_idx]
+        wet_prem_rate = wet_premiums[spec_idx] * exchange_rate
         wet_count = float(self.wet_spin.value())
         total_wet_cost = wet_count * wet_prem_rate
         
