@@ -267,6 +267,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         self._scan_actual_project_cost()
         
         self._init_ui()
+        self._load_state()
         self.refresh_calculations()
 
     def _load_currency(self):
@@ -806,3 +807,80 @@ class ParametricBenchmarkingAnalytic(QWidget):
             ("Site/Ground", dr_site, "#546e7a"),
             ("Wet Areas", dr_wet, "#6a1b9a")
         ], self.currency_symbol)
+
+        self._save_state()
+
+    def _save_state(self):
+        """Persists scenario estimator slider and selector values to project states folder."""
+        state_dir = os.path.join(self.project_dir, "PBOQ States")
+        os.makedirs(state_dir, exist_ok=True)
+        state_file = os.path.join(state_dir, "parametric_state.json")
+        
+        state = {
+            "gfa": self.gfa_slider.value(),
+            "building_type_idx": self.type_combo.currentIndex(),
+            "region_idx": self.region_combo.currentIndex(),
+            "spec_idx": self.spec_combo.currentIndex(),
+            "complexity_idx": self.comp_combo.currentIndex(),
+            "wet_areas": self.wet_spin.value(),
+            "site_conditions_idx": self.site_combo.currentIndex(),
+            "actual_gfa": self.act_gfa_spin.value()
+        }
+        
+        try:
+            with open(state_file, 'w') as f:
+                json.dump(state, f)
+        except Exception as e:
+            print(f"Error saving parametric benchmarking state: {e}")
+
+    def _load_state(self):
+        """Loads persisted scenario estimator settings from project states folder."""
+        state_file = os.path.join(self.project_dir, "PBOQ States", "parametric_state.json")
+        if not os.path.exists(state_file):
+            return
+            
+        try:
+            with open(state_file, 'r') as f:
+                state = json.load(f)
+                
+            # Temporarily block signals to avoid triggering multiple intermediate calculation updates
+            self.gfa_slider.blockSignals(True)
+            self.type_combo.blockSignals(True)
+            self.region_combo.blockSignals(True)
+            self.spec_combo.blockSignals(True)
+            self.comp_combo.blockSignals(True)
+            self.wet_spin.blockSignals(True)
+            self.site_combo.blockSignals(True)
+            self.act_gfa_spin.blockSignals(True)
+            
+            if "gfa" in state:
+                self.gfa_slider.setValue(state["gfa"])
+                self.gfa_val_lbl.setText(f"{state['gfa']} m²")
+            if "building_type_idx" in state:
+                self.type_combo.setCurrentIndex(state["building_type_idx"])
+            if "region_idx" in state:
+                self.region_combo.setCurrentIndex(state["region_idx"])
+            if "spec_idx" in state:
+                self.spec_combo.setCurrentIndex(state["spec_idx"])
+            if "complexity_idx" in state:
+                self.comp_combo.setCurrentIndex(state["complexity_idx"])
+                factors = ["Simple (1.00x)", "Moderate (1.15x)", "High (1.35x)"]
+                self.comp_val_lbl.setText(factors[state["complexity_idx"]])
+            if "wet_areas" in state:
+                self.wet_spin.setValue(state["wet_areas"])
+            if "site_conditions_idx" in state:
+                self.site_combo.setCurrentIndex(state["site_conditions_idx"])
+            if "actual_gfa" in state:
+                self.act_gfa_spin.setValue(state["actual_gfa"])
+                
+        except Exception as e:
+            print(f"Error loading parametric benchmarking state: {e}")
+        finally:
+            self.gfa_slider.blockSignals(False)
+            self.type_combo.blockSignals(False)
+            self.region_combo.blockSignals(False)
+            self.spec_combo.blockSignals(False)
+            self.comp_combo.blockSignals(False)
+            self.wet_spin.blockSignals(False)
+            self.site_combo.blockSignals(False)
+            self.act_gfa_spin.blockSignals(False)
