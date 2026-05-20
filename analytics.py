@@ -45,7 +45,8 @@ class AnalyticsPane(QWidget):
             "Financial & Executive Dashboards",
             "Operational & Procurement Logistics",
             "Strategic Bidding & 'What-If' Analysis",
-            "Adjudication & Supply Chain Intelligence"
+            "Adjudication & Supply Chain Intelligence",
+            "Parametric Benchmarking"
         ]
         
         self.buttons = []
@@ -195,6 +196,12 @@ class AnalyticsDashboard(QWidget):
                 widget = SupplyChainIntelligenceAnalytic(self.project_dir, self)
             except Exception as e:
                 widget = PlaceholderAnalytic(f"Error loading Supply Chain Intelligence: {e}")
+        elif index == 5:
+            try:
+                from analytics_parametric_benchmarking import ParametricBenchmarkingAnalytic
+                widget = ParametricBenchmarkingAnalytic(self.project_dir, self)
+            except Exception as e:
+                widget = PlaceholderAnalytic(f"Error loading Parametric Benchmarking: {e}")
         else:
             widget = PlaceholderAnalytic("Unknown Module")
 
