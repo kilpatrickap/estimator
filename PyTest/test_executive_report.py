@@ -100,7 +100,8 @@ def temp_project_dir():
             sub_name TEXT,
             sub_rate REAL,
             isflagged INTEGER,
-            rate_code TEXT
+            rate_code TEXT,
+            unit TEXT
         )
     """)
     cursor_boq.execute("""
@@ -113,7 +114,7 @@ def temp_project_dir():
     """)
     
     # Add dummy priced items to cover gross rates, plug rates, subs, etc.
-    cursor_boq.execute("INSERT INTO pboq_items VALUES ('Sheet1', 'Concrete slab 1:2:4', 50.0, 150.0, 7500.0, 'Concrete Package', 'BuildCo Ltd', 140.0, 0, 'R10')")
+    cursor_boq.execute("INSERT INTO pboq_items VALUES ('Sheet1', 'Concrete slab 1:2:4', 50.0, 150.0, 7500.0, 'Concrete Package', 'BuildCo Ltd', 140.0, 0, 'R10', 'm3')")
     cursor_boq.execute("INSERT INTO subcontractor_quotes VALUES ('Concrete Package', 'BuildCo Ltd', 1, 140.0)")
     cursor_boq.execute("INSERT INTO subcontractor_quotes VALUES ('Concrete Package', 'SubCon Inc', 1, 145.0)")
     
@@ -132,7 +133,8 @@ def temp_project_dir():
             "sub_name": 5,
             "sub_rate": 6,
             "isflagged": 7,
-            "rate_code": 8
+            "rate_code": 8,
+            "unit": 9
         },
         "dummy_rate": 0.1
     }
@@ -183,6 +185,10 @@ def test_executive_analytics_pdf_generation(temp_project_dir):
     assert data['total_net_cost'] == 12500.0
     # Combined markups = 15%. Bid value = 12500 * 1.15 = 14375
     assert data['total_bid_value'] == pytest.approx(14375.0)
+    
+    # Verify the dynamic Unit column extraction and mapping
+    assert len(data['all_items_flat']) == 1
+    assert data['all_items_flat'][0]['unit'] == 'm3'
     
     # 2. Test PDF compilation
     success = generator.generate_report(output_pdf_path)

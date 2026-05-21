@@ -795,6 +795,7 @@ class ExecutiveAnalyticsReportGenerator:
                 desc_col_idx = mapping.get('desc', -1)
                 bill_rate_col_idx = mapping.get('bill_rate', -1)
                 bill_amt_col_idx = mapping.get('bill_amount', -1)
+                unit_col_idx = mapping.get('unit', -1)
                 
                 # Fetch dummy rate from state file if available
                 dummy_val = 0.1
@@ -816,6 +817,7 @@ class ExecutiveAnalyticsReportGenerator:
                     desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
                     bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate"]), None)
                     bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount"]), None)
+                    unit_name = cols[unit_col_idx + 1] if unit_col_idx >= 0 and (unit_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["unit", "units"]), None)
                     
                     col_map = {
                         'sheet': next((c for c in cols if c.lower() == 'sheet'), None),
@@ -823,6 +825,7 @@ class ExecutiveAnalyticsReportGenerator:
                         'qty': qty_name,
                         'bill_rate': bill_rate_name,
                         'bill_amt': bill_amt_name,
+                        'unit': unit_name,
                         'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
                         'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
                         'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
@@ -842,7 +845,7 @@ class ExecutiveAnalyticsReportGenerator:
                         continue
                         
                     query_cols = []
-                    for k in ['sheet', 'desc', 'qty', 'bill_rate', 'bill_amt', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'flag', 'rcode', 'pcode', 'spkg', 'sname', 'sub_code']:
+                    for k in ['sheet', 'desc', 'qty', 'bill_rate', 'bill_amt', 'unit', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'flag', 'rcode', 'pcode', 'spkg', 'sname', 'sub_code']:
                         if col_map[k]: query_cols.append(f"\"{col_map[k]}\"")
                         else: query_cols.append("''")
                         
@@ -860,7 +863,7 @@ class ExecutiveAnalyticsReportGenerator:
                     except: pass
                     
                     for r in rows:
-                        sheet, desc, q, br, ba, gross, plug, sub, prov, pc, dw, flag, rcode, pcode, spkg, sname, sub_code = r
+                        sheet, desc, q, br, ba, unit_val, gross, plug, sub, prov, pc, dw, flag, rcode, pcode, spkg, sname, sub_code = r
                         desc_low = (desc or "").lower()
                         if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
                             continue
@@ -945,6 +948,7 @@ class ExecutiveAnalyticsReportGenerator:
                             all_items_flat.append({
                                 'desc': desc,
                                 'qty': calc_qty,
+                                'unit': unit_val or "",
                                 'unit_cost': unit_cost,
                                 'total_cost': eff_cost,
                                 'total_bid': eff_bid,
@@ -1322,7 +1326,55 @@ class ExecutiveAnalyticsReportGenerator:
             story.append(Paragraph("<font color='#64748b'><i>This intelligence document compiles cross-project database analytics from priced BOQs, subcontractor adjudications, and parametric benchmarking guides. Confidential under corporate review.</i></font>", self.styles['ExecSubtitle']))
             story.append(PageBreak())
             
-            # --- PAGE 2: CFO EXECUTIVE SUMMARY & BRIDGE ---
+            # --- PAGE 2: TABLE OF CONTENTS ---
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("Table of Contents", self.styles['SectionHeader']))
+            story.append(Paragraph("Executive roadmap outlining primary project metrics, confidence scoring, cost drivers, and procurement adjudications.", self.styles['BodyDesc']))
+            story.append(Spacer(1, 15))
+
+            toc_rows = [
+                [
+                    Paragraph("<b>Document Section</b>", self.styles['TableHeaderStyle']),
+                    Paragraph("<b>Description</b>", self.styles['TableHeaderStyle']),
+                    Paragraph("<b>Page No.</b>", self.styles['TableHeaderStyle'])
+                ],
+                [
+                    Paragraph("<b>1. CFO Executive Brief</b>", self.styles['TableBodyStyleBold']),
+                    Paragraph("Consolidated financial bridge, gross project bid, overheads, and target profit margins.", self.styles['TableBodyStyle']),
+                    Paragraph("<b>Page 3</b>", self.styles['TableBodyStyleBold'])
+                ],
+                [
+                    Paragraph("<b>2. Pricing Confidence & Risk Analysis</b>", self.styles['TableBodyStyleBold']),
+                    Paragraph("Analysis of Library vs. Quote vs. Plug rates, and log of extreme unit rate variance outliers.", self.styles['TableBodyStyle']),
+                    Paragraph("<b>Page 4</b>", self.styles['TableBodyStyleBold'])
+                ],
+                [
+                    Paragraph("<b>3. Top Value Drivers & Material BOM</b>", self.styles['TableBodyStyleBold']),
+                    Paragraph("Top 10 Pareto value drivers, and consolidated bill of materials (BOM) logistics volumes.", self.styles['TableBodyStyle']),
+                    Paragraph("<b>Page 5</b>", self.styles['TableBodyStyleBold'])
+                ],
+                [
+                    Paragraph("<b>4. Supply Chain & Cost Modelling Benchmarking</b>", self.styles['TableBodyStyleBold']),
+                    Paragraph("Subcontractor award package variance audits and GFA parametric $/m² cost benchmarks.", self.styles['TableBodyStyle']),
+                    Paragraph("<b>Page 6</b>", self.styles['TableBodyStyleBold'])
+                ]
+            ]
+            
+            toc_table = Table(toc_rows, colWidths=[160, 260, 63])
+            toc_table.setStyle(TableStyle([
+                ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f1f5f9')),
+                ('LINEBELOW', (0,0), (-1,0), 1, colors.HexColor('#94a3b8')),
+                ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor('#cbd5e1')),
+                ('PADDING', (0,0), (-1,-1), 10),
+                ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+            ]))
+            story.append(toc_table)
+            
+            story.append(Spacer(1, 130))
+            story.append(Paragraph("<font color='#64748b'><i>Note: Page numbering in this report aligns with the total pages displayed in the report footer. The contents of each section are generated dynamically from live project cost estimates and priced BOQs.</i></font>", self.styles['ExecSubtitle']))
+            story.append(PageBreak())
+            
+            # --- PAGE 3: CFO EXECUTIVE SUMMARY & BRIDGE ---
             story.append(Paragraph("1. CFO Executive Brief", self.styles['SectionHeader']))
             story.append(Paragraph("Consolidated cross-project pricing dashboard showcasing baseline resource net costs, overhead allocations, and expected profitability margins.", self.styles['BodyDesc']))
             story.append(Spacer(1, 10))
@@ -1467,7 +1519,7 @@ class ExecutiveAnalyticsReportGenerator:
             
             pareto_list = sorted(data['all_items_flat'], key=lambda x: x['total_cost'], reverse=True)[:8]
             pareto_rows = [
-                [Paragraph("<b>Rank</b>", self.styles['TableHeaderStyle']), Paragraph("<b>BOQ Item Description</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Qty</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Unit Rate</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Final Bid Total</b>", self.styles['TableHeaderStyle'])],
+                [Paragraph("<b>Rank</b>", self.styles['TableHeaderStyle']), Paragraph("<b>BOQ Item Description</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Qty</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Unit</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Unit Rate</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Final Bid Total</b>", self.styles['TableHeaderStyle'])],
             ]
             for idx, p_item in enumerate(pareto_list, 1):
                 item_bid_total = p_item.get('total_bid', p_item['total_cost'] * (1.0 + combined_markup_pct))
@@ -1476,11 +1528,12 @@ class ExecutiveAnalyticsReportGenerator:
                     Paragraph(f"#{idx}", self.styles['TableBodyStyleBold']),
                     Paragraph(p_item['desc'][:60] + ("..." if len(p_item['desc']) > 60 else ""), self.styles['TableBodyStyle']),
                     Paragraph(f"{p_item['qty']:,.1f}", self.styles['TableBodyStyleRight']),
+                    Paragraph(p_item.get('unit', ''), self.styles['TableBodyStyle']),
                     Paragraph(f"{symbol} {item_bid_rate:,.2f}", self.styles['TableBodyStyleRight']),
                     Paragraph(f"<b>{symbol} {item_bid_total:,.2f}</b>", self.styles['TableBodyStyleRight']),
                 ])
                 
-            pareto_table = Table(pareto_rows, colWidths=[30, 210, 50, 93, 100])
+            pareto_table = Table(pareto_rows, colWidths=[30, 175, 45, 40, 93, 100])
             pareto_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f1f5f9')),
                 ('LINEBELOW', (0,0), (-1,0), 1, colors.HexColor('#94a3b8')),
@@ -1498,14 +1551,14 @@ class ExecutiveAnalyticsReportGenerator:
             bom_list = sorted(data['materials'].values(), key=lambda x: x['cost'], reverse=True)[:8]
             mat_total = sum(m['cost'] for m in data['materials'].values())
             bom_rows = [
-                [Paragraph("<b>Resource Name</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Unit</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Total Volume Qty</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Avg Rate</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Estimated Cost</b>", self.styles['TableHeaderStyle'])],
+                [Paragraph("<b>Resource Name</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Qty</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Unit</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Basic Price</b>", self.styles['TableHeaderStyle']), Paragraph("<b>Estimated Cost</b>", self.styles['TableHeaderStyle'])],
             ]
             for m in bom_list:
                 avg_rate = m['cost'] / m['qty'] if m['qty'] > 0 else 0
                 bom_rows.append([
                     Paragraph(m['name'][:40], self.styles['TableBodyStyle']),
-                    Paragraph(m['unit'], self.styles['TableBodyStyle']),
                     Paragraph(f"{m['qty']:,.2f}", self.styles['TableBodyStyleRight']),
+                    Paragraph(m['unit'], self.styles['TableBodyStyle']),
                     Paragraph(f"{symbol} {avg_rate:,.2f}", self.styles['TableBodyStyleRight']),
                     Paragraph(f"{symbol} {m['cost']:,.2f}", self.styles['TableBodyStyleRight']),
                 ])
@@ -1517,7 +1570,7 @@ class ExecutiveAnalyticsReportGenerator:
                 Paragraph(f"<b>{symbol} {mat_total:,.2f}</b>", self.styles['TableBodyStyleBoldRight']),
             ])
             
-            bom_table = Table(bom_rows, colWidths=[180, 50, 80, 73, 100])
+            bom_table = Table(bom_rows, colWidths=[180, 80, 50, 73, 100])
             bom_table.setStyle(TableStyle([
                 ('BACKGROUND', (0,0), (-1,0), colors.HexColor('#f1f5f9')),
                 ('LINEBELOW', (0,0), (-1,0), 1, colors.HexColor('#94a3b8')),
