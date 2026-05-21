@@ -1307,7 +1307,7 @@ class ExecutiveAnalyticsReportGenerator:
             # Metadata Box
             meta_rows = [
                 [Paragraph("<b>Project Name</b>", self.styles['CoverMetaLabel']), Paragraph(meta['project_name'], self.styles['CoverMetaVal'])],
-                [Paragraph("<b>Target Client Name</b>", self.styles['CoverMetaLabel']), Paragraph(meta['client_name'], self.styles['CoverMetaVal'])],
+                [Paragraph("<b>Location</b>", self.styles['CoverMetaLabel']), Paragraph(meta['client_name'], self.styles['CoverMetaVal'])],
                 [Paragraph("<b>Date Generated</b>", self.styles['CoverMetaLabel']), Paragraph(QDate.currentDate().toString("dd MMM yyyy"), self.styles['CoverMetaVal'])],
             ]
             meta_box = Table(meta_rows, colWidths=[150, 333])
