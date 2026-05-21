@@ -384,48 +384,71 @@ class ParametricBenchmarkingAnalytic(QWidget):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
+            # Check if category column exists in estimates table
+            cursor.execute("PRAGMA table_info(estimates)")
+            cols = [col[1] for col in cursor.fetchall()]
+            has_category = "category" in cols
+
             # Find the estimate ID, Net Total, and Category for this rate code
-            cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
-            res = cursor.fetchone()
-            if not res: 
-                conn.close()
-                return None, 0.0, None
-            
-            est_id, net_total, category = res
+            if has_category:
+                cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
+                res = cursor.fetchone()
+                if not res: 
+                    conn.close()
+                    return None, 0.0, None
+                est_id, net_total, category = res
+            else:
+                cursor.execute("SELECT id, net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+                res = cursor.fetchone()
+                if not res: 
+                    conn.close()
+                    return None, 0.0, None
+                est_id, net_total = res
+                category = "Uncategorized"
             net_total = float(net_total or 0.0)
             
             comp = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Indirect': 0.0, 'Subcontractors': 0.0}
             
             # Query all associated resources
-            cursor.execute("""
-                SELECT SUM(price * quantity) FROM estimate_materials 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Materials'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(price * quantity) FROM estimate_materials 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Materials'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_labor 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Labor'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_labor 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Labor'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_equipment 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_equipment 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_plant 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Plant'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_plant 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Plant'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(amount) FROM estimate_indirect_costs 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(amount) FROM estimate_indirect_costs 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
             # Subcontractors in buildup (Join with quotes to get rates)
             try:

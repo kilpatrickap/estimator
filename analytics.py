@@ -84,6 +84,30 @@ class AnalyticsPane(QWidget):
             
         layout.addStretch()
         
+        # Stylized Export Executive Report button
+        self.export_btn = QPushButton("📄 Export Executive Report")
+        self.export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.export_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #1b5e20;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 10px;
+                font-weight: bold;
+                font-size: 9pt;
+                margin-top: 10px;
+            }
+            QPushButton:hover {
+                background-color: #2e7d32;
+            }
+            QPushButton:pressed {
+                background-color: #123e14;
+            }
+        """)
+        self.export_btn.clicked.connect(self.export_executive_report)
+        layout.addWidget(self.export_btn)
+        
         tip = QLabel("Select a category to view detailed reports.")
         tip.setWordWrap(True)
         tip.setStyleSheet("color: #666; font-style: italic; font-size: 8pt; margin-top: 10px;")
@@ -93,6 +117,65 @@ class AnalyticsPane(QWidget):
         for i, btn in enumerate(self.buttons):
             btn.setChecked(i == index)
         self.categorySelected.emit(index)
+
+    def export_executive_report(self):
+        if not self.owner or not hasattr(self.owner, 'project_dir'):
+            return
+            
+        project_dir = self.owner.project_dir
+        if not project_dir:
+            return
+            
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        
+        # Suggest a default filename
+        default_name = os.path.join(project_dir, "Project_Executive_Analytics_Report.pdf")
+        
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Executive Project Intelligence Report",
+            default_name,
+            "PDF Files (*.pdf)"
+        )
+        
+        if not file_path:
+            return
+            
+        # Ensure it ends with .pdf
+        if not file_path.lower().endswith('.pdf'):
+            file_path += '.pdf'
+            
+        try:
+            from report_generator import ExecutiveAnalyticsReportGenerator
+            
+            # Show a wait cursor while generating
+            from PyQt6.QtGui import QCursor
+            self.setCursor(QCursor(Qt.CursorShape.WaitCursor))
+            
+            generator = ExecutiveAnalyticsReportGenerator(project_dir)
+            success = generator.generate_report(file_path)
+            
+            self.unsetCursor()
+            
+            if success:
+                QMessageBox.information(
+                    self,
+                    "Export Successful",
+                    f"Executive Project Intelligence Report successfully generated and saved to:\n\n{file_path}"
+                )
+            else:
+                QMessageBox.critical(
+                    self,
+                    "Export Failed",
+                    "An error occurred while compiling the analytics or building the PDF report. Please verify that all priced BOQs are valid databases and are not currently open in another program."
+                )
+        except Exception as e:
+            self.unsetCursor()
+            QMessageBox.critical(
+                self,
+                "Export Error",
+                f"An unexpected error occurred:\n{str(e)}"
+            )
 
 class PlaceholderAnalytic(QWidget):
     """Generic view for analytics not yet implemented."""

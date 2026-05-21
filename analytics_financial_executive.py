@@ -298,48 +298,71 @@ class FinancialExecutiveAnalytic(QWidget):
             conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
             
+            # Check if category column exists in estimates table
+            cursor.execute("PRAGMA table_info(estimates)")
+            cols = [col[1] for col in cursor.fetchall()]
+            has_category = "category" in cols
+
             # Find the estimate ID, Net Total, and Category for this rate code
-            cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
-            res = cursor.fetchone()
-            if not res: 
-                conn.close()
-                return None, 0.0, None
-            
-            est_id, net_total, category = res
+            if has_category:
+                cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
+                res = cursor.fetchone()
+                if not res: 
+                    conn.close()
+                    return None, 0.0, None
+                est_id, net_total, category = res
+            else:
+                cursor.execute("SELECT id, net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+                res = cursor.fetchone()
+                if not res: 
+                    conn.close()
+                    return None, 0.0, None
+                est_id, net_total = res
+                category = "Uncategorized"
             net_total = float(net_total or 0.0)
             
             comp = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Indirect': 0.0, 'Subcontractors': 0.0}
             
             # Query all associated resources
-            cursor.execute("""
-                SELECT SUM(price * quantity) FROM estimate_materials 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Materials'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(price * quantity) FROM estimate_materials 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Materials'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_labor 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Labor'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_labor 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Labor'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_equipment 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_equipment 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(rate * hours) FROM estimate_plant 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Plant'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(rate * hours) FROM estimate_plant 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Plant'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
-            cursor.execute("""
-                SELECT SUM(amount) FROM estimate_indirect_costs 
-                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
-            """, (est_id,))
-            comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            try:
+                cursor.execute("""
+                    SELECT SUM(amount) FROM estimate_indirect_costs 
+                    WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+                """, (est_id,))
+                comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            except: pass
             
             # Subcontractors in buildup (Join with quotes to get rates)
             try:
@@ -373,6 +396,75 @@ class FinancialExecutiveAnalytic(QWidget):
                     return data.get('mappings', {})
             except: pass
         return {}
+
+    def _get_subcontractor_target_rates(self, desc, subbee_code):
+        """
+        Retrieves the original target rates (PlugRate, SubbeeRate) for a subcontractor item
+        from the Master database pboq_items table.
+        """
+        target_plug_rate = 0.0
+        target_subbee_rate = 0.0
+        
+        # Determine the master database file path
+        if not hasattr(self, 'master_db_path'):
+            self.master_db_path = None
+            if os.path.exists(self.pj_db_dir):
+                dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+                if dbs:
+                    self.master_db_path = os.path.join(self.pj_db_dir, dbs[0])
+                    
+        if not self.master_db_path:
+            return None
+            
+        try:
+            conn = sqlite3.connect(self.master_db_path)
+            cursor = conn.cursor()
+            cursor.execute("PRAGMA table_info(pboq_items)")
+            cols = [info[1] for info in cursor.fetchall()]
+            
+            p_col = next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None)
+            s_col = next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None)
+            c_col = next((c for c in cols if c.lower() in ["subbeecode", "sub_code"]), None)
+            d_col = next((c for c in cols if c.lower() in ["description", "desc"]), None)
+            
+            if not p_col or not s_col or not c_col or not d_col:
+                conn.close()
+                return None
+                
+            code_target = None
+            if subbee_code and len(subbee_code) > 0:
+                code_target = subbee_code[:-1] + 'A'
+                
+            # 1. Try with code target
+            if code_target:
+                cursor.execute(f"SELECT \"{p_col}\", \"{s_col}\" FROM pboq_items WHERE \"{c_col}\" = ?", (code_target,))
+                res = cursor.fetchone()
+                if res:
+                    target_plug_rate, target_subbee_rate = float(res[0] or 0.0), float(res[1] or 0.0)
+                    conn.close()
+                    return target_plug_rate, target_subbee_rate
+                    
+            # 2. Try with description and code ends with 'A'
+            cursor.execute(f"SELECT \"{p_col}\", \"{s_col}\" FROM pboq_items WHERE \"{d_col}\" = ? AND \"{c_col}\" LIKE '%A'", (desc,))
+            res = cursor.fetchone()
+            if res:
+                target_plug_rate, target_subbee_rate = float(res[0] or 0.0), float(res[1] or 0.0)
+                conn.close()
+                return target_plug_rate, target_subbee_rate
+                
+            # 3. Try with description only
+            cursor.execute(f"SELECT \"{p_col}\", \"{s_col}\" FROM pboq_items WHERE \"{d_col}\" = ?", (desc,))
+            res = cursor.fetchone()
+            if res:
+                target_plug_rate, target_subbee_rate = float(res[0] or 0.0), float(res[1] or 0.0)
+                conn.close()
+                return target_plug_rate, target_subbee_rate
+                
+            conn.close()
+        except Exception as e:
+            print("Error retrieving target subcontractor rates:", e)
+            
+        return None
 
     def refresh_data(self):
         self._load_project_settings()
@@ -422,11 +514,12 @@ class FinancialExecutiveAnalytic(QWidget):
                     'sub_name': next((c for c in cols if c.lower() in ["sub_name", "subname", "subbeename"]), None),
                     'sub_cat': next((c for c in cols if c.lower() in ["subbeecategory", "sub_category"]), None),
                     'prov_cat': next((c for c in cols if c.lower() in ["provsumcategory", "prov_sum_category"]), None),
-                    'pc_cat': next((c for c in cols if c.lower() in ["pcsumcategory", "pc_sum_category"]), None)
+                    'pc_cat': next((c for c in cols if c.lower() in ["pcsumcategory", "pc_sum_category"]), None),
+                    'sub_code': next((c for c in cols if c.lower() in ["subbeecode", "sub_code"]), None)
                 }
                 
                 query_parts = ["Sheet", f"\"{d_col}\"", f"\"{q_col}\"", f"\"{b_col}\""]
-                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw', 'sub_pkg', 'sub_name', 'prov_cat', 'pc_cat', 'sub_cat']:
+                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw', 'sub_pkg', 'sub_name', 'prov_cat', 'pc_cat', 'sub_cat', 'sub_code']:
                     v = src_cols.get(k)
                     query_parts.append(f"\"{v}\"" if v else "''")
                 
@@ -436,7 +529,7 @@ class FinancialExecutiveAnalytic(QWidget):
                 s_agg = {} # Sectional aggregate (Per File)
 
                 for r in rows:
-                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw, s_pkg, s_n, pr_cat, pc_c, s_cat = r
+                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw, s_pkg, s_n, pr_cat, pc_c, s_cat, s_code = r
                     desc_low = (desc or "").lower()
                     
                     if "collection" in desc_low or "summary" in desc_low:
@@ -498,45 +591,59 @@ class FinancialExecutiveAnalytic(QWidget):
                     calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
                     item_cost = unit_cost * calc_qty
                     
-                    # 2. Resource distribution
-                    if is_prelim:
-                        dist['Risk'] += item_cost
-                    elif ratios:
-                        dist['Materials'] += item_cost * ratios.get('Materials', 0.0)
-                        dist['Labor'] += item_cost * ratios.get('Labor', 0.0)
-                        dist['Plant'] += item_cost * ratios.get('Plant', 0.0)
-                        dist['Equipment'] += item_cost * ratios.get('Equipment', 0.0)
-                        dist['Subcontractors'] += item_cost * ratios.get('Subcontractors', 0.0)
-                        dist['Risk'] += item_cost * ratios.get('Indirect', 0.0)
-                    else:
-                        if p_val > 0: dist['Materials'] += item_cost
-                        elif s_val > 0: dist['Subcontractors'] += item_cost
-                        elif g_val > 0: dist['Labor'] += item_cost
-                        elif d_val > 0: dist['Labor'] += item_cost
-                        elif is_fixed: dist['Risk'] += item_cost
+                    # Calculate original/target subcontractor values if applicable
+                    sub_bid = bill_f
+                    sub_cost = item_cost
+                    if sub_ratio > 0:
+                        target_rates = self._get_subcontractor_target_rates(desc, s_code)
+                        if target_rates:
+                            target_plug_rate, target_subbee_rate = target_rates
+                            sub_bid = target_plug_rate * calc_qty
+                            sub_cost = target_subbee_rate * calc_qty
 
-                    t_bid += round(bill_f, 2)
-                    t_cost += round(item_cost, 2)
+                    # Split into subcontractor and non-subcontractor components
+                    eff_bid = (sub_bid * sub_ratio) + (bill_f * (1.0 - sub_ratio))
+                    eff_cost = (sub_cost * sub_ratio) + (item_cost * (1.0 - sub_ratio))
+
+                    # 2. Resource distribution
+                    dist_cost = eff_cost
+                    if is_prelim:
+                        dist['Risk'] += dist_cost
+                    elif ratios:
+                        dist['Materials'] += dist_cost * ratios.get('Materials', 0.0)
+                        dist['Labor'] += dist_cost * ratios.get('Labor', 0.0)
+                        dist['Plant'] += dist_cost * ratios.get('Plant', 0.0)
+                        dist['Equipment'] += dist_cost * ratios.get('Equipment', 0.0)
+                        dist['Subcontractors'] += dist_cost * ratios.get('Subcontractors', 0.0)
+                        dist['Risk'] += dist_cost * ratios.get('Indirect', 0.0)
+                    else:
+                        if p_val > 0: dist['Materials'] += dist_cost
+                        elif s_val > 0: dist['Subcontractors'] += dist_cost
+                        elif g_val > 0: dist['Labor'] += dist_cost
+                        elif d_val > 0: dist['Labor'] += dist_cost
+                        elif is_fixed: dist['Risk'] += dist_cost
+
+                    t_bid += round(eff_bid, 2)
+                    t_cost += round(eff_cost, 2)
                     if is_fixed:
-                        t_fixed_cost += round(item_cost, 2)
+                        t_fixed_cost += round(eff_cost, 2)
                     if not is_prelim:
-                        all_items.append((desc or "Unnamed", bill_f))
+                        all_items.append((desc or "Unnamed", eff_bid))
                     if sheet not in s_agg: s_agg[sheet] = [0.0, 0.0]
-                    s_agg[sheet][0] += bill_f
-                    s_agg[sheet][1] += item_cost
+                    s_agg[sheet][0] += eff_bid
+                    s_agg[sheet][1] += eff_cost
                     
                     if category not in c_agg: c_agg[category] = [0.0, 0.0]
-                    c_agg[category][0] += bill_f
-                    c_agg[category][1] += item_cost
-
+                    c_agg[category][0] += eff_bid
+                    c_agg[category][1] += eff_cost
                     
                     # Subcontractor Analysis Aggregation
                     if sub_ratio > 0:
                         pkg_key = str(s_pkg).strip() or "General Sub"
                         sub_key = f"{pkg_key} ({str(s_n).strip() or 'Unknown Sub'})"
                         if sub_key not in sub_agg: sub_agg[sub_key] = [0.0, 0.0]
-                        sub_agg[sub_key][0] += bill_f * sub_ratio
-                        sub_agg[sub_key][1] += item_cost * sub_ratio
+                        sub_agg[sub_key][0] += sub_bid * sub_ratio
+                        sub_agg[sub_key][1] += sub_cost * sub_ratio
                     
                 for s, v in s_agg.items():
                     clean_name = f.replace('.db', '').replace('PBOQ_', '')
