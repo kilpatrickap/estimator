@@ -1306,12 +1306,9 @@ class ExecutiveAnalyticsReportGenerator:
             
             # Metadata Box
             meta_rows = [
-                [Paragraph("<b>Project Folder</b>", self.styles['CoverMetaLabel']), Paragraph(os.path.basename(self.project_dir), self.styles['CoverMetaVal'])],
                 [Paragraph("<b>Project Name</b>", self.styles['CoverMetaLabel']), Paragraph(meta['project_name'], self.styles['CoverMetaVal'])],
                 [Paragraph("<b>Target Client Name</b>", self.styles['CoverMetaLabel']), Paragraph(meta['client_name'], self.styles['CoverMetaVal'])],
                 [Paragraph("<b>Date Generated</b>", self.styles['CoverMetaLabel']), Paragraph(QDate.currentDate().toString("dd MMM yyyy"), self.styles['CoverMetaVal'])],
-                [Paragraph("<b>Project Currency</b>", self.styles['CoverMetaLabel']), Paragraph(f"{symbol} ({meta['currency_symbol']})", self.styles['CoverMetaVal'])],
-                [Paragraph("<b>Total Estimate Value</b>", self.styles['CoverMetaLabel']), Paragraph(f"<b>{symbol} {data['total_bid_value']:,.2f}</b>", self.styles['CoverMetaVal'])],
             ]
             meta_box = Table(meta_rows, colWidths=[150, 333])
             meta_box.setStyle(TableStyle([
@@ -1339,7 +1336,7 @@ class ExecutiveAnalyticsReportGenerator:
                     Paragraph("<b>Page No.</b>", self.styles['TableHeaderStyle'])
                 ],
                 [
-                    Paragraph("<b>1. CFO Executive Brief</b>", self.styles['TableBodyStyleBold']),
+                    Paragraph("<b>1. Financial Executive Brief</b>", self.styles['TableBodyStyleBold']),
                     Paragraph("Consolidated financial bridge, gross project bid, overheads, and target profit margins.", self.styles['TableBodyStyle']),
                     Paragraph("<b>Page 3</b>", self.styles['TableBodyStyleBold'])
                 ],
@@ -1375,7 +1372,7 @@ class ExecutiveAnalyticsReportGenerator:
             story.append(PageBreak())
             
             # --- PAGE 3: CFO EXECUTIVE SUMMARY & BRIDGE ---
-            story.append(Paragraph("1. CFO Executive Brief", self.styles['SectionHeader']))
+            story.append(Paragraph("1. Financial Executive Brief", self.styles['SectionHeader']))
             story.append(Paragraph("Consolidated cross-project pricing dashboard showcasing baseline resource net costs, overhead allocations, and expected profitability margins.", self.styles['BodyDesc']))
             story.append(Spacer(1, 10))
             
@@ -1632,7 +1629,7 @@ class ExecutiveAnalyticsReportGenerator:
             story.append(Spacer(1, 15))
             
             # GFA Benchmarking Table
-            story.append(Paragraph("<b>Gross Floor Area (GFA) Parametric Benchmarking</b>", self.styles['Normal']))
+            story.append(Paragraph("<b>Cost Modelling Benchmarking</b>", self.styles['Normal']))
             story.append(Spacer(1, 5))
             
             bench = data['benchmark']
@@ -1643,7 +1640,7 @@ class ExecutiveAnalyticsReportGenerator:
                 [Paragraph("Quality Finish Specification", self.styles['TableBodyStyle']), Paragraph(bench['spec'], self.styles['TableBodyStyle'])],
                 [Paragraph("Architectural Complexity", self.styles['TableBodyStyle']), Paragraph(bench['complexity'], self.styles['TableBodyStyle'])],
                 [Paragraph("Site & Ground Conditions", self.styles['TableBodyStyle']), Paragraph(bench['site'], self.styles['TableBodyStyle'])],
-                [Paragraph("Configured GFA Volume", self.styles['TableBodyStyle']), Paragraph(f"<b>{bench['gfa']:,.1f} m²</b>", self.styles['TableBodyStyle'])],
+                [Paragraph("Gross Floor Area (GFA)", self.styles['TableBodyStyle']), Paragraph(f"<b>{bench['gfa']:,.1f} m²</b>", self.styles['TableBodyStyle'])],
                 [Paragraph("Simulated Target $/m² Rate", self.styles['TableBodyStyle']), Paragraph(f"<b>{symbol} {bench['simulated_rate']:,.2f} / m²</b>", self.styles['TableBodyStyle'])],
                 [Paragraph("Actual Bid Project $/m² Rate", self.styles['TableBodyStyleBold']), Paragraph(f"<font color='#1b5e20'><b>{symbol} {bench['actual_rate']:,.2f} / m²</b></font> (Based on {symbol} {data['total_bid_value']:,.1f})", self.styles['TableBodyStyleBold'])],
             ]
