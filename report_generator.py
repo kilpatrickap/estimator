@@ -1292,7 +1292,7 @@ class ExecutiveAnalyticsReportGenerator:
             # --- PAGE 1: COVER PAGE ---
             story.append(Spacer(1, 120))
             story.append(Paragraph("EXECUTIVE PROJECT INTELLIGENCE REPORT", self.styles['ExecTitle']))
-            story.append(Paragraph("Comprehensive Portfolio Analytics & Financial Audit", self.styles['ExecSubtitle']))
+            story.append(Paragraph("Comprehensive Project Analytics & Financial Audit", self.styles['ExecSubtitle']))
             
             # Horizontal Divider
             dec_table = Table([[""]], colWidths=[483], rowHeights=[4])
