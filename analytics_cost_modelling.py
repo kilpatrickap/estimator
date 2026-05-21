@@ -853,7 +853,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         formula_lay = QVBoxLayout(formula_box)
         formula_lay.setContentsMargins(5, 5, 5, 5)
         
-        formula_math = QLabel("Cost per m² = Total Construction Cost / Gross Floor Area (GFA) or Plinth Area")
+        formula_math = QLabel("Cost per m² = Total Construction Cost / Gross Floor Area (GFA)")
         formula_math.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 11px;")
         formula_math.setAlignment(Qt.AlignmentFlag.AlignCenter)
         formula_lay.addWidget(formula_math)
