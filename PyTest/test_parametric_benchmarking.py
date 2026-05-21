@@ -9,7 +9,7 @@ from PyQt6.QtCore import Qt
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from analytics_parametric_benchmarking import ParametricBenchmarkingAnalytic
+from analytics_cost_modelling import ParametricBenchmarkingAnalytic
 
 @pytest.fixture(scope="module")
 def qapp():

@@ -1,4 +1,4 @@
-# analytics_parametric_benchmarking.py
+# analytics_cost_modelling.py
 
 import os
 import sqlite3
@@ -82,47 +82,48 @@ class BenchmarkingRangeChart(QWidget):
         x_end = to_x(scale_max)
         
         # Segment 1: Low-Cost / Economical / High Risk (Yellow/Orange to Green)
-        grad_low = QLinearGradient(QPointF(x_start, bar_y), QPointF(x_min_norm, bar_y))
+        grad_low = QLinearGradient(QPointF(x_start, bar_y), QPointF(x_min_norm - 2, bar_y))
         grad_low.setColorAt(0, QColor("#ef6c00")) # High variance / Risk
         grad_low.setColorAt(1, QColor("#81c784")) # Competitively low cost
         painter.setBrush(QBrush(grad_low))
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawRoundedRect(QRectF(x_start, bar_y, x_min_norm - x_start, bar_h), 6, 6)
+        painter.drawRoundedRect(QRectF(x_start, bar_y, x_min_norm - x_start - 2, bar_h), 6, 6)
         
         # Segment 2: Optimal / Competitive Budget Range (Green)
-        grad_opt = QLinearGradient(QPointF(x_min_norm, bar_y), QPointF(x_max_norm, bar_y))
+        grad_opt = QLinearGradient(QPointF(x_min_norm + 2, bar_y), QPointF(x_max_norm - 2, bar_y))
         grad_opt.setColorAt(0, QColor("#81c784"))
         grad_opt.setColorAt(0.5, QColor("#4caf50"))
         grad_opt.setColorAt(1, QColor("#81c784"))
         painter.setBrush(QBrush(grad_opt))
-        painter.drawRect(QRectF(x_min_norm, bar_y, x_max_norm - x_min_norm, bar_h))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(QRectF(x_min_norm + 2, bar_y, x_max_norm - x_min_norm - 4, bar_h), 6, 6)
         
         # Segment 3: Premium / High Spec Range (Green to Red)
-        grad_high = QLinearGradient(QPointF(x_max_norm, bar_y), QPointF(x_end, bar_y))
+        grad_high = QLinearGradient(QPointF(x_max_norm + 2, bar_y), QPointF(x_end, bar_y))
         grad_high.setColorAt(0, QColor("#81c784"))
         grad_high.setColorAt(0.6, QColor("#e53935")) # Very high budget
         grad_high.setColorAt(1, QColor("#b71c1c")) # Extreme/Luxury
         painter.setBrush(QBrush(grad_high))
-        painter.drawRoundedRect(QRectF(x_max_norm, bar_y, x_end - x_max_norm, bar_h), 6, 6)
+        painter.drawRoundedRect(QRectF(x_max_norm + 2, bar_y, x_end - x_max_norm - 2, bar_h), 6, 6)
 
         # Draw segment boundaries & division text
         painter.setFont(QFont("Inter", 8, QFont.Weight.Medium))
         painter.setPen(QPen(QColor("#64748b")))
         
         # Draw min/max markers below the bar
-        painter.drawText(QRectF(x_min_norm - 60, bar_y + bar_h + 8, 120, 20), 
+        painter.drawText(QRectF(x_min_norm - 60, bar_y + bar_h + 8, 120, 30), 
                          Qt.AlignmentFlag.AlignCenter, 
                          f"Min Norm\n{self.currency_symbol}{self.min_normal:,.0f}")
-        painter.drawText(QRectF(x_max_norm - 60, bar_y + bar_h + 8, 120, 20), 
+        painter.drawText(QRectF(x_max_norm - 60, bar_y + bar_h + 8, 120, 30), 
                          Qt.AlignmentFlag.AlignCenter, 
                          f"Max Norm\n{self.currency_symbol}{self.max_normal:,.0f}")
 
         # Draw scale bounds
-        painter.setFont(QFont("Inter", 7))
-        painter.drawText(QRectF(x_start - 30, bar_y + bar_h + 8, 60, 20), 
+        painter.setFont(QFont("Inter", 8, QFont.Weight.Medium))
+        painter.drawText(QRectF(x_start - 30, bar_y + bar_h + 8, 60, 30), 
                          Qt.AlignmentFlag.AlignCenter, 
                          f"{self.currency_symbol}{scale_min:,.0f}")
-        painter.drawText(QRectF(x_end - 30, bar_y + bar_h + 8, 60, 20), 
+        painter.drawText(QRectF(x_end - 30, bar_y + bar_h + 8, 60, 30), 
                          Qt.AlignmentFlag.AlignCenter, 
                          f"{self.currency_symbol}{scale_max:,.0f}")
 
@@ -142,9 +143,12 @@ class BenchmarkingRangeChart(QWidget):
             # Label
             painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
             painter.setPen(QPen(pin_color))
-            painter.drawText(QRectF(xs - 100, bar_y - 28, 200, 18), 
+            lbl_w = 200
+            lbl_x = xs - lbl_w / 2
+            lbl_x = max(8.0, min(float(w - lbl_w - 8), lbl_x))
+            painter.drawText(QRectF(lbl_x, bar_y - 28, lbl_w, 18), 
                              Qt.AlignmentFlag.AlignCenter, 
-                             f"SIMULATED: {self.currency_symbol}{self.simulated_rate:,.1f}/m²")
+                             f"SIMULATED: {self.currency_symbol}{self.simulated_rate:,.2f}/m²")
 
         # Draw actual project rate indicator (bottom of bar)
         if self.actual_rate > 0:
@@ -162,9 +166,12 @@ class BenchmarkingRangeChart(QWidget):
             # Label
             painter.setFont(QFont("Inter", 8, QFont.Weight.Bold))
             painter.setPen(QPen(act_color))
-            painter.drawText(QRectF(xa - 100, bar_y + bar_h + 38, 200, 18), 
+            lbl_w = 200
+            lbl_x = xa - lbl_w / 2
+            lbl_x = max(8.0, min(float(w - lbl_w - 8), lbl_x))
+            painter.drawText(QRectF(lbl_x, bar_y + bar_h + 38, lbl_w, 18), 
                              Qt.AlignmentFlag.AlignCenter, 
-                             f"ACTUAL: {self.currency_symbol}{self.actual_rate:,.1f}/m²")
+                             f"ACTUAL: {self.currency_symbol}{self.actual_rate:,.2f}/m²")
 
 
 class ParametricBreakdownChart(QWidget):
@@ -204,30 +211,26 @@ class ParametricBreakdownChart(QWidget):
         bar_w = w - 2 * margin_x
         bar_y = margin_y
         
-        # Draw stacked bar
+        # Draw stacked bar as premium rounded pills with 4px gaps
         current_x = float(margin_x)
-        for label, val, color in self.cost_drivers:
-            if val <= 0: continue
+        active_drivers = [d for d in self.cost_drivers if d[1] > 0]
+        
+        for label, val, color in active_drivers:
             seg_w = (val / total) * bar_w
             
-            grad = QLinearGradient(QPointF(current_x, bar_y), QPointF(current_x + seg_w, bar_y))
+            # Adjust starting x and width to incorporate a clean 4px gap between pills
+            draw_x = current_x + 2
+            draw_w = max(2.0, seg_w - 4)
+            
+            grad = QLinearGradient(QPointF(draw_x, bar_y), QPointF(draw_x + draw_w, bar_y))
             grad.setColorAt(0, QColor(color))
             grad.setColorAt(1, QColor(color).lighter(110))
             
             painter.setBrush(QBrush(grad))
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRect(QRectF(current_x, bar_y, seg_w, bar_h))
-            
-            # Subtle vertical grid line divider
-            painter.setPen(QPen(QColor("white"), 1))
-            painter.drawLine(QPointF(current_x + seg_w, bar_y), QPointF(current_x + seg_w, bar_y + bar_h))
+            painter.drawRoundedRect(QRectF(draw_x, bar_y, draw_w, bar_h), 6, 6)
             
             current_x += seg_w
-
-        # Draw a beautiful outer frame around the stacked bar
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.setPen(QPen(QColor("#e2e8f0"), 1.5))
-        painter.drawRoundedRect(QRectF(margin_x, bar_y, bar_w, bar_h), 2, 2)
         
         # Draw Legends & Driver Details
         legend_x = margin_x
@@ -587,7 +590,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         
         # 1. Header Area
         header_container = QVBoxLayout()
-        header = QLabel("Parametric Benchmarking (Cost/m²)")
+        header = QLabel("Cost Modelling (Cost/m²)")
         header.setStyleSheet("font-family: 'Outfit'; font-size: 26px; font-weight: 800; color: #1b5e20;")
         header_container.addWidget(header)
         line = QFrame()
@@ -608,7 +611,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         input_layout.setContentsMargins(20, 20, 20, 20)
         input_layout.setSpacing(15)
         
-        input_title = QLabel("Parametric Estimator & Scenario Modeler")
+        input_title = QLabel("Cost Model")
         input_title.setStyleSheet("font-family: 'Inter'; font-weight: 700; color: #1e293b; font-size: 15px;")
         input_layout.addWidget(input_title)
         
@@ -768,50 +771,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         self.site_combo.setStyleSheet("padding: 8px; border-radius: 6px; border: 1px solid #cbd5e1; background: white; font-family: 'Inter'; font-size: 11px;")
         input_layout.addWidget(self.site_combo)
         
-        # Divider Line
-        div_l = QFrame()
-        div_l.setFrameShape(QFrame.Shape.HLine)
-        div_l.setStyleSheet("background-color: #f1f5f9; min-height: 1px;")
-        input_layout.addWidget(div_l)
-        
-        # Project Benchmarker Section (Integrates current priced PBOQs)
-        proj_title = QLabel("Actual Project Estimator")
-        proj_title.setStyleSheet("font-family: 'Inter'; font-weight: 700; color: #1e40af; font-size: 13px; margin-top: 5px;")
-        input_layout.addWidget(proj_title)
-        
-        act_gfa_lay = QHBoxLayout()
-        act_gfa_lbl = QLabel("Actual GFA input (m²):")
-        act_gfa_lbl.setStyleSheet("font-weight: 600; color: #475569; font-size: 11px;")
-        act_gfa_lay.addWidget(act_gfa_lbl)
-        
-        self.act_gfa_spin = QDoubleSpinBox()
-        self.act_gfa_spin.setMinimum(1.0)
-        self.act_gfa_spin.setMaximum(100000.0)
-        self.act_gfa_spin.setValue(180.0)
-        self.act_gfa_spin.valueChanged.connect(self.refresh_calculations)
-        self.act_gfa_spin.setStyleSheet("padding: 5px; border-radius: 6px; border: 1px solid #cbd5e1; font-family: 'Consolas'; font-size: 11px;")
-        act_gfa_lay.addWidget(self.act_gfa_spin)
-        input_layout.addLayout(act_gfa_lay)
-        
-        self.refresh_btn = QPushButton("🔄 Scan Project Databases")
-        self.refresh_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.refresh_btn.clicked.connect(self.refresh_data)
-        self.refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #f1f5f9;
-                color: #1e293b;
-                border: 1px solid #cbd5e1;
-                border-radius: 6px;
-                padding: 8px;
-                font-weight: 600;
-                font-size: 10px;
-                font-family: 'Inter';
-            }
-            QPushButton:hover {
-                background-color: #e2e8f0;
-            }
-        """)
-        input_layout.addWidget(self.refresh_btn)
+
         
         main_grid.addWidget(input_panel, 0, 0, 2, 1)
         
@@ -829,11 +789,10 @@ class ParametricBenchmarkingAnalytic(QWidget):
         kpi_lay.addWidget(self.card_sim_total)
         kpi_lay.addWidget(self.card_act_rate)
         
-        main_grid.addWidget(kpi_parent, 0, 1)
-        
         # Right Panel Bottom: Dynamic Custom Painted Graphical Charts
         charts_frame = QFrame()
         charts_frame.setStyleSheet("background-color: white; border-radius: 16px; border: 1px solid #e2e8f0;")
+        charts_frame.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         charts_lay = QVBoxLayout(charts_frame)
         charts_lay.setContentsMargins(20, 20, 20, 20)
         charts_lay.setSpacing(10)
@@ -852,88 +811,101 @@ class ParametricBenchmarkingAnalytic(QWidget):
         self.breakdown_chart = ParametricBreakdownChart()
         charts_lay.addWidget(self.breakdown_chart)
         
-        main_grid.addWidget(charts_frame, 1, 1)
+        # Combine right elements into a vertical layout aligned top
+        right_panel_lay = QVBoxLayout()
+        right_panel_lay.setContentsMargins(0, 0, 0, 0)
+        right_panel_lay.setSpacing(20)
+        right_panel_lay.addWidget(kpi_parent)
+        right_panel_lay.addWidget(charts_frame)
+        
+        main_grid.addLayout(right_panel_lay, 0, 1, 2, 1)
         content_layout.addLayout(main_grid)
         
         # 3. Informational & Educational Card Section (Formula Guide)
+        # 3. Informational & Educational Card Section (Formula Guide)
         edu_card = QFrame()
-        edu_card.setStyleSheet("background-color: #f8fafc; border-radius: 16px; border: 1.5px dashed #cbd5e1;")
+        edu_card.setObjectName("edu_card")
+        edu_card.setStyleSheet("""
+            #edu_card {
+                background-color: #f8fafc;
+                border-radius: 12px;
+                border: 1px solid #e2e8f0;
+            }
+            QLabel {
+                border: none;
+                background: transparent;
+            }
+        """)
         edu_layout = QVBoxLayout(edu_card)
-        edu_layout.setContentsMargins(25, 25, 25, 25)
-        edu_layout.setSpacing(15)
+        edu_layout.setContentsMargins(15, 12, 15, 12)
+        edu_layout.setSpacing(10)
         
         edu_title_lay = QHBoxLayout()
-        edu_icon = QLabel("📐")
-        edu_icon.setStyleSheet("font-size: 22px;")
-        edu_title = QLabel("Quantity Surveyor's Guide to Cost/m² Parametrics")
-        edu_title.setStyleSheet("font-family: 'Outfit'; font-weight: bold; color: #0f172a; font-size: 18px;")
-        edu_title_lay.addWidget(edu_icon)
+        edu_title = QLabel("Guide to calculate Cost/m²")
+        edu_title.setStyleSheet("font-family: 'Outfit'; font-weight: bold; color: #0f172a; font-size: 14px;")
         edu_title_lay.addWidget(edu_title)
         edu_title_lay.addStretch()
         edu_layout.addLayout(edu_title_lay)
         
         formula_box = QFrame()
-        formula_box.setStyleSheet("background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 12px;")
+        formula_box.setObjectName("formula_box")
+        formula_box.setStyleSheet("#formula_box { background-color: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 6px; }")
         formula_lay = QVBoxLayout(formula_box)
+        formula_lay.setContentsMargins(5, 5, 5, 5)
         
         formula_math = QLabel("Cost per m² = Total Construction Cost / Gross Floor Area (GFA) or Plinth Area")
-        formula_math.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 13px;")
+        formula_math.setStyleSheet("font-family: 'Consolas'; font-weight: 700; color: #166534; font-size: 11px;")
         formula_math.setAlignment(Qt.AlignmentFlag.AlignCenter)
         formula_lay.addWidget(formula_math)
         edu_layout.addWidget(formula_box)
         
         body_lay = QHBoxLayout()
-        body_lay.setSpacing(20)
+        body_lay.setSpacing(15)
         
         col1_layout = QVBoxLayout()
-        col1_layout.setSpacing(10)
+        col1_layout.setSpacing(5)
         
         c1_t = QLabel("<b>Definitions & Scope</b>")
-        c1_t.setStyleSheet("font-size: 13px; color: #0f172a;")
+        c1_t.setStyleSheet("font-size: 11px; color: #0f172a;")
         col1_layout.addWidget(c1_t)
         
         c1_desc = QLabel(
             "<b>Total Construction Cost:</b> Includes structural work, secondary works, and standard finishes. "
-            "It generally excludes land purchase, site utility servicing, and external legal fees.<br/><br/>"
-            "<b>Gross Floor Area (GFA):</b> The total area of all floors measured to the outside face of external walls."
+            "Excludes land purchase and site utility servicing.<br/>"
+            "<b>Gross Floor Area (GFA):</b> Total area of all floors measured to the outside face of external walls."
         )
         c1_desc.setWordWrap(True)
-        c1_desc.setStyleSheet("color: #475569; font-size: 11px; line-height: 1.5;")
+        c1_desc.setStyleSheet("color: #475569; font-size: 10px; line-height: 1.3;")
         col1_layout.addWidget(c1_desc)
         
         c1_uses = QLabel("<b>Common Uses in Estimating</b>")
-        c1_uses.setStyleSheet("font-size: 13px; color: #0f172a; margin-top: 5px;")
+        c1_uses.setStyleSheet("font-size: 11px; color: #0f172a; margin-top: 2px;")
         col1_layout.addWidget(c1_uses)
         
         c1_uses_desc = QLabel(
-            "• <b>Feasibility Studies:</b> Helps clients understand if a project is financially viable.<br/>"
-            "• <b>Early-Stage Budgeting:</b> Allows estimators to scale costs based on project size before detailed designs exist.<br/>"
-            "• <b>Comparison:</b> Empowers quantity surveyors to benchmark quotes against past, similar projects."
+            "• <b>Feasibility & Budgeting:</b> Scaled early-stage pricing before detailed designs exist.<br/>"
+            "• <b>Comparison:</b> Benchmark contractor quotes against historical project data."
         )
         c1_uses_desc.setWordWrap(True)
-        c1_uses_desc.setStyleSheet("color: #475569; font-size: 11px; line-height: 1.5;")
+        c1_uses_desc.setStyleSheet("color: #475569; font-size: 10px; line-height: 1.3;")
         col1_layout.addWidget(c1_uses_desc)
         
         col2_layout = QVBoxLayout()
-        col2_layout.setSpacing(10)
+        col2_layout.setSpacing(5)
         
         c2_t = QLabel("<b>Key Variables That Distort Cost/m²</b>")
-        c2_t.setStyleSheet("font-size: 13px; color: #c2410c;")
+        c2_t.setStyleSheet("font-size: 11px; color: #c2410c;")
         col2_layout.addWidget(c2_t)
         
         c2_desc = QLabel(
-            "Relying solely on a single flat rate can be highly inaccurate because no two buildings are identical. "
-            "Costs scale drastically based on the following:<br/><br/>"
-            "• <b>Room Functionality:</b> 'Wet areas' like kitchens and bathrooms cost significantly more per m² "
-            "than bedrooms due to heavy plumbing, high-end cabinetry, and premium tiling.<br/>"
-            "• <b>Building Complexity:</b> Complex, multi-angled perimeters require more structural materials, forming, "
-            "and labor than simple square footprints, driving up the rates.<br/>"
-            "• <b>Quality of Specification:</b> High-end, premium finishes easily double or triple the basic structural rate.<br/>"
-            "• <b>Site Conditions:</b> Difficult soil, steep slopes, or poor utility access create heavy groundwork "
-            "expenses that are independent of the building's floor area."
+            "Flat rates can distort expectations. Costs vary based on the following:<br/>"
+            "• <b>Room Function:</b> Wet areas (bathrooms/kitchens) cost more due to piping and tiling.<br/>"
+            "• <b>Complexity:</b> Multi-angled perimeters increase forming and structural demands.<br/>"
+            "• <b>Specification:</b> High-end finishes easily double or triple basic structural rates.<br/>"
+            "• <b>Site Conditions:</b> Groundwork and steep slopes add costs independent of floor area."
         )
         c2_desc.setWordWrap(True)
-        c2_desc.setStyleSheet("color: #475569; font-size: 11px; line-height: 1.5;")
+        c2_desc.setStyleSheet("color: #475569; font-size: 10px; line-height: 1.3;")
         col2_layout.addWidget(c2_desc)
         
         body_lay.addLayout(col1_layout, 1)
@@ -942,20 +914,28 @@ class ParametricBenchmarkingAnalytic(QWidget):
         
         # Source Citation & PDF Open Section
         source_box = QFrame()
-        source_box.setStyleSheet("background-color: #f1f5f9; border-radius: 12px; border: 1px solid #e2e8f0; padding: 15px; margin-top: 10px;")
+        source_box.setObjectName("source_box")
+        source_box.setStyleSheet("""
+            #source_box {
+                background-color: #f1f5f9;
+                border-radius: 8px;
+                border: 1px solid #e2e8f0;
+                padding: 8px;
+                margin-top: 4px;
+            }
+        """)
         source_lay = QHBoxLayout(source_box)
-        source_lay.setContentsMargins(15, 10, 15, 10)
-        source_lay.setSpacing(15)
+        source_lay.setContentsMargins(10, 4, 10, 4)
+        source_lay.setSpacing(10)
         
         cite_icon = QLabel("📖")
-        cite_icon.setStyleSheet("font-size: 20px; border: none; background: transparent;")
+        cite_icon.setStyleSheet("font-size: 16px;")
         
         cite_txt = QLabel(
-            "<b>Institutional Reference Source:</b> "
-            "Ghana Institution of Surveyors (GhIS) Standard Cost Indices & "
+            "<b>Reference Source:</b> "
             "<b>AECOM Africa Property & Construction Cost Guide 2025</b>."
         )
-        cite_txt.setStyleSheet("color: #334155; font-size: 11px; font-family: 'Inter'; border: none; background: transparent;")
+        cite_txt.setStyleSheet("color: #334155; font-size: 10px; font-family: 'Inter';")
         cite_txt.setWordWrap(True)
         
         self.open_pdf_btn = QPushButton("📄 Open AECOM Cost Guide 2025")
@@ -966,10 +946,10 @@ class ParametricBenchmarkingAnalytic(QWidget):
                 background-color: #1e40af;
                 color: white;
                 border: none;
-                border-radius: 8px;
-                padding: 10px 16px;
+                border-radius: 6px;
+                padding: 6px 12px;
                 font-weight: bold;
-                font-size: 11px;
+                font-size: 10px;
                 font-family: 'Inter';
             }
             QPushButton:hover {
@@ -1082,7 +1062,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
         )
         
         # Actual Project KPI Card Calculation
-        actual_gfa = self.act_gfa_spin.value()
+        actual_gfa = gfa
         if self.actual_project_net > 0 and actual_gfa > 0:
             actual_rate = self.actual_project_net / actual_gfa
             self.card_act_rate.update_value(
@@ -1124,8 +1104,7 @@ class ParametricBenchmarkingAnalytic(QWidget):
             "spec_idx": self.spec_combo.currentIndex(),
             "complexity_idx": self.comp_combo.currentIndex(),
             "wet_areas": self.wet_spin.value(),
-            "site_conditions_idx": self.site_combo.currentIndex(),
-            "actual_gfa": self.act_gfa_spin.value()
+            "site_conditions_idx": self.site_combo.currentIndex()
         }
         
         try:
@@ -1152,7 +1131,6 @@ class ParametricBenchmarkingAnalytic(QWidget):
             self.comp_combo.blockSignals(True)
             self.wet_spin.blockSignals(True)
             self.site_combo.blockSignals(True)
-            self.act_gfa_spin.blockSignals(True)
             
             if "gfa" in state:
                 self.gfa_slider.setValue(state["gfa"])
@@ -1171,8 +1149,6 @@ class ParametricBenchmarkingAnalytic(QWidget):
                 self.wet_spin.setValue(state["wet_areas"])
             if "site_conditions_idx" in state:
                 self.site_combo.setCurrentIndex(state["site_conditions_idx"])
-            if "actual_gfa" in state:
-                self.act_gfa_spin.setValue(state["actual_gfa"])
                 
         except Exception as e:
             print(f"Error loading parametric benchmarking state: {e}")
@@ -1184,7 +1160,6 @@ class ParametricBenchmarkingAnalytic(QWidget):
             self.comp_combo.blockSignals(False)
             self.wet_spin.blockSignals(False)
             self.site_combo.blockSignals(False)
-            self.act_gfa_spin.blockSignals(False)
 
     def open_aecom_guide(self):
         """Attempts to open the AECOM Africa Cost Guide 2025 PDF using the default system viewer."""
