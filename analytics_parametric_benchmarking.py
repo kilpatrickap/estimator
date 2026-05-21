@@ -271,8 +271,10 @@ class ParametricBenchmarkingAnalytic(QWidget):
         super().__init__(parent)
         self.project_dir = project_dir
         self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
+        self.pj_db_dir = os.path.join(self.project_dir, "Project Database")
         self.currency_symbol = "$"
         self.actual_project_net = 0.0
+        self._rate_cache = {}
         
         # Load Project Constants/Base Settings
         self._load_currency()
@@ -301,11 +303,10 @@ class ParametricBenchmarkingAnalytic(QWidget):
             
         db_path = None
         try:
-            db_dir = os.path.join(self.project_dir, "Project Database")
-            if os.path.exists(db_dir):
-                dbs = [f for f in os.listdir(db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+            if os.path.exists(self.pj_db_dir):
+                dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
                 if dbs:
-                    db_path = os.path.join(db_dir, dbs[0])
+                    db_path = os.path.join(self.pj_db_dir, dbs[0])
         except Exception:
             pass
             
@@ -349,6 +350,102 @@ class ParametricBenchmarkingAnalytic(QWidget):
         }
         return fallbacks.get(self.currency_code, 1.0)
 
+    def _to_float(self, val):
+        if not val: return 0.0
+        if isinstance(val, (int, float)): return float(val)
+        try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+        except: return 0.0
+
+    def _get_pboq_mapping(self, db_filename):
+        """Loads column mapping from PBOQ States if available."""
+        mapping_file = os.path.join(self.project_dir, "PBOQ States", db_filename + ".json")
+        if os.path.exists(mapping_file):
+            try:
+                with open(mapping_file, 'r') as f:
+                    data = json.load(f)
+                    return data.get('mappings', {})
+            except: pass
+        return {}
+
+    def _get_rate_composition(self, rate_code):
+        """Analyzes a rate buildup and returns (ratios, unit_net_total)."""
+        if not rate_code: return None, 0.0
+        if rate_code in self._rate_cache: return self._rate_cache[rate_code]
+
+        try:
+            if not os.path.exists(self.pj_db_dir): return None, 0.0, None
+            dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+            if not dbs: return None, 0.0, None
+            
+            db_path = os.path.join(self.pj_db_dir, dbs[0])
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            
+            # Find the estimate ID, Net Total, and Category for this rate code
+            cursor.execute("SELECT id, net_total, category FROM estimates WHERE rate_code = ?", (rate_code,))
+            res = cursor.fetchone()
+            if not res: 
+                conn.close()
+                return None, 0.0, None
+            
+            est_id, net_total, category = res
+            net_total = float(net_total or 0.0)
+            
+            comp = {'Materials': 0.0, 'Labor': 0.0, 'Equipment': 0.0, 'Plant': 0.0, 'Indirect': 0.0, 'Subcontractors': 0.0}
+            
+            # Query all associated resources
+            cursor.execute("""
+                SELECT SUM(price * quantity) FROM estimate_materials 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Materials'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_labor 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Labor'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_equipment 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Equipment'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(rate * hours) FROM estimate_plant 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Plant'] = cursor.fetchone()[0] or 0.0
+            
+            cursor.execute("""
+                SELECT SUM(amount) FROM estimate_indirect_costs 
+                WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)
+            """, (est_id,))
+            comp['Indirect'] = cursor.fetchone()[0] or 0.0
+            
+            # Subcontractors in buildup (Join with quotes to get rates)
+            try:
+                cursor.execute("""
+                    SELECT SUM(esr.quantity * sq.rate) 
+                    FROM estimate_sub_rates esr
+                    JOIN subcontractor_quotes sq ON esr.sub_rate_id = sq.id
+                    WHERE esr.estimate_id = ?
+                """, (est_id,))
+                comp['Subcontractors'] = cursor.fetchone()[0] or 0.0
+            except: pass
+            
+            total = sum(comp.values())
+            ratios = None
+            if total > 0:
+                ratios = {k: v / total for k, v in comp.items()}
+            
+            self._rate_cache[rate_code] = (ratios, net_total, category)
+            conn.close()
+            return ratios, net_total, category
+        except: pass
+        return None, 0.0, None
+
     def _scan_actual_project_cost(self):
         """
         Scans all database tables in priced BOQs folder to extract 
@@ -358,18 +455,17 @@ class ParametricBenchmarkingAnalytic(QWidget):
         if not os.path.exists(self.pboq_folder): 
             return
             
-        total_net = 0.0
+        t_cost = 0.0
         files = [f for f in os.listdir(self.pboq_folder) if f.lower().endswith('.db')]
         
         # Retrieve overhead/profit factors
         overhead_rate = 0.0
         profit_rate = 0.0
         try:
-            db_dir = os.path.join(self.project_dir, "Project Database")
-            if os.path.exists(db_dir):
-                dbs = [f for f in os.listdir(db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+            if os.path.exists(self.pj_db_dir):
+                dbs = [f for f in os.listdir(self.pj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
                 if dbs:
-                    db_path = os.path.join(db_dir, dbs[0])
+                    db_path = os.path.join(self.pj_db_dir, dbs[0])
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     try:
@@ -384,42 +480,96 @@ class ParametricBenchmarkingAnalytic(QWidget):
                     conn.close()
         except: pass
         
-        combined_markup = 1.0 + ((overhead_rate + profit_rate) / 100.0)
-
         for f in files:
             db_path = os.path.join(self.pboq_folder, f)
+            mapping = self._get_pboq_mapping(f)
+            
             try:
                 conn = sqlite3.connect(db_path)
                 cursor = conn.cursor()
-                # Use standard PBOQ database scanner to sum bill amounts
                 cursor.execute("PRAGMA table_info(pboq_items)")
                 cols = [info[1] for info in cursor.fetchall()]
                 
-                # Retrieve bill amount mapping
-                mapping_file = os.path.join(self.project_dir, "PBOQ States", f + ".json")
-                b_col = None
-                if os.path.exists(mapping_file):
-                    try:
-                        with open(mapping_file, 'r') as sf:
-                            m = json.load(sf).get('mappings', {})
-                            b_idx = m.get('bill_amount')
-                            if b_idx is not None and (b_idx + 1) < len(cols):
-                                b_col = cols[b_idx + 1]
-                    except: pass
+                b_idx = mapping.get('bill_amount')
+                q_idx = mapping.get('qty')
+                d_idx = mapping.get('desc')
                 
-                if not b_col:
-                    b_col = next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                b_col = cols[b_idx + 1] if b_idx is not None and (b_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount"]), None)
+                q_col = cols[q_idx + 1] if q_idx is not None and (q_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                d_col = cols[d_idx + 1] if d_idx is not None and (d_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
                 
-                if b_col:
-                    cursor.execute(f"SELECT SUM(CAST(REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(\"{b_col}\", ',', ''), ' ', ''), '₵', ''), '$', ''), 'GH¢', '') AS REAL)) FROM pboq_items")
-                    row = cursor.fetchone()
-                    if row and row[0]:
-                        total_net += float(row[0])
+                if not b_col or not q_col: continue
+
+                src_cols = {
+                    'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                    'plug_code': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None),
+                    'plug_cat': next((c for c in cols if c.lower() in ["plugcategory", "plug_category"]), None),
+                    'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                    'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                    'rate_code': next((c for c in cols if c.lower() in ["rate code", "ratecode"]), None),
+                    'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                    'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                    'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                    'sub_pkg': next((c for c in cols if c.lower() in ["sub_package", "subpackage", "subbeepackage"]), None),
+                    'sub_name': next((c for c in cols if c.lower() in ["sub_name", "subname", "subbeename"]), None),
+                    'sub_cat': next((c for c in cols if c.lower() in ["subbeecategory", "sub_category"]), None),
+                    'prov_cat': next((c for c in cols if c.lower() in ["provsumcategory", "prov_sum_category"]), None),
+                    'pc_cat': next((c for c in cols if c.lower() in ["pcsumcategory", "pc_sum_category"]), None)
+                }
+                
+                query_parts = ["Sheet", f"\"{d_col}\"", f"\"{q_col}\"", f"\"{b_col}\""]
+                for k in ['plug', 'plug_code', 'plug_cat', 'sub', 'gross', 'rate_code', 'prov', 'pc', 'dw', 'sub_pkg', 'sub_name', 'prov_cat', 'pc_cat', 'sub_cat']:
+                    v = src_cols.get(k)
+                    query_parts.append(f"\"{v}\"" if v else "''")
+                
+                query = f"SELECT {', '.join(query_parts)} FROM pboq_items"
+                cursor.execute(query)
+                rows = cursor.fetchall()
+
+                for r in rows:
+                    sheet, desc, q, b, plug, p_code, p_cat, sub, gross, r_code, prov, pc, dw, s_pkg, s_n, pr_cat, pc_c, s_cat = r
+                    desc_low = (desc or "").lower()
+                    
+                    if "collection" in desc_low or "summary" in desc_low:
+                        continue
+                        
+                    qty_f, bill_f = self._to_float(q), self._to_float(b)
+                    if bill_f == 0 and qty_f == 0: continue
+                    
+                    p_val, s_val, g_val, pr_val, pc_val, d_val = [self._to_float(x) for x in [plug, sub, gross, prov, pc, dw]]
+                    
+                    is_prelim = (str(p_cat).lower() == "preliminaries" or "prelim" in desc_low) if p_cat or desc else False
+                    is_fixed = (pr_val > 0 or pc_val > 0 or d_val > 0 or is_prelim)
+                    
+                    active_code = p_code if p_code and str(p_code).strip() else r_code
+                    ratios, master_net_cost, master_cat = self._get_rate_composition(active_code) if active_code else (None, 0.0, None)
+                    
+                    # Determine source unit cost
+                    if pr_val > 0: unit_cost = pr_val
+                    elif pc_val > 0: unit_cost = pc_val
+                    elif d_val > 0: unit_cost = d_val
+                    elif master_net_cost > 0: unit_cost = master_net_cost
+                    else:
+                        if p_val > 0: unit_cost = p_val
+                        elif s_val > 0: unit_cost = s_val
+                        elif g_val > 0: unit_cost = g_val
+                        else:
+                            # Fallback for Prelims or items with only bill amounts
+                            unit_cost = bill_f if (is_prelim or is_fixed) and bill_f > 0 and qty_f <= 1 else 0.0
+                    
+                    is_lump_sum = is_prelim or is_fixed
+                    calc_qty = qty_f if qty_f > 0 else (1.0 if is_lump_sum and bill_f > 0 else 0.0)
+                    item_cost = unit_cost * calc_qty
+                    
+                    t_cost += round(item_cost, 2)
                 conn.close()
-            except: pass
-            
+            except Exception as e:
+                print(f"Error processing {f}: {e}")
+                
         # Apply exact combined markup to get true project value
-        self.actual_project_net = total_net * combined_markup
+        overhead_amount = t_cost * (overhead_rate / 100.0)
+        profit_amount = t_cost * (profit_rate / 100.0)
+        self.actual_project_net = t_cost + overhead_amount + profit_amount
 
     def _init_ui(self):
         root_layout = QVBoxLayout(self)
