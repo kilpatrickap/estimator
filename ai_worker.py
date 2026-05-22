@@ -176,6 +176,29 @@ class AICopilotWorker(QRunnable):
             if "status" in active_summary:
                 return f"# 📊 Project Summary\n\n*No active estimate window is currently open in your workspace.* Please load a project from **File -> Load Project** to view real-time KPIs."
 
+            # Case A: Active window is a Priced BOQ (PBOQ) sheet
+            if "total_boq_items" in active_summary:
+                md = "# 📊 Active Priced BOQ Dashboard\n\n"
+                md += f"Here is the real-time financial KPI dashboard for the active BOQ sheet **{active_summary.get('project_name')}**:\n\n"
+                
+                md += "| Metric | Value | Breakdown / Notes |\n"
+                md += "| :--- | :--- | :--- |\n"
+                md += f"| **BOQ Sheet Name** | {active_summary.get('project_name')} | Active SQLite Database |\n"
+                md += f"| **Base Currency** | {active_summary.get('currency', 'GHS (₵)')} | Project Default Exchange |\n"
+                md += f"| **Total BOQ Items** | **{active_summary.get('total_boq_items', 0)}** | Total line items in sheet |\n"
+                md += f"| **Priced Items** | {active_summary.get('priced_items', 0)} | Items with rate/amount defined |\n"
+                md += f"| **Outstanding Items** | {active_summary.get('outstanding_items', 0)} | Items remaining to price |\n"
+                md += f"| **Manual Plug Rates** | {active_summary.get('plugged_items', 0)} | Placeholders / plug values |\n"
+                md += f"| **Grand Total Bid Value** | **{active_summary.get('currency', 'GHS (₵)').split(' ')[0]} {active_summary.get('grand_total', 0.0):,.2f}** | **Cumulative Sum of Bill Amount** |\n\n"
+                
+                if "source" in active_summary:
+                    md += f"> [!NOTE]\n> Context source: `{active_summary['source']}`.\n\n"
+                    
+                md += "> [!TIP]\n"
+                md += "> Use the **Price Tools** or **PBOQ Tools** pane to link rates, resolve manual plug codes, and adjust package markups dynamically in real-time."
+                return md
+
+            # Case B: Standard Rate Build-up Estimate Window
             md = "# 📊 Active Estimate Dashboard\n\n"
             md += f"Here is the real-time financial KPI dashboard for **{active_summary.get('project_name')}**:\n\n"
             
@@ -186,7 +209,7 @@ class AICopilotWorker(QRunnable):
             md += f"| **Net Prime Subtotal** | **{active_summary.get('subtotal', 0.0):,.2f}** | Total resource cost (materials + labor + equipment) |\n"
             md += f"| **Overhead Markup** | {active_summary.get('overhead_amount', 0.0):,.2f} | Calculated at **{active_summary.get('overhead_percent', 0.0)}%** markup |\n"
             md += f"| **Profit Margin** | {active_summary.get('profit_amount', 0.0):,.2f} | Calculated at **{active_summary.get('profit_margin_percent', 0.0)}%** margin |\n"
-            md += f"| **Grand Total Bid Value** | **{active_summary.get('grand_total', 0.0):,.2f}** | **Final Client Bid Submission Price** |\n\n"
+            md += f"| **Grand Total Bid Value** | **{active_summary.get('currency', 'GHS (₵)').split(' ')[0]} {active_summary.get('grand_total', 0.0):,.2f}** | **Final Client Bid Submission Price** |\n\n"
             
             if "source" in active_summary:
                 md += f"> [!NOTE]\n> Context source: `{active_summary['source']}`.\n\n"

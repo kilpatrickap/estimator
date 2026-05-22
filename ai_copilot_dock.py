@@ -442,9 +442,7 @@ class AICopilotDock(QDockWidget):
             "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\\n"
             "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\\n"
             "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\\n"
-            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns.\\n\\n"
-            "> [!TIP]\\n"
-            "> Head to your system settings to configure `OPENROUTER_API_KEY` or `OPENAI_API_KEY` for full cloud-based LLM reasoning!"
+            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
         )
         welcome_text = welcome_text.replace("\\n", "\n")
         self.add_message_bubble(welcome_text, is_ai=True)
@@ -675,9 +673,7 @@ class AICopilotDock(QDockWidget):
             "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\\n"
             "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\\n"
             "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\\n"
-            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns.\\n\\n"
-            "> [!TIP]\\n"
-            "> Head to your system settings to configure `OPENROUTER_API_KEY` or `OPENAI_API_KEY` for full cloud-based LLM reasoning!"
+            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
         )
         welcome_text = welcome_text.replace("\\n", "\n")
         self.add_message_bubble(welcome_text, is_ai=True)

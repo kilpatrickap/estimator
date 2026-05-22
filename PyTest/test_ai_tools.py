@@ -130,3 +130,54 @@ def test_ai_worker_local_intelligence(qapp):
     assert len(results) == 1, "Worker must emit finished signal once."
     assert "#" in results[0], "Local response must contain Markdown headings."
     assert "KPI" in results[0] or "Estimate" in results[0] or "Project" in results[0], "Local summary query response should present dashboard statistics."
+
+def test_ai_worker_pboq_local_intelligence(qapp):
+    # Setup dummy database with PBOQ structure
+    dummy_pboq = "dummy_pboq_test_local.db"
+    if os.path.exists(dummy_pboq):
+        try: os.remove(dummy_pboq)
+        except Exception: pass
+        
+    try:
+        conn = sqlite3.connect(dummy_pboq)
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE pboq_items (
+                Description TEXT,
+                "Bill Rate" TEXT,
+                "Bill Amount" TEXT,
+                PlugRate REAL
+            )
+        """)
+        cursor.execute("INSERT INTO pboq_items VALUES ('Item 1', '10.50', '1,050.00', 0.0)")
+        cursor.execute("INSERT INTO pboq_items VALUES ('Item 2', '20.00', '2,000.00', 1.0)")
+        conn.commit()
+        conn.close()
+        
+        # Test worker with custom summary dictionary mock/active_summary
+        worker = AICopilotWorker("Show active estimate KPIs", main_window=None, api_key=None)
+        
+        # Mock active_summary returning PBOQ keys
+        active_summary = {
+            "source": "Mock PBOQ",
+            "project_name": "dummy_pboq_test_local.db",
+            "total_boq_items": 2,
+            "plugged_items": 1,
+            "priced_items": 2,
+            "outstanding_items": 0,
+            "grand_total": 3050.00,
+            "currency": "USD ($)",
+            "pboq_database_path": dummy_pboq
+        }
+        
+        # Run local interpreter directly to verify it parses Case A: PBOQ sheet
+        res = worker._generate_local_response("Show active estimate KPIs", active_summary, [], {"outlier_deviations": [], "manual_plug_rates": []})
+        
+        assert "Active Priced BOQ Dashboard" in res
+        assert "dummy_pboq_test_local.db" in res
+        assert "3,050.00" in res
+        assert "Total BOQ Items" in res
+    finally:
+        if os.path.exists(dummy_pboq):
+            try: os.remove(dummy_pboq)
+            except Exception: pass

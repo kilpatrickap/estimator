@@ -69,16 +69,67 @@ def query_active_estimate_summary(main_window=None):
                 if pboq_path and os.path.exists(pboq_path):
                     conn = sqlite3.connect(pboq_path)
                     cursor = conn.cursor()
-                    cursor.execute("SELECT COUNT(*) FROM pboq_items")
-                    total_items = cursor.fetchone()[0]
-                    cursor.execute("SELECT COUNT(*) FROM pboq_items WHERE PlugRate > 0")
-                    plugged_items = cursor.fetchone()[0]
+                    
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                    table_exists = cursor.fetchone()
+                    
+                    total_items = 0
+                    plugged_items = 0
+                    priced_items = 0
+                    grand_total = 0.0
+                    
+                    if table_exists:
+                        cursor.execute("SELECT COUNT(*) FROM pboq_items")
+                        total_items = cursor.fetchone()[0]
+                        
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        actual_cols = [c[1] for c in cursor.fetchall()]
+                        
+                        plug_col = next((c for c in ["PlugRate", "Plug Rate", "PlugRate "] if c in actual_cols), None)
+                        if plug_col:
+                            cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
+                            plugged_items = cursor.fetchone()[0]
+                        
+                        bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Bill Rate "] if c in actual_cols), None)
+                        if bill_rate_col:
+                            cursor.execute(f"SELECT \"{bill_rate_col}\" FROM pboq_items")
+                            for (val_str,) in cursor.fetchall():
+                                if val_str:
+                                    try:
+                                        val_f = float(str(val_str).replace(',', '').strip())
+                                        if val_f > 0:
+                                            priced_items += 1
+                                    except ValueError:
+                                        pass
+                        
+                        bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Bill Amount "] if c in actual_cols), None)
+                        if bill_amt_col:
+                            cursor.execute(f"SELECT \"{bill_amt_col}\" FROM pboq_items")
+                            for (val_str,) in cursor.fetchall():
+                                if val_str:
+                                    try:
+                                        grand_total += float(str(val_str).replace(',', '').strip())
+                                    except ValueError:
+                                        pass
+                    
                     conn.close()
+                    
+                    currency = 'GHS (₵)'
+                    try:
+                        db = DatabaseManager("construction_costs.db")
+                        currency = db.get_setting('currency', 'GHS (₵)')
+                    except Exception:
+                        pass
                     
                     return {
                         "source": f"Active PyQt6 Window (PBOQ Dialog: {os.path.basename(pboq_path)})",
+                        "project_name": os.path.basename(pboq_path),
                         "total_boq_items": total_items,
                         "plugged_items": plugged_items,
+                        "priced_items": priced_items,
+                        "outstanding_items": max(0, total_items - priced_items),
+                        "grand_total": grand_total,
+                        "currency": currency,
                         "pboq_database_path": pboq_path
                     }
         except Exception as e:
