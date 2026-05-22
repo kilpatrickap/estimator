@@ -116,6 +116,11 @@ def test_ai_worker_local_intelligence(qapp):
     # Run the worker locally without an API key to test local intelligence generation
     worker = AICopilotWorker("Show active estimate KPIs", main_window=None)
     
+    # Force local fallback interpreter path to ensure deterministic testing of the fallback rules
+    def mock_call_ollama(*args, **kwargs):
+        raise Exception("Force local fallback for unit test")
+    worker._call_local_ollama = mock_call_ollama
+    
     # Connect signals to slots to capture outputs
     results = []
     errors = []

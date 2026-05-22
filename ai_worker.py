@@ -91,25 +91,60 @@ class AICopilotWorker(QRunnable):
             # Let it fail to trigger fallback to the offline rule interpreter
             raise Exception("Ollama is not running locally.")
 
-        # B. Construct system and user prompt with rich database context
-        context_prompt = (
-            f"You are the AI Estimating Copilot for Estimator Pro. You have direct database access.\n"
-            f"--- Active Project Context ---\n"
-            f"Estimate Summary: {json.dumps(active_summary, indent=2)}\n"
-            f"Project File Structure: {json.dumps(workspace_files[:40], indent=2)} (showing first 40 files)\n"
-            f"Detected Pricing Outliers: {json.dumps(outliers_data, indent=2)}\n"
-            f"---------------------------------\n"
-            f"User Query: {self.user_query}\n"
-            f"Please answer the user query in a premium, professional manner. Use markdown format, list tables "
-            f"for database records, and highlight insights using beautiful warning/tip styled notes."
-        )
+        # B. Filter workspace files to exclude application python source files from the structural context to avoid distracting LLM
+        filtered_files = [
+            f for f in workspace_files 
+            if not (f.endswith('.py') or f.endswith('.pyc') or f.endswith('.pyd') or f.endswith('.pyo') or '__pycache__' in f or 'PyTest' in f)
+        ]
+
+        is_active = "status" not in active_summary
+        
+        if not is_active:
+            context_prompt = (
+                f"You are the AI Estimating Copilot for Estimator Pro.\n"
+                f"--- IMPORTANT STATUS ---\n"
+                f"NO ACTIVE ESTIMATE/PROJECT IS CURRENTLY LOADED OR OPEN IN THE WORKSPACE.\n"
+                f"Estimate Summary Status: {json.dumps(active_summary, indent=2)}\n"
+                f"Available Files in Workspace: {json.dumps(filtered_files, indent=2)}\n"
+                f"-------------------------\n"
+                f"User Query: {self.user_query}\n\n"
+                f"CRITICAL REQUIREMENT FOR THE AI COPILOT:\n"
+                f"Since no project is currently loaded, you CANNOT answer questions about active bid values, totals, margins, or project-specific costs.\n"
+                f"You MUST politely and clearly inform the user that no project is currently active or loaded, and instruct them to use the user interface menu options in Estimator Pro to load one:\n"
+                f"1. Go to the main menu and use 'File -> Load Project' or 'File -> New Project' to open estimate data.\n"
+                f"2. Or open a Priced BOQ sheet from the 'PBOQ' tab.\n"
+                f"Do NOT tell them to write Python scripts, run database queries, or search code files. Do NOT suggest editing or running code. Strictly guide them to the UI menu options mentioned above."
+            )
+        else:
+            context_prompt = (
+                f"You are the AI Estimating Copilot for Estimator Pro. You have direct database access.\n"
+                f"--- Active Project Context ---\n"
+                f"Estimate Summary: {json.dumps(active_summary, indent=2)}\n"
+                f"Project File Structure: {json.dumps(filtered_files[:40], indent=2)} (showing first 40 files)\n"
+                f"Detected Pricing Outliers: {json.dumps(outliers_data, indent=2)}\n"
+                f"---------------------------------\n"
+                f"User Query: {self.user_query}\n"
+                f"Please answer the user query in a premium, professional manner. Use markdown format, list tables "
+                f"for database records, and highlight insights using beautiful warning/tip styled notes."
+            )
 
         url = "http://localhost:11434/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
+        system_prompt = (
+            "You are a professional construction estimator and quantity surveyor assistant for Estimator Pro.\n"
+            "You are running locally on the user's desktop, and you have direct, secure access to the active "
+            "project database, file structures, and libraries.\n\n"
+            "CRITICAL INSTRUCTIONS:\n"
+            "1. If the 'Estimate Summary' indicates 'No active estimate found' or there is no active project loaded, you MUST politely explain that no project is active/loaded. Instruct the user to use the UI options: go to the main menu and select 'File -> Load Project' or 'File -> New Project', or open a Priced BOQ sheet from the 'PBOQ' tab.\n"
+            "2. Do NOT tell the user to write Python code, search database files manually, or check python scripts. Guide them strictly to the application's UI menu options.\n"
+            "3. If an active project is loaded, use the provided JSON metrics (Total Bid Value, priced counts, manual plugs, etc.) to answer their questions accurately. Format all numbers nicely as currency with commas and decimals.\n"
+            "4. Keep your tone professional, consultative, and helpful."
+        )
+
         data = {
             "model": model_name,
             "messages": [
-                {"role": "system", "content": "You are a professional construction estimator and quantity surveyor assistant."},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": context_prompt}
             ],
             "temperature": 0.2,
@@ -199,7 +234,7 @@ class AICopilotWorker(QRunnable):
         # Estimate KPI Summary intent
         if any(w in q_lower for w in ["summary", "kpi", "active", "estimate", "project", "value", "totals"]):
             if "status" in active_summary:
-                return f"# 📊 Project Summary\n\n*No active estimate window is currently open in your workspace.* Please load a project from **File -> Load Project** to view real-time KPIs."
+                return f"# 📊 Project Summary Fallback\n\n*No active estimate window is currently open in your workspace.* Please load a project from **File -> Load Project** to view real-time KPIs."
 
             # Case A: Active window is a Priced BOQ (PBOQ) sheet
             if "total_boq_items" in active_summary:
