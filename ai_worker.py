@@ -18,14 +18,12 @@ class AICopilotSignals(QObject):
 class AICopilotWorker(QRunnable):
     """
     Asynchronous QRunnable background worker executing context-aware queries
-    against SQLite databases, local workspace structures, and fallback external LLM APIs.
+    against SQLite databases, local workspace structures, and local LLM thinking models.
     """
-    def __init__(self, user_query, main_window=None, api_key=None, api_provider="OpenRouter"):
+    def __init__(self, user_query, main_window=None):
         super().__init__()
         self.user_query = user_query
         self.main_window = main_window
-        self.api_key = api_key or os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
-        self.api_provider = api_provider
         self.signals = AICopilotSignals()
 
     def run(self):
@@ -43,23 +41,57 @@ class AICopilotWorker(QRunnable):
             active_summary = ai_tools.query_active_estimate_summary(self.main_window)
             outliers_data = ai_tools.get_outlier_items(pboq_path)
 
-            # 3. If an API key is available, execute a highly context-aware cloud LLM request
-            if self.api_key:
-                response_text = self._call_cloud_llm(active_summary, workspace_files, outliers_data)
+            try:
+                # 3. Try to call the local LLM thinking model via Ollama
+                response_text = self._call_local_ollama(active_summary, workspace_files, outliers_data)
                 self.signals.finished.emit(response_text)
-            else:
-                # 4. If no API key is configured, execute our highly polished, context-aware local intelligence engine
+            except Exception as ollama_err:
+                # 4. Graceful fallback: run local semantic interpreter if Ollama is unreachable/failed
                 response_text = self._generate_local_response(self.user_query, active_summary, workspace_files, outliers_data)
+                
+                # If it was a general welcome or standard help query, append an helpful instruction card
+                q_lower = self.user_query.lower()
+                if q_lower in ["", "help", "hello", "hi"] or response_text.startswith("# 👋 Welcome"):
+                    response_text += (
+                        "\n\n> [!NOTE]\n"
+                        "> **⚡ Boost with Local LLM Reasoning**\n"
+                        "> You can enable full offline LLM reasoning (like **DeepSeek-R1**) locally. "
+                        "> Simply install **Ollama** from [ollama.com](https://ollama.com) and run:\n"
+                        "> ```bash\n"
+                        "> ollama run deepseek-r1\n"
+                        "> ```\n"
+                        "> Once running, the Copilot will automatically activate the local reasoning engine!"
+                    )
                 self.signals.finished.emit(response_text)
         except Exception as e:
             self.signals.error.emit(f"AI Worker Execution Error: {str(e)}")
 
-    def _call_cloud_llm(self, active_summary, workspace_files, outliers_data):
+    def _call_local_ollama(self, active_summary, workspace_files, outliers_data):
         """
-        Executes a direct thread-safe HTTP request using urllib to an LLM provider (OpenRouter/OpenAI),
-        feeding active SQLite estimate metrics, file paths, and outliers directly as context.
+        Queries the local Ollama instance, auto-detects downloaded models (favoring DeepSeek-R1),
+        transfers estimate context parameters, and extracts raw thinking reasoning.
         """
-        # Compact context payload
+        # A. Auto-detect model via tags API
+        model_name = "deepseek-r1"  # Default fallback
+        try:
+            req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=2) as response:
+                tags_data = json.loads(response.read().decode("utf-8"))
+                models = tags_data.get("models", [])
+                if models:
+                    installed_names = [m.get("name", "") for m in models]
+                    # Favor deepseek-r1 models first
+                    ds_models = [n for n in installed_names if "deepseek-r1" in n.lower() or "r1" in n.lower()]
+                    if ds_models:
+                        model_name = ds_models[0]
+                    else:
+                        # Otherwise fall back to first downloaded model
+                        model_name = installed_names[0]
+        except Exception:
+            # Let it fail to trigger fallback to the offline rule interpreter
+            raise Exception("Ollama is not running locally.")
+
+        # B. Construct system and user prompt with rich database context
         context_prompt = (
             f"You are the AI Estimating Copilot for Estimator Pro. You have direct database access.\n"
             f"--- Active Project Context ---\n"
@@ -72,42 +104,35 @@ class AICopilotWorker(QRunnable):
             f"for database records, and highlight insights using beautiful warning/tip styled notes."
         )
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.api_key}"
-        }
-
-        # Handle different API endpoints
-        if "openai" in self.api_provider.lower() or os.environ.get("OPENAI_API_KEY"):
-            url = "https://api.openai.com/v1/chat/completions"
-            model = "gpt-4o-mini"
-        else:
-            # Default to OpenRouter for general model diversity
-            url = "https://openrouter.ai/api/v1/chat/completions"
-            model = "meta-llama/llama-3-8b-instruct:free"
-            headers["HTTP-Referer"] = "https://github.com/NousResearch/hermes-agent"
-            headers["X-Title"] = "Estimator Pro AI Copilot"
-
+        url = "http://localhost:11434/v1/chat/completions"
+        headers = {"Content-Type": "application/json"}
         data = {
-            "model": model,
+            "model": model_name,
             "messages": [
                 {"role": "system", "content": "You are a professional construction estimator and quantity surveyor assistant."},
                 {"role": "user", "content": context_prompt}
             ],
-            "temperature": 0.2
+            "temperature": 0.2,
+            "stream": False
         }
 
+        # C. Call local chat completions endpoint
         req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
-        
         try:
-            with urllib.request.urlopen(req, timeout=12) as response:
+            with urllib.request.urlopen(req, timeout=35) as response:
                 res_data = json.loads(response.read().decode("utf-8"))
-                return res_data["choices"][0]["message"]["content"]
-        except urllib.error.HTTPError as he:
-            error_body = he.read().decode("utf-8")
-            raise Exception(f"HTTP {he.code} error from LLM: {error_body}")
+                content = res_data["choices"][0]["message"]["content"]
+                
+                # D. Parse <think> tags and format them elegantly
+                think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
+                if think_match:
+                    thinking = think_match.group(1).strip()
+                    actual_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    # Prepend standard visual block quote with purple thinkers styling
+                    return f"> [!THINK]\n> {thinking}\n\n{actual_content}"
+                return content
         except Exception as e:
-            raise Exception(f"Failed to communicate with LLM API: {str(e)}")
+            raise Exception(f"Local LLM API error: {str(e)}")
 
     def _generate_local_response(self, query, active_summary, workspace_files, outliers_data):
         """
@@ -272,7 +297,7 @@ class AICopilotWorker(QRunnable):
         md += "- **\"Show workspace file structure\"**: Renders a complete interactive directory tree of all files in the project root.\n"
         md += "- **\"Search historical rates for Concrete\"**: Query the rates database library for pre-calculated pricing structures.\n\n"
         
-        md += "> [!TIP]\n"
-        md += "> To activate cloud LLM intelligence (GPT-4o or Claude 3.5 Sonnet), set your API key in your system environment variable: `OPENROUTER_API_KEY` or `OPENAI_API_KEY`."
+        md += "> [!NOTE]\n"
+        md += "> **Local Offline Reasoning:** The Copilot operates 100% offline. Spin up a local **Ollama** instance with `ollama run deepseek-r1` to unlock high-precision thinking model responses securely on your machine!"
         
         return md

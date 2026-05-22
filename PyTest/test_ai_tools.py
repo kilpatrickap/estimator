@@ -114,7 +114,7 @@ def test_get_outlier_items():
 
 def test_ai_worker_local_intelligence(qapp):
     # Run the worker locally without an API key to test local intelligence generation
-    worker = AICopilotWorker("Show active estimate KPIs", main_window=None, api_key=None)
+    worker = AICopilotWorker("Show active estimate KPIs", main_window=None)
     
     # Connect signals to slots to capture outputs
     results = []
@@ -155,7 +155,7 @@ def test_ai_worker_pboq_local_intelligence(qapp):
         conn.close()
         
         # Test worker with custom summary dictionary mock/active_summary
-        worker = AICopilotWorker("Show active estimate KPIs", main_window=None, api_key=None)
+        worker = AICopilotWorker("Show active estimate KPIs", main_window=None)
         
         # Mock active_summary returning PBOQ keys
         active_summary = {

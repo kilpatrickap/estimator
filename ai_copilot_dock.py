@@ -109,6 +109,9 @@ def markdown_to_html(text):
             if "[!NOTE]" in quote_line:
                 quote_type = "note"
                 quote_line = quote_line.replace("[!NOTE]", "").strip()
+            elif "[!THINK]" in quote_line:
+                quote_type = "think"
+                quote_line = quote_line.replace("[!THINK]", "").strip()
             elif "[!TIP]" in quote_line:
                 quote_type = "tip"
                 quote_line = quote_line.replace("[!TIP]", "").strip()
@@ -133,6 +136,8 @@ def markdown_to_html(text):
                 
                 if quote_type == "note":
                     html_lines.append(f'<div style="border-left: 4px solid #2196f3; background-color: #e3f2fd; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #0d47a1;"><b>ℹ️ Note</b><br/>{quote_text}</div>')
+                elif quote_type == "think":
+                    html_lines.append(f'<div style="border-left: 4px solid #8b5cf6; background-color: #f5f3ff; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #5b21b6; font-style: italic;"><b>🧠 Thought Process</b><br/>{quote_text}</div>')
                 elif quote_type == "tip":
                     html_lines.append(f'<div style="border-left: 4px solid #4caf50; background-color: #e8f5e9; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #1b5e20;"><b>💡 Tip</b><br/>{quote_text}</div>')
                 elif quote_type in ["warning", "caution"]:
@@ -197,6 +202,8 @@ def markdown_to_html(text):
         quote_text = parse_inline_markdown(quote_text)
         if quote_type == "note":
             html_lines.append(f'<div style="border-left: 4px solid #2196f3; background-color: #e3f2fd; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #0d47a1;"><b>ℹ️ Note</b><br/>{quote_text}</div>')
+        elif quote_type == "think":
+            html_lines.append(f'<div style="border-left: 4px solid #8b5cf6; background-color: #f5f3ff; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #5b21b6; font-style: italic;"><b>🧠 Thought Process</b><br/>{quote_text}</div>')
         elif quote_type == "tip":
             html_lines.append(f'<div style="border-left: 4px solid #4caf50; background-color: #e8f5e9; padding: 8px 10px; margin: 8px 0; border-radius: 4px; color: #1b5e20;"><b>💡 Tip</b><br/>{quote_text}</div>')
         elif quote_type in ["warning", "caution"]:
