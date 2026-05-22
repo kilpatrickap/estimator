@@ -191,3 +191,15 @@ QLabel#StatusDisplayInfo {
     border: none;
     padding: 2px 5px;
 }
+
+/* Highly visible QMainWindow Dock Splitter Resizer */
+QMainWindow::separator {
+    background-color: #cbd5e1;
+    width: 6px;
+    height: 6px;
+}
+
+QMainWindow::separator:hover {
+    background-color: #2e7d32;
+}
+

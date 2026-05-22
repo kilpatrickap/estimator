@@ -115,6 +115,37 @@ class MainWindow(QMainWindow):
         self.mdi_area.setStyleSheet("QMdiArea { background-color: #eceff1; }")
         
         self.workspace_layout.addWidget(self.mdi_area)
+        
+        # AI Copilot toggle button (vertical right side)
+        self.ai_copilot_toggle_btn = QPushButton("⋮")
+        self.ai_copilot_toggle_btn.setObjectName("AICopilotToggleBtn")
+        self.ai_copilot_toggle_btn.setFixedSize(8, 40)
+        self.ai_copilot_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.ai_copilot_toggle_btn.setToolTip("Toggle AI Copilot")
+        self.ai_copilot_toggle_btn.setStyleSheet("""
+            QPushButton#AICopilotToggleBtn {
+                background: #007bff; /* Bright blue */
+                color: white;
+                border: none;
+                border-top-left-radius: 4px;
+                border-bottom-left-radius: 4px;
+                font-size: 8px;
+                padding: 0px;
+            }
+            QPushButton#AICopilotToggleBtn:hover {
+                background: #0056b3; /* Darker bright blue for hover */
+            }
+        """)
+        self.ai_copilot_toggle_btn.clicked.connect(self.toggle_ai_copilot)
+
+        right_toggle_container = QWidget()
+        right_toggle_layout = QVBoxLayout(right_toggle_container)
+        right_toggle_layout.setContentsMargins(0, 20, 0, 0)
+        right_toggle_layout.setSpacing(0)
+        right_toggle_layout.addWidget(self.ai_copilot_toggle_btn)
+        right_toggle_layout.addStretch()
+
+        self.workspace_layout.addWidget(right_toggle_container)
         self.main_layout.addWidget(self.workspace_container)
         
         # 3. Status Bar (Zoom Controls)

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTe
                              QPushButton, QLabel, QScrollArea, QFrame, QTextBrowser, 
                              QGraphicsDropShadowEffect)
 from PyQt6.QtGui import QFont, QColor
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThreadPool
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThreadPool, QSize
 from ai_worker import AICopilotWorker
 import ai_tools
 
@@ -216,8 +216,38 @@ def markdown_to_html(text):
 
 
 class ChatInputEdit(QTextEdit):
-    """Custom QTextEdit capturing standard Return keys to send, while allowing Shift+Return for newlines."""
+    """Custom QTextEdit capturing standard Return keys to send, while allowing Shift+Return for newlines,
+    and dynamically adjusting its height to fit the content without vertical scrollbars."""
     enter_pressed = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.textChanged.connect(self.adjust_height)
+        self.setFixedHeight(32)
+
+    def adjust_height(self):
+        doc = self.document()
+        width = self.viewport().width()
+        if width > 0:
+            doc.setTextWidth(width)
+        
+        doc_height = doc.size().height()
+        
+        # Calculate optimal height with some padding to prevent truncation
+        target_height = int(doc_height) + 8
+        
+        min_height = 32
+        max_height = 150
+        
+        target_height = max(min_height, min(target_height, max_height))
+        self.setFixedHeight(target_height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.adjust_height()
 
     def keyPressEvent(self, event):
         if event.key() in [Qt.Key.Key_Return, Qt.Key.Key_Enter]:
@@ -227,6 +257,7 @@ class ChatInputEdit(QTextEdit):
                 self.enter_pressed.emit()
         else:
             super().keyPressEvent(event)
+
 
 
 class MessageBubble(QFrame):
@@ -372,7 +403,7 @@ class AICopilotDock(QDockWidget):
                          QDockWidget.DockWidgetFeature.DockWidgetMovable)
         
         self.setObjectName("AICopilotDock")
-        self.setFixedWidth(330)
+        self.setMinimumWidth(250)
         
         # Central Widget
         self.widget_container = QWidget(self)
@@ -423,6 +454,9 @@ class AICopilotDock(QDockWidget):
         self.context_timer.timeout.connect(self.update_active_context)
         self.context_timer.start(2500)
         self.update_active_context()
+
+    def sizeHint(self):
+        return QSize(330, 600)
 
     def _setup_header(self):
         header_widget = QWidget(self)
@@ -547,7 +581,7 @@ class AICopilotDock(QDockWidget):
         self.chat_layout.addStretch()
         
         self.scroll_area.setWidget(self.chat_content_widget)
-        self.main_layout.addWidget(self.scroll_area)
+        self.main_layout.addWidget(self.scroll_area, stretch=1)
 
     def _setup_input_panel(self):
         input_container = QWidget(self)
@@ -558,7 +592,6 @@ class AICopilotDock(QDockWidget):
         
         self.input_edit = ChatInputEdit(self)
         self.input_edit.setPlaceholderText("Ask about estimate outliers, workspace structure, rates...")
-        self.input_edit.setMaximumHeight(50)
         self.input_edit.setStyleSheet("""
             QTextEdit {
                 border: 1px solid #cbd5e1;
@@ -572,10 +605,10 @@ class AICopilotDock(QDockWidget):
             }
         """)
         self.input_edit.enter_pressed.connect(self.submit_query)
-        input_layout.addWidget(self.input_edit)
+        input_layout.addWidget(self.input_edit, stretch=1, alignment=Qt.AlignmentFlag.AlignBottom)
         
         self.btn_send = QPushButton("Send", self)
-        self.btn_send.setFixedSize(50, 48)
+        self.btn_send.setFixedSize(50, 32)
         self.btn_send.setCursor(Qt.CursorShape.PointingHandCursor)
         # Using premium standard green / yellow text highlight colors matching Estimator Pro design system
         self.btn_send.setStyleSheet("""
@@ -595,7 +628,7 @@ class AICopilotDock(QDockWidget):
             }
         """)
         self.btn_send.clicked.connect(self.submit_query)
-        input_layout.addWidget(self.btn_send)
+        input_layout.addWidget(self.btn_send, alignment=Qt.AlignmentFlag.AlignBottom)
         
         self.main_layout.addWidget(input_container)
 
