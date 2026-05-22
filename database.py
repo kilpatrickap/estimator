@@ -32,12 +32,18 @@ CATEGORY_PREFIXES = {
     "Heating/Ventilation & AirConditioning": "HVAC"
 }
 
-DB_FILE = "construction_costs.db"
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DB_FILE = os.path.join(APP_DIR, "construction_costs.db")
 
 class DatabaseManager:
     """Manages all interactions with the database using SQLAlchemy ORM."""
 
-    def __init__(self, db_file=DB_FILE):
+    def __init__(self, db_file=None):
+        if db_file is None:
+            db_file = DB_FILE
+        elif not os.path.isabs(db_file):
+            db_file = os.path.join(APP_DIR, db_file)
+            
         self.db_file = db_file
         self.engine = create_engine(f"sqlite:///{self.db_file}")
         self.Session = sessionmaker(bind=self.engine)
@@ -661,7 +667,7 @@ class DatabaseManager:
         val = self.get_setting('category_prefixes')
         if not val and self.db_file == "construction_rates.db":
             # Native fallback to main db
-            if os.path.exists("construction_costs.db"):
+            if os.path.exists(os.path.join(APP_DIR, "construction_costs.db")):
                 costs_db = DatabaseManager("construction_costs.db")
                 val = costs_db.get_setting('category_prefixes')
                 if val:

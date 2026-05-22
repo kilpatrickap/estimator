@@ -4,13 +4,15 @@ from sqlalchemy import create_engine
 from database import DatabaseManager
 from orm_models import Material, Labor, Equipment, Plant, IndirectCost, DBEstimate, DBTask
 
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def get_workspace_structure(workspace_root=None):
     """
     Recursively lists all files and folders in the workspace, excluding hidden or system directories,
     providing full structural context to the AI Agent.
     """
     if not workspace_root:
-        workspace_root = os.getcwd()
+        workspace_root = APP_DIR
     
     structure = []
     exclude_dirs = {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'venv', '.venv'}
@@ -135,7 +137,140 @@ def query_active_estimate_summary(main_window=None):
         except Exception as e:
             pass
 
-    # 2. Fallback: Query the construction_costs.db for recent estimate information
+    # 2. Fallback A: Check if a project directory is active/loaded in settings
+    try:
+        costs_db = DatabaseManager("construction_costs.db")
+        project_dir = costs_db.get_setting('last_project_dir', '')
+        if project_dir and os.path.exists(project_dir):
+            project_name = os.path.basename(project_dir)
+            if project_name == "Project Database":
+                project_dir = os.path.dirname(project_dir)
+                project_name = os.path.basename(project_dir)
+            
+            # A1. Scan Priced BOQs for a non-empty PBOQ database sheet
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            if os.path.exists(pboq_dir):
+                dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
+                best_pboq = None
+                max_items = -1
+                best_priced_items = 0
+                best_plugged_items = 0
+                best_grand_total = 0.0
+                
+                for path in dbs:
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                        if cursor.fetchone():
+                            cursor.execute("SELECT COUNT(*) FROM pboq_items")
+                            total_items = cursor.fetchone()[0]
+                            if total_items > max_items or (total_items == max_items and os.path.basename(path).startswith("PBOQ_")):
+                                max_items = total_items
+                                best_pboq = path
+                                
+                                # Gather other metrics
+                                cursor.execute("PRAGMA table_info(pboq_items)")
+                                actual_cols = [c[1] for c in cursor.fetchall()]
+                                
+                                plugged_items = 0
+                                plug_col = next((c for c in ["PlugRate", "Plug Rate", "PlugRate "] if c in actual_cols), None)
+                                if plug_col:
+                                    cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
+                                    plugged_items = cursor.fetchone()[0]
+                                
+                                priced_items = 0
+                                bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Bill Rate "] if c in actual_cols), None)
+                                if bill_rate_col:
+                                    cursor.execute(f"SELECT \"{bill_rate_col}\" FROM pboq_items")
+                                    for (val_str,) in cursor.fetchall():
+                                        if val_str:
+                                            try:
+                                                val_f = float(str(val_str).replace(',', '').strip())
+                                                if val_f > 0:
+                                                    priced_items += 1
+                                            except ValueError:
+                                                pass
+                                                
+                                grand_total = 0.0
+                                bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Bill Amount "] if c in actual_cols), None)
+                                if bill_amt_col:
+                                    cursor.execute(f"SELECT \"{bill_amt_col}\" FROM pboq_items")
+                                    for (val_str,) in cursor.fetchall():
+                                        if val_str:
+                                            try:
+                                                grand_total += float(str(val_str).replace(',', '').strip())
+                                            except ValueError:
+                                                pass
+                                
+                                best_priced_items = priced_items
+                                best_plugged_items = plugged_items
+                                best_grand_total = grand_total
+                        conn.close()
+                    except Exception:
+                        pass
+                
+                if best_pboq:
+                    currency = costs_db.get_setting('currency', 'GHS (₵)')
+                    return {
+                        "source": f"Loaded Project Directory ({project_name})",
+                        "project_name": project_name,
+                        "total_boq_items": max_items,
+                        "plugged_items": best_plugged_items,
+                        "priced_items": best_priced_items,
+                        "outstanding_items": max(0, max_items - best_priced_items),
+                        "grand_total": best_grand_total,
+                        "currency": currency,
+                        "pboq_database_path": best_pboq,
+                        "project_directory": project_dir
+                    }
+            
+            # A2. Fallback to Project Database folder if no non-empty PBOQ found
+            project_db_dir = os.path.join(project_dir, "Project Database")
+            if os.path.exists(project_db_dir):
+                dbs = [os.path.join(project_db_dir, f) for f in os.listdir(project_db_dir) if f.endswith('.db')]
+                for path in dbs:
+                    try:
+                        conn = sqlite3.connect(path)
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+                        if cursor.fetchone():
+                            cursor.execute("SELECT * FROM estimates WHERE id=1")
+                            row = cursor.fetchone()
+                            if not row:
+                                cursor.execute("SELECT * FROM estimates ORDER BY id ASC LIMIT 1")
+                                row = cursor.fetchone()
+                            
+                            if row:
+                                cursor.execute("PRAGMA table_info(estimates)")
+                                cols = [c[1] for c in cursor.fetchall()]
+                                est_data = dict(zip(cols, row))
+                                conn.close()
+                                
+                                currency = est_data.get('currency', 'USD ($)')
+                                net_total = est_data.get('net_total', 0.0)
+                                overhead_pct = est_data.get('overhead_percent', 0.0)
+                                profit_pct = est_data.get('profit_margin_percent', 0.0)
+                                return {
+                                    "source": f"Loaded Project Directory Database ({project_name})",
+                                    "project_name": est_data.get('project_name') or project_name,
+                                    "client_name": est_data.get('client_name') or 'N/A',
+                                    "overhead_percent": overhead_pct,
+                                    "profit_margin_percent": profit_pct,
+                                    "currency": currency,
+                                    "subtotal": net_total,
+                                    "overhead_amount": (net_total * overhead_pct / 100.0),
+                                    "profit_amount": (net_total * profit_pct / 100.0),
+                                    "grand_total": est_data.get('grand_total', 0.0),
+                                    "project_directory": project_dir
+                                }
+                        conn.close()
+                    except Exception:
+                        pass
+    except Exception:
+        pass
+
+    # 3. Fallback B: Query the construction_costs.db for recent estimate information
     try:
         db = DatabaseManager("construction_costs.db")
         recents = db.get_recent_estimates(limit=1)
@@ -171,8 +306,9 @@ def query_historical_rates(query_str=None, db_file="construction_rates.db"):
     db_paths = []
     
     # 1. Fallback / global database
-    if os.path.exists(db_file):
-        db_paths.append(("Historical Library", db_file))
+    abs_db_file = db_file if os.path.isabs(db_file) else os.path.join(APP_DIR, db_file)
+    if os.path.exists(abs_db_file):
+        db_paths.append(("Historical Library", abs_db_file))
         
     # 2. Check if a project directory is active in construction_costs.db settings
     try:
@@ -368,3 +504,205 @@ def get_outlier_items(pboq_db_path=None, threshold=0.15):
         "outlier_deviations": outliers,
         "manual_plug_rates": plug_rates
     }
+
+def get_active_project_db_path():
+    """
+    Returns the absolute path to the active project's primary database (.db) file
+    located in the 'Project Database' folder, if a project is loaded.
+    """
+    try:
+        costs_db = DatabaseManager("construction_costs.db")
+        project_dir = costs_db.get_setting('last_project_dir', '')
+        if project_dir and os.path.exists(project_dir):
+            if os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
+            project_db_dir = os.path.join(project_dir, "Project Database")
+            if os.path.exists(project_db_dir):
+                dbs = [os.path.join(project_db_dir, f) for f in os.listdir(project_db_dir) if f.endswith('.db')]
+                proj_name = os.path.basename(project_dir)
+                for db_path in dbs:
+                    if proj_name.lower() in os.path.basename(db_path).lower():
+                        return db_path
+                if dbs:
+                    return dbs[0]
+    except Exception:
+        pass
+    return None
+
+def search_active_database(query_str):
+    """
+    Searches the active project database, priced BOQ databases, and the cost library
+    for resources or tasks matching the query string.
+    """
+    if not query_str:
+        return {}
+
+    query_lower = query_str.lower().strip()
+    results = {
+        "materials": [],
+        "labor": [],
+        "equipment": [],
+        "plant": [],
+        "tasks": [],
+        "pboq_items": []
+    }
+    
+    db_paths = []
+    
+    # Cost library (construction_costs.db)
+    abs_costs_db = os.path.join(APP_DIR, "construction_costs.db")
+    if os.path.exists(abs_costs_db):
+        db_paths.append(("Cost Library", abs_costs_db))
+        
+    # Active Project DB
+    proj_db = get_active_project_db_path()
+    if proj_db:
+        db_paths.append(("Project Database", proj_db))
+        
+    # Active Priced BOQs
+    try:
+        costs_db = DatabaseManager("construction_costs.db")
+        project_dir = costs_db.get_setting('last_project_dir', '')
+        if project_dir and os.path.exists(project_dir):
+            if os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            if os.path.exists(pboq_dir):
+                for f in os.listdir(pboq_dir):
+                    if f.endswith('.db'):
+                        db_paths.append(("Priced BOQ", os.path.join(pboq_dir, f)))
+    except Exception:
+        pass
+        
+    seen_paths = set()
+    unique_dbs = []
+    for source, path in db_paths:
+        abs_p = os.path.abspath(path)
+        if abs_p not in seen_paths and os.path.exists(path):
+            seen_paths.add(abs_p)
+            unique_dbs.append((source, path))
+            
+    for source, path in unique_dbs:
+        try:
+            conn = sqlite3.connect(path)
+            cursor = conn.cursor()
+            
+            def table_exists(tbl):
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,))
+                return cursor.fetchone() is not None
+                
+            if table_exists("materials"):
+                cursor.execute("PRAGMA table_info(materials)")
+                cols = [c[1] for c in cursor.fetchall()]
+                name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
+                if name_col:
+                    cursor.execute(f"SELECT * FROM materials WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r))
+                        results["materials"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "name": item.get(name_col),
+                            "unit": item.get("unit", "each"),
+                            "price": item.get("price") or item.get("rate") or 0.0,
+                            "currency": item.get("currency", "GHS")
+                        })
+                        
+            if table_exists("labor"):
+                cursor.execute("PRAGMA table_info(labor)")
+                cols = [c[1] for c in cursor.fetchall()]
+                trade_col = "trade" if "trade" in cols else ("name" if "name" in cols else None)
+                if trade_col:
+                    cursor.execute(f"SELECT * FROM labor WHERE LOWER({trade_col}) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r))
+                        results["labor"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "trade": item.get(trade_col),
+                            "unit": item.get("unit", "hr"),
+                            "rate": item.get("rate") or item.get("price") or 0.0,
+                            "currency": item.get("currency", "GHS")
+                        })
+                        
+            if table_exists("equipment"):
+                cursor.execute("PRAGMA table_info(equipment)")
+                cols = [c[1] for c in cursor.fetchall()]
+                name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
+                if name_col:
+                    cursor.execute(f"SELECT * FROM equipment WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r))
+                        results["equipment"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "name": item.get(name_col),
+                            "unit": item.get("unit", "hr"),
+                            "rate": item.get("rate") or item.get("price") or 0.0,
+                            "currency": item.get("currency", "GHS")
+                        })
+
+            if table_exists("plant"):
+                cursor.execute("PRAGMA table_info(plant)")
+                cols = [c[1] for c in cursor.fetchall()]
+                name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
+                if name_col:
+                    cursor.execute(f"SELECT * FROM plant WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r))
+                        results["plant"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "name": item.get(name_col),
+                            "unit": item.get("unit", "hr"),
+                            "rate": item.get("rate") or item.get("price") or 0.0,
+                            "currency": item.get("currency", "GHS")
+                        })
+
+            if table_exists("tasks"):
+                cursor.execute("PRAGMA table_info(tasks)")
+                cols = [c[1] for c in cursor.fetchall()]
+                desc_col = "description" if "description" in cols else None
+                if desc_col:
+                    cursor.execute(f"SELECT * FROM tasks WHERE LOWER({desc_col}) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r))
+                        results["tasks"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "description": item.get(desc_col),
+                            "quantity": item.get("quantity", 1.0),
+                            "unit": item.get("unit", "each")
+                        })
+
+            if table_exists("pboq_items"):
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                cols = [c[1] for c in cursor.fetchall()]
+                desc_col = next((c for c in ["Description", "Column 1", "Column 2"] if c in cols), None)
+                if desc_col:
+                    cursor.execute(f"SELECT rowid, * FROM pboq_items WHERE LOWER(\"{desc_col}\") LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        item = dict(zip(cols, r[1:]))
+                        results["pboq_items"].append({
+                            "source": source,
+                            "database": os.path.basename(path),
+                            "rowid": r[0],
+                            "description": item.get(desc_col),
+                            "unit": item.get("Unit") or item.get("Column 3") or "each",
+                            "bill_rate": item.get("Bill Rate") or item.get("BillRate") or "0.00",
+                            "bill_amount": item.get("Bill Amount") or item.get("BillAmount") or "0.00",
+                            "plug_rate": item.get("PlugRate") or item.get("Plug Rate") or "0.00"
+                        })
+            
+            conn.close()
+        except Exception:
+            pass
+            
+    return results
+

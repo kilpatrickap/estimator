@@ -32,6 +32,35 @@ def test_query_active_estimate_summary():
     assert isinstance(summary, dict), "Active estimate summary must return a dictionary."
     assert "source" in summary or "status" in summary, "Summary must contain either source details or empty status."
 
+def test_query_active_estimate_summary_project_fallback():
+    # Test project directory fallback when last_project_dir is set to Atlantic Catering School
+    from database import DatabaseManager
+    costs_db = DatabaseManager("construction_costs.db")
+    original_project_dir = costs_db.get_setting('last_project_dir', '')
+    
+    try:
+        # Set project dir to the active school project
+        costs_db.set_setting('last_project_dir', 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School')
+        
+        summary = ai_tools.query_active_estimate_summary(main_window=None)
+        assert isinstance(summary, dict)
+        assert "source" in summary
+        assert "Atlantic Catering School" in summary["source"] or "Atlantic Catering School" in summary["project_name"]
+        assert "total_boq_items" in summary
+        assert summary["total_boq_items"] == 1288
+        assert abs(summary["grand_total"] - 1516663.90) < 0.01
+    finally:
+        # Restore setting
+        if original_project_dir:
+            costs_db.set_setting('last_project_dir', original_project_dir)
+        else:
+            with costs_db.Session() as session:
+                from orm_models import Setting
+                s = session.query(Setting).get('last_project_dir')
+                if s:
+                    session.delete(s)
+                    session.commit()
+
 def test_query_historical_rates():
     # Query without a search term
     rates = ai_tools.query_historical_rates()
@@ -186,3 +215,67 @@ def test_ai_worker_pboq_local_intelligence(qapp):
         if os.path.exists(dummy_pboq):
             try: os.remove(dummy_pboq)
             except Exception: pass
+
+
+def test_call_local_ollama_queries_database(qapp, monkeypatch):
+    import json
+    worker = AICopilotWorker("Show active estimate KPIs", main_window=None)
+    
+    # Mock urllib.request.urlopen to avoid sending actual network calls
+    captured_payloads = []
+    
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        # Determine URL
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            # Return a valid model list
+            return MockResponse({"models": [{"name": "deepseek-r1:1.5b"}]})
+        elif "v1/chat/completions" in url:
+            # Capture what was sent to chat completions
+            payload = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "<think>thinking...</think>Success result."
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # We must mock active project db path fallback
+    monkeypatch.setattr(ai_tools, "get_active_project_db_path", lambda: "construction_costs.db")
+    
+    # Run _call_local_ollama
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {"outlier_deviations": [], "manual_plug_rates": []})
+    
+    assert "Success result" in res
+    assert len(captured_payloads) == 1
+    
+    user_prompt = captured_payloads[0]["messages"][1]["content"]
+    
+    # The user_prompt should contain the database statistics with NON-ZERO counts!
+    # Specifically, it should count the materials in construction_costs.db
+    import sqlite3
+    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'construction_costs.db'))
+    conn = sqlite3.connect(db_path)
+    expected_materials = conn.cursor().execute("SELECT COUNT(*) FROM materials").fetchone()[0]
+    expected_tasks = conn.cursor().execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
+    conn.close()
+    
+    assert f"Cost Library (materials): {expected_materials} records" in user_prompt
+    assert f"Project Database (construction_costs.db): {expected_tasks} tasks, {expected_materials} materials" in user_prompt
