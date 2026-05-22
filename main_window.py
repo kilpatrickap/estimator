@@ -126,6 +126,12 @@ class MainWindow(QMainWindow):
         # Enable advanced docking features for stacking panes
         self.setDockNestingEnabled(True)
         
+        # Initialize and register the AI Copilot Dock on the right side
+        from ai_copilot_dock import AICopilotDock
+        self.ai_copilot_dock = AICopilotDock(self, self)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.ai_copilot_dock)
+        self.ai_copilot_dock.setVisible(True)
+        
         # Connect active window change to update toolbar state
         self.mdi_area.subWindowActivated.connect(self._update_toolbar_state)
         
@@ -195,6 +201,11 @@ class MainWindow(QMainWindow):
         any_visible = any(dock.isVisible() for dock in left_docks)
         for dock in left_docks:
             dock.setVisible(not any_visible)
+
+    def toggle_ai_copilot(self):
+        """Toggles the visibility of the AI Copilot Dock panel."""
+        if hasattr(self, 'ai_copilot_dock'):
+            self.ai_copilot_dock.setVisible(not self.ai_copilot_dock.isVisible())
 
     def _update_project_pane_directory(self, project_dir):
         import os
@@ -308,6 +319,9 @@ class MainWindow(QMainWindow):
         self.toggle_project_pane_action = self._create_action("Toggle Project Explorer", "Ctrl+E", self.toggle_project_pane)
         view_menu.addAction(self.toggle_project_pane_action)
 
+        self.toggle_ai_copilot_action = self._create_action("Toggle AI Copilot", "Ctrl+Shift+I", self.toggle_ai_copilot)
+        view_menu.addAction(self.toggle_ai_copilot_action)
+
     def _create_action(self, text, shortcut, slot):
         action = QAction(text, self)
         if shortcut:
@@ -398,7 +412,8 @@ class MainWindow(QMainWindow):
             ("BOQ Setup", self.open_boq_setup),
             ("SOR", self.open_sor_dialog),
             ("PBOQ", self.open_pboq_dialog),
-            ("Analytics", self.open_analytics_dashboard)
+            ("Analytics", self.open_analytics_dashboard),
+            ("AI Copilot", self.toggle_ai_copilot)
         ]
 
         for text, slot in nav_items:
@@ -1414,6 +1429,9 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"Active: {clean_title}")
         else:
             self.statusBar().showMessage("Ready")
+            
+        if hasattr(self, 'ai_copilot_dock'):
+            self.ai_copilot_dock.update_active_context()
             
         if win:
             self.save_btn.setEnabled(True)
