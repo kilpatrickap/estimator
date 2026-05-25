@@ -238,8 +238,8 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
         # Determine URL
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            # Return a valid model list
-            return MockResponse({"models": [{"name": "deepseek-r1:1.5b"}]})
+            # Return a valid model list strictly containing sam860/LFM2:1.2b
+            return MockResponse({"models": [{"name": "sam860/LFM2:1.2b"}]})
         elif "v1/chat/completions" in url:
             # Capture what was sent to chat completions
             payload = json.loads(req.data.decode("utf-8"))
@@ -265,17 +265,76 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
     
     assert "Success result" in res
     assert len(captured_payloads) == 1
+    assert captured_payloads[0]["model"] == "sam860/LFM2:1.2b", "Should strictly use the sam860/LFM2:1.2b model"
+    
+    assert len(captured_payloads[0]["messages"]) == 2, "Should have system prompt and user query messages"
+    assert captured_payloads[0]["messages"][0]["role"] == "system"
+    assert "query_db" in captured_payloads[0]["messages"][0]["content"]
     
     user_prompt = captured_payloads[0]["messages"][1]["content"]
+    assert user_prompt == "Show active estimate KPIs", "Should pass the raw user query"
+
+def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
+    import json
+    worker = AICopilotWorker("Count materials", main_window=None)
     
-    # The user_prompt should contain the database statistics with NON-ZERO counts!
-    # Specifically, it should count the materials in construction_costs.db
-    import sqlite3
-    db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'construction_costs.db'))
-    conn = sqlite3.connect(db_path)
-    expected_materials = conn.cursor().execute("SELECT COUNT(*) FROM materials").fetchone()[0]
-    expected_tasks = conn.cursor().execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-    conn.close()
+    # Track the calls to chat/completions
+    api_calls = []
     
-    assert f"Cost Library (materials): {expected_materials} records" in user_prompt
-    assert f"Project Database (construction_costs.db): {expected_tasks} tasks, {expected_materials} materials" in user_prompt
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "sam860/LFM2:1.2b"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            api_calls.append(payload)
+            
+            # First call: simulate model requesting the DB tool
+            if len(api_calls) == 1:
+                return MockResponse({
+                    "choices": [{
+                        "message": {
+                            "content": "Let me query the database first.\n<query_db db=\"construction_costs.db\">SELECT COUNT(*) FROM materials</query_db>"
+                        }
+                    }]
+                })
+            # Second call: simulated final model answer based on the tool result
+            else:
+                # Retrieve system tool result from payload to make sure it exists
+                tool_res = payload["messages"][-1]["content"]
+                assert "query_result" in tool_res
+                return MockResponse({
+                    "choices": [{
+                        "message": {
+                            "content": "There are exactly 28 records in the materials table."
+                        }
+                    }]
+                })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # Run _call_local_ollama
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert "28 records" in res
+    assert len(api_calls) == 2, "Should invoke chat completions twice (one for tool call, one for final answer)"
+    
+    # Validate the tool message was appended
+    messages = api_calls[1]["messages"]
+    assert messages[-2]["role"] == "assistant"
+    assert "query_db" in messages[-2]["content"]
+    assert messages[-1]["role"] == "user"
+    assert "[System Tool Result]" in messages[-1]["content"]

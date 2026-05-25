@@ -92,10 +92,10 @@ class AICopilotWorker(QRunnable):
                     response_text += (
                         "\n\n> [!NOTE]\n"
                         "> **⚡ Boost with Local LLM Reasoning**\n"
-                        "> You can enable full offline LLM reasoning (like **DeepSeek-R1**) locally. "
+                        "> You can enable full offline LLM reasoning (like **LFM-2 1.2B**) locally. "
                         "> Simply install **Ollama** from [ollama.com](https://ollama.com) and run:\n"
                         "> ```bash\n"
-                        "> ollama run deepseek-r1\n"
+                        "> ollama run sam860/LFM2:1.2b\n"
                         "> ```\n"
                         "> Once running, the Copilot will automatically activate the local reasoning engine!"
                     )
@@ -103,152 +103,301 @@ class AICopilotWorker(QRunnable):
         except Exception as e:
             self.signals.error.emit(f"AI Worker Execution Error: {str(e)}")
 
+    def _resolve_file_path(self, target_path):
+        """
+        Resolves the absolute path of a database or JSON file by checking the app directory,
+        recursively searching the workspace, and scanning the active project directory if loaded.
+        """
+        if not target_path:
+            return None
+            
+        # 1. If absolute, check if it exists
+        if os.path.isabs(target_path) and os.path.exists(target_path):
+            return target_path
+        
+        # 2. Check in APP_DIR directly
+        direct_path = os.path.join(APP_DIR, os.path.basename(target_path))
+        if os.path.exists(direct_path):
+            return direct_path
+        
+        # 3. Recursively search in APP_DIR
+        for root, dirs, files in os.walk(APP_DIR):
+            dirs[:] = [d for d in dirs if d not in {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'PyTest'}]
+            if os.path.basename(target_path) in files:
+                return os.path.join(root, os.path.basename(target_path))
+                
+        # 4. Check loaded project directory from DB settings
+        try:
+            from database import DatabaseManager
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+            if project_dir and os.path.exists(project_dir):
+                # Search recursively inside project folder
+                for root, dirs, files in os.walk(project_dir):
+                    if os.path.basename(target_path) in files:
+                        return os.path.join(root, os.path.basename(target_path))
+        except Exception:
+            pass
+            
+        return None
+
+    def _execute_sql(self, db_name, sql_query):
+        """
+        Executes a custom SQLite query on a specified database file and formats the result as a markdown table.
+        """
+        resolved_db = self._resolve_file_path(db_name)
+        if not resolved_db:
+            return f"Error: Database file '{db_name}' could not be located in the workspace or active project directory."
+            
+        try:
+            conn = sqlite3.connect(resolved_db)
+            cursor = conn.cursor()
+            cursor.execute(sql_query)
+            rows = cursor.fetchall()
+            
+            # Extract column headers
+            cols = [description[0] for description in cursor.description] if cursor.description else []
+            conn.close()
+            
+            if not rows:
+                return "Query completed successfully. No rows returned."
+                
+            # Build markdown table representation
+            md = "| " + " | ".join(cols) + " |\n"
+            md += "| " + " | ".join(["---"] * len(cols)) + " |\n"
+            for row in rows[:50]:  # Limit output to prevent context window explosion
+                row_str = [str(val) if val is not None else "NULL" for val in row]
+                md += "| " + " | ".join(row_str) + " |\n"
+                
+            if len(rows) > 50:
+                md += f"\n*(Showing first 50 of {len(rows)} rows)*"
+            return md
+        except Exception as e:
+            return f"Error executing SQL: {str(e)}"
+
+    def _read_json(self, file_name):
+        """
+        Locates and reads the contents of a JSON file.
+        """
+        resolved_file = self._resolve_file_path(file_name)
+        if not resolved_file:
+            return f"Error: JSON file '{file_name}' could not be located in the workspace or active project directory."
+            
+        try:
+            with open(resolved_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            return json.dumps(data, indent=2)
+        except Exception as e:
+            return f"Error reading JSON: {str(e)}"
+
+    def _generate_schema_context(self, available_files):
+        """
+        Queries all available database files dynamically to generate schema context
+        (tables and column lists) to inject into the system prompt.
+        """
+        schema_info = []
+        for f in available_files:
+            if not f.endswith('.db'):
+                continue
+            resolved = self._resolve_file_path(f)
+            if not resolved:
+                continue
+            try:
+                conn = sqlite3.connect(resolved)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
+                tables = [row[0] for row in cursor.fetchall() if not row[0].startswith('sqlite_')]
+                
+                table_schemas = []
+                for table in tables:
+                    cursor.execute(f"PRAGMA table_info(\"{table}\");")
+                    cols = [f"{col[1]} ({col[2]})" for col in cursor.fetchall()]
+                    table_schemas.append(f"  - Table '{table}' with columns: {', '.join(cols)}")
+                
+                if table_schemas:
+                    schema_info.append(f"Database '{f}':\n" + "\n".join(table_schemas))
+                conn.close()
+            except Exception:
+                pass
+        return "\n\n".join(schema_info)
+
     def _call_local_ollama(self, active_summary, workspace_files, outliers_data):
         """
-        Queries the local Ollama instance, auto-detects downloaded models (favoring DeepSeek-R1),
-        transfers estimate context parameters, and extracts raw thinking reasoning.
+        Queries the local Ollama instance strictly using the sam860/LFM2:1.2b model,
+        supporting recursive execution of SQLite queries and JSON file reading.
         """
-        # A. Auto-detect model via tags API
-        model_name = "deepseek-r1"  # Default fallback
+        # A. Auto-detect and verify specific model via tags API
+        model_name = "sam860/LFM2:1.2b"
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=2) as response:
                 tags_data = json.loads(response.read().decode("utf-8"))
                 models = tags_data.get("models", [])
-                if models:
-                    installed_names = [m.get("name", "") for m in models]
-                    # Favor deepseek-r1 models first
-                    ds_models = [n for n in installed_names if "deepseek-r1" in n.lower() or "r1" in n.lower()]
-                    if ds_models:
-                        model_name = ds_models[0]
-                    else:
-                        # Otherwise fall back to first downloaded model
-                        model_name = installed_names[0]
-        except Exception:
-            # Let it fail to trigger fallback to the offline rule interpreter
+                installed_names = [m.get("name", "").lower() for m in models]
+                if not any(model_name.lower() in name or "sam860/lfm2:1.2b" in name for name in installed_names):
+                    raise Exception(f"Required model '{model_name}' is not installed in Ollama.")
+        except urllib.error.URLError:
             raise Exception("Ollama is not running locally.")
+        except Exception as e:
+            # Trigger fallback to the offline rule interpreter
+            raise Exception(str(e))
 
-        # B. Filter workspace files to exclude application python source files from the structural context to avoid distracting LLM
-        filtered_files = [
-            f for f in workspace_files 
-            if not (f.endswith('.py') or f.endswith('.pyc') or f.endswith('.pyd') or f.endswith('.pyo') or '__pycache__' in f or 'PyTest' in f)
+        # Scan for db and json files to list in system prompt dynamically
+        available_files = []
+        for root, dirs, files in os.walk(APP_DIR):
+            dirs[:] = [d for d in dirs if d not in {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'PyTest'}]
+            for f in files:
+                if f.endswith('.db') or f.endswith('.json'):
+                    available_files.append(f)
+        try:
+            from database import DatabaseManager
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+            if project_dir and os.path.exists(project_dir):
+                for root, dirs, files in os.walk(project_dir):
+                    for f in files:
+                        if (f.endswith('.db') or f.endswith('.json')) and f not in available_files:
+                            available_files.append(f)
+        except Exception:
+            pass
+
+        # Generate database schemas to give model precise, real-time knowledge of all tables and columns
+        schema_context = self._generate_schema_context(available_files)
+
+        system_prompt = (
+            "You are the AI Estimating Copilot for Estimator Pro.\n"
+            "You are running locally on the user's desktop with direct, real-time access to the SQLite databases and JSON files in the project's folders.\n\n"
+            "Here is the database schema context of the project:\n"
+            f"{schema_context}\n\n"
+            "CRITICAL SQLite METADATA INSTRUCTIONS:\n"
+            "- Since the database is SQLite, you CANNOT use 'INFORMATION_SCHEMA' or 'DESCRIBE'.\n"
+            "- To get column names and types in SQLite, run: PRAGMA table_info(tableName);\n"
+            "- To list tables, run: SELECT name FROM sqlite_master WHERE type='table';\n\n"
+            "INSTRUCTIONS FOR DB QUERYING & FILE ACCESS:\n"
+            "- To query an SQLite database, write exactly:\n"
+            "<query_db db=\"DATABASENAME\">SQL_QUERY</query_db>\n"
+            "For example: <query_db db=\"construction_costs.db\">SELECT * FROM materials LIMIT 5;</query_db>\n\n"
+            "- Alternatively, if you write standard markdown SQL code blocks (e.g. ```sql ... ```), the system will automatically execute them on the referred database!\n\n"
+            "- To read a JSON file, write exactly:\n"
+            "<read_json file=\"FILENAME\"></read_json>\n"
+            "For example: <read_json file=\"settings.json\"></read_json>\n\n"
+            "If you output a tag (or write an SQL block), STOP generating immediately. The system will execute the query/read, append the results, and invoke you again to formulate your final response.\n"
+            "Use these tools immediately to fetch actual database results if the user asks any question about library prices, estimate details, database tables, or files. Do not suggest or write placeholders; run the query to find the actual real-time answers."
+        )
+
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": self.user_query}
         ]
-
-        is_active = "status" not in active_summary
-        
-        if not is_active:
-            context_prompt = (
-                f"You are the AI Estimating Copilot for Estimator Pro.\n"
-                f"--- IMPORTANT STATUS ---\n"
-                f"NO ACTIVE ESTIMATE/PROJECT IS CURRENTLY LOADED OR OPEN IN THE WORKSPACE.\n"
-                f"Estimate Summary Status: {json.dumps(active_summary, indent=2)}\n"
-                f"Available Files in Workspace: {json.dumps(filtered_files, indent=2)}\n"
-                f"-------------------------\n"
-                f"User Query: {self.user_query}\n\n"
-                f"CRITICAL REQUIREMENT FOR THE AI COPILOT:\n"
-                f"Since no project is currently loaded, you CANNOT answer questions about active bid values, totals, margins, or project-specific costs.\n"
-                f"You MUST politely and clearly inform the user that no project is currently active or loaded, and instruct them to use the user interface menu options in Estimator Pro to load one:\n"
-                f"1. Go to the main menu and use 'File -> Load Project' or 'File -> New Project' to open estimate data.\n"
-                f"2. Or open a Priced BOQ sheet from the 'PBOQ' tab.\n"
-                f"Do NOT tell them to write Python scripts, run database queries, or search code files. Do NOT suggest editing or running code. Strictly guide them to the UI menu options mentioned above."
-            )
-        else:
-            costs_count = 0
-            abs_costs_db = os.path.join(APP_DIR, "construction_costs.db")
-            if os.path.exists(abs_costs_db):
-                try:
-                    conn = sqlite3.connect(abs_costs_db)
-                    costs_count = conn.cursor().execute("SELECT COUNT(*) FROM materials").fetchone()[0]
-                    conn.close()
-                except Exception:
-                    pass
-
-            proj_db_path = ai_tools.get_active_project_db_path()
-            if proj_db_path and not os.path.isabs(proj_db_path):
-                proj_db_path = os.path.join(APP_DIR, proj_db_path)
-            proj_db_name = os.path.basename(proj_db_path) if proj_db_path else "None"
-            proj_tasks_count = 0
-            proj_materials_count = 0
-            if proj_db_path:
-                try:
-                    conn = sqlite3.connect(proj_db_path)
-                    c = conn.cursor()
-                    proj_tasks_count = c.execute("SELECT COUNT(*) FROM tasks").fetchone()[0]
-                    proj_materials_count = c.execute("SELECT COUNT(*) FROM materials").fetchone()[0]
-                    conn.close()
-                except Exception:
-                    pass
-
-            # Search active project database for keywords from user query
-            db_matches = {}
-            search_words = [w for w in re.findall(r'\b\w{4,}\b', self.user_query.lower()) if w not in [
-                "show", "active", "estimate", "project", "value", "totals", "outliers", "outlier", 
-                "anomalies", "anomaly", "database", "files", "structure", "find", "search", "lookup"
-            ]]
-            if search_words:
-                try:
-                    db_matches = ai_tools.search_active_database(search_words[0])
-                except Exception:
-                    pass
-
-            context_prompt = (
-                f"You are the AI Estimating Copilot for Estimator Pro. You have direct database access.\n"
-                f"--- Active Project Context ---\n"
-                f"Estimate Summary: {json.dumps(active_summary, indent=2)}\n"
-                f"Project File Structure: {json.dumps(filtered_files[:40], indent=2)} (showing first 40 files)\n"
-                f"Detected Pricing Outliers: {json.dumps(outliers_data, indent=2)}\n"
-                f"--- Live Database Status ---\n"
-                f"- Cost Library (materials): {costs_count} records\n"
-                f"- Project Database ({proj_db_name}): {proj_tasks_count} tasks, {proj_materials_count} materials\n"
-                f"- Priced BOQ ({os.path.basename(active_summary.get('pboq_database_path', '')) or 'None'}): {active_summary.get('total_boq_items', 0)} items\n"
-                f"--- Query Specific Database Matches ---\n"
-                f"{json.dumps(db_matches, indent=2) if db_matches else 'No search terms matched in active tables.'}\n"
-                f"---------------------------------\n"
-                f"User Query: {self.user_query}\n"
-                f"Please answer the user query in a premium, professional manner. Use markdown format, list tables "
-                f"for database records, and highlight insights using beautiful warning/tip styled notes."
-            )
 
         url = "http://localhost:11434/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
-        system_prompt = (
-            "You are a professional construction estimator and quantity surveyor assistant for Estimator Pro.\n"
-            "You are running locally on the user's desktop, and you have direct, secure access to the active "
-            "project database, file structures, and libraries.\n\n"
-            "CRITICAL INSTRUCTIONS:\n"
-            "1. If the 'Estimate Summary' indicates 'No active estimate found' or there is no active project loaded, you MUST politely explain that no project is active/loaded. Instruct the user to use the UI options: go to the main menu and select 'File -> Load Project' or 'File -> New Project', or open a Priced BOQ sheet from the 'PBOQ' tab.\n"
-            "2. Do NOT tell the user to write Python code, search database files manually, or check python scripts. Guide them strictly to the application's UI menu options.\n"
-            "3. If an active project is loaded, use the provided JSON metrics (Total Bid Value, priced counts, manual plugs, etc.) to answer their questions accurately. Format all numbers nicely as currency with commas and decimals.\n"
-            "4. Keep your tone professional, consultative, and helpful."
-        )
 
-        data = {
-            "model": model_name,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": context_prompt}
-            ],
-            "temperature": 0.2,
-            "stream": False
-        }
+        for iteration in range(5):
+            data = {
+                "model": model_name,
+                "messages": messages,
+                "temperature": 0.2,
+                "stream": False
+            }
 
-        # C. Call local chat completions endpoint
-        req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
-        try:
-            with urllib.request.urlopen(req, timeout=35) as response:
-                res_data = json.loads(response.read().decode("utf-8"))
-                content = res_data["choices"][0]["message"]["content"]
+            req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
+            try:
+                with urllib.request.urlopen(req, timeout=35) as response:
+                    res_data = json.loads(response.read().decode("utf-8"))
+                    content = res_data["choices"][0]["message"]["content"]
+            except Exception as e:
+                raise Exception(f"Local LLM API error: {str(e)}")
+
+            # Check for <query_db> or <read_json> tags
+            db_match = re.search(r'<query_db\s+db=["\'](.*?)["\']>(.*?)</query_db>', content, re.DOTALL | re.IGNORECASE)
+            json_match = re.search(r'<read_json\s+file=["\'](.*?)["\']>(.*?)</read_json>', content, re.DOTALL | re.IGNORECASE)
+            if not json_match:
+                json_match = re.search(r'<read_json\s+file=["\'](.*?)["\']\s*/>', content, re.IGNORECASE)
+
+            # Heuristic: If no explicit tag matches, but the model output contains a SQL code block, treat it as an implicit database query!
+            if not db_match and not json_match:
+                sql_block_match = re.search(r'```(?:sql|sqlite)\n(.*?)\n```', content, re.DOTALL | re.IGNORECASE)
+                if sql_block_match:
+                    sql_query = sql_block_match.group(1).strip()
+                    
+                    # Detect database name from content or user query
+                    detected_db = None
+                    for f in available_files:
+                        if f.endswith('.db') and f.lower() in content.lower():
+                            detected_db = f
+                            break
+                    if not detected_db:
+                        for f in available_files:
+                            if f.endswith('.db') and f.lower() in self.user_query.lower():
+                                detected_db = f
+                                break
+                    if not detected_db:
+                        pboq_path = active_summary.get('pboq_database_path')
+                        if pboq_path:
+                            detected_db = os.path.basename(pboq_path)
+                        else:
+                            detected_db = "construction_costs.db"
+                            
+                    db_name = detected_db
+                    
+                    # Append assistant's partial message requesting the tool
+                    messages.append({"role": "assistant", "content": content})
+                    
+                    # Execute tool
+                    result = self._execute_sql(db_name, sql_query)
+                    
+                    # Append system tool result
+                    messages.append({
+                        "role": "user",
+                        "content": f"[System Tool Result - Automatically executed SQL query on '{db_name}']:\n<query_result>\n{result}\n</query_result>"
+                    })
+                    continue
+
+            if db_match:
+                db_name = db_match.group(1).strip()
+                sql_query = db_match.group(2).strip()
                 
-                # D. Parse <think> tags and format them elegantly
+                # Append assistant's partial message requesting the tool
+                messages.append({"role": "assistant", "content": content})
+                
+                # Execute tool
+                result = self._execute_sql(db_name, sql_query)
+                
+                # Append system tool result
+                messages.append({
+                    "role": "user",
+                    "content": f"[System Tool Result]:\n<query_result>\n{result}\n</query_result>"
+                })
+                continue
+                
+            elif json_match:
+                file_name = json_match.group(1).strip()
+                
+                # Append assistant's partial message requesting the tool
+                messages.append({"role": "assistant", "content": content})
+                
+                # Execute tool
+                result = self._read_json(file_name)
+                
+                # Append system tool result
+                messages.append({
+                    "role": "user",
+                    "content": f"[System Tool Result]:\n<read_json_result>\n{result}\n</read_json_result>"
+                })
+                continue
+                
+            else:
+                # No more tools called, parse and return final content
                 think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
                 if think_match:
                     thinking = think_match.group(1).strip()
                     actual_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
-                    # Prepend standard visual block quote with purple thinkers styling
                     return f"> [!THINK]\n> {thinking}\n\n{actual_content}"
                 return content
-        except Exception as e:
-            raise Exception(f"Local LLM API error: {str(e)}")
+
+        # If it reaches the iteration limit, return the last generated content
+        return content
 
     def _generate_local_response(self, query, active_summary, workspace_files, outliers_data):
         """
@@ -551,7 +700,7 @@ class AICopilotWorker(QRunnable):
         md += "- **\"Search database for concrete\"**: Queries active project databases, priced BOQs, and cost libraries for matching items.\n\n"
         
         md += "> [!NOTE]\n"
-        md += "> **Local Offline Reasoning:** The Copilot operates 100% offline. Spin up a local **Ollama** instance with `ollama run deepseek-r1` to unlock high-precision thinking model responses securely on your machine!"
+        md += "> **Local Offline Reasoning:** The Copilot operates 100% offline. Spin up a local **Ollama** instance with `ollama run sam860/LFM2:1.2b` to unlock high-precision offline model responses securely on your machine!"
         
         return md
 
