@@ -338,3 +338,31 @@ def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
     assert "query_db" in messages[-2]["content"]
     assert messages[-1]["role"] == "user"
     assert "[System Tool Result]" in messages[-1]["content"]
+
+def test_ai_worker_simple_questions_direct_answer(qapp):
+    worker = AICopilotWorker("what is the currency of the project?", main_window=None)
+    
+    active_summary = {
+        "source": "Loaded Project Directory Database (Atlantic Catering School)",
+        "project_name": "Atlantic Catering School",
+        "client_name": "Atlantic Catering School",
+        "overhead_percent": 10.0,
+        "profit_margin_percent": 10.0,
+        "currency": "USD ($)",
+        "subtotal": 1253441.24,
+        "overhead_amount": 125344.12,
+        "profit_amount": 125344.12,
+        "grand_total": 1504129.48,
+        "total_boq_items": 1288
+    }
+    
+    # Test currency query
+    res = worker._generate_local_response("what is the currency of the project?", active_summary, [], {})
+    assert "USD ($)" in res
+    assert "The base currency of the project is" in res
+    
+    # Test overhead query
+    res2 = worker._generate_local_response("what is the overhead markup?", active_summary, [], {})
+    assert "10.0%" in res2
+    assert "The overhead markup for the active project is" in res2
+

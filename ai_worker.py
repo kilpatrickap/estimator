@@ -314,6 +314,9 @@ class AICopilotWorker(QRunnable):
         system_prompt = (
             "You are the AI Estimating Copilot for Estimator Pro.\n"
             "You are running locally on the user's desktop with direct, real-time access to the SQLite databases and JSON files in the project's folders.\n\n"
+            "=== CRITICAL DIRECT ANSWER GUIDELINE ===\n"
+            "If the user asks a simple or direct question about the loaded project (such as the project currency, project name, client name, total BOQ items, priced items, grand total bid value, overhead markup, profit margin, or other metadata) that is already present in the '--- ACTIVE LOADED PROJECT ---' block below, you MUST answer the question directly and concisely in a single sentence (e.g., 'The base currency of the project is USD ($).') based on that block. Do NOT write any SQLite database queries, do NOT write SQL code blocks, do NOT use any <query_db> tags, and do NOT print any tables, columns, schema metadata, observations, or key observations.\n"
+            "========================================\n\n"
             f"{active_context}"
             "Here is the database schema context of the project:\n"
             f"{schema_context}\n\n"
@@ -330,7 +333,11 @@ class AICopilotWorker(QRunnable):
             "<read_json file=\"FILENAME\"></read_json>\n"
             "For example: <read_json file=\"settings.json\"></read_json>\n\n"
             "If you output a tag (or write an SQL block), STOP generating immediately. The system will execute the query/read, append the results, and invoke you again to formulate your final response.\n"
-            "Use these tools immediately to fetch actual database results if the user asks any question about library prices, estimate details, database tables, or files. Do not suggest or write placeholders; run the query to find the actual real-time answers."
+            "Use these tools immediately to fetch actual database results if the user asks any question about library prices, estimate details, database tables, or files. Do not suggest or write placeholders; run the query to find the actual real-time answers.\n\n"
+            "=== ADDITIONAL CRITICAL CONSTRAINTS ===\n"
+            "- NEVER print, summarize, copy, list, or describe the database schema, table structures, or column listings in your final response unless the user explicitly asked you to show database schema/structure.\n"
+            "- Simple questions must be answered with a simple, direct, friendly sentence. Keep the database technical details completely invisible to the user by default.\n"
+            "- Focus only on extracting the requested information and answering the user directly."
         )
 
         messages = [
@@ -462,7 +469,43 @@ class AICopilotWorker(QRunnable):
         SQLite and workspace statistics to craft highly premium, formatted reports.
         """
         import sqlite3
-        q_lower = query.lower()
+        q_lower = query.lower().strip()
+
+        # 1. Direct short answers for simple project metadata if asked directly
+        if active_summary and "status" not in active_summary:
+            currency = active_summary.get('currency', 'USD ($)')
+            project_name = active_summary.get('project_name', 'N/A')
+            client_name = active_summary.get('client_name', 'N/A')
+            total_items = active_summary.get('total_boq_items', 0)
+            priced_items = active_summary.get('priced_items', 0)
+            grand_total = active_summary.get('grand_total', 0.0)
+            overhead_pct = active_summary.get('overhead_percent', 0.0)
+            profit_pct = active_summary.get('profit_margin_percent', 0.0)
+
+            if q_lower in ["what is the currency of the project?", "what is the currency", "currency of the project", "currency of project", "currency", "project currency"]:
+                return f"The base currency of the project is **{currency}**."
+            elif q_lower in ["what is the overhead?", "what is the overhead markup?", "overhead markup", "overhead", "markup"]:
+                return f"The overhead markup for the active project is **{overhead_pct}%**."
+            elif q_lower in ["what is the profit margin?", "what is the profit?", "profit margin", "profit", "margin"]:
+                return f"The profit margin for the active project is **{profit_pct}%**."
+            elif q_lower in ["who is the client?", "what is the client name?", "client name", "client", "customer"]:
+                return f"The client for the active project is **{client_name}**."
+            elif q_lower in ["what is the project name?", "what is the name of the project?", "project name", "name of the project"]:
+                return f"The active project name is **{project_name}**."
+            elif q_lower in ["what is the total boq items?", "how many items are in the project?", "total items", "total boq items", "boq items"]:
+                return f"The active project has a total of **{total_items}** BOQ items."
+
+            # More general substring matches for simple queries
+            if "currency" in q_lower or "monetary unit" in q_lower or "currency symbol" in q_lower:
+                return f"The base currency of the project is **{currency}**."
+            elif "overhead" in q_lower or "overhead markup" in q_lower:
+                return f"The overhead markup for the active project is **{overhead_pct}%**."
+            elif "profit margin" in q_lower or "profit percent" in q_lower:
+                return f"The profit margin for the active project is **{profit_pct}%**."
+            elif "client" in q_lower or "customer" in q_lower:
+                return f"The client for the active project is **{client_name}**."
+            elif "project name" in q_lower or "name of the project" in q_lower:
+                return f"The active project name is **{project_name}**."
 
         # Database Diagnostics / Access check
         if any(w in q_lower for w in ["cannot read", "can't read", "read the db", "read db", "database access"]):

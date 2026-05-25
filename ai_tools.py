@@ -118,8 +118,13 @@ def query_active_estimate_summary(main_window=None):
                     
                     currency = 'GHS (₵)'
                     try:
-                        db = DatabaseManager("construction_costs.db")
-                        currency = db.get_setting('currency', 'GHS (₵)')
+                        proj_db = get_active_project_db_path()
+                        if proj_db and os.path.exists(proj_db):
+                            db = DatabaseManager(proj_db)
+                            currency = db.get_setting('currency', 'GHS (₵)')
+                        else:
+                            db = DatabaseManager("construction_costs.db")
+                            currency = db.get_setting('currency', 'GHS (₵)')
                     except Exception:
                         pass
                     
