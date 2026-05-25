@@ -711,3 +711,530 @@ def search_active_database(query_str):
             
     return results
 
+
+def ingest_project_domains(project_dir=None):
+    """
+    Ingests and parses project configuration and settings data, resources data,
+    Schedule of Rates (SOR) data, priced Bill of Quantities (PBOQ) data,
+    and cost/margin analytics data in real-time.
+    """
+    if not project_dir:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+
+    if not project_dir or not os.path.exists(project_dir):
+        return {"error": "No active project directory found."}
+
+    domains = {
+        "project_settings": {},
+        "resources_summary": {},
+        "sor_data": [],
+        "pboq_summary": {},
+        "analytics_summary": {}
+    }
+
+    # 1. Ingest Project Settings Data
+    proj_db_dir = os.path.join(project_dir, "Project Database")
+    master_db_path = None
+    if os.path.exists(proj_db_dir):
+        dbs = [f for f in os.listdir(proj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+        if dbs:
+            master_db_path = os.path.join(proj_db_dir, dbs[0])
+
+    overhead_rate = 0.0
+    profit_rate = 0.0
+    currency = "GHS (₵)"
+    client_name = "N/A"
+    project_name = os.path.basename(project_dir)
+
+    if master_db_path and os.path.exists(master_db_path):
+        try:
+            conn = sqlite3.connect(master_db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+            if cursor.fetchone():
+                cursor.execute("SELECT project_name, client_name, overhead_percent, profit_margin_percent, currency FROM estimates LIMIT 1")
+                row = cursor.fetchone()
+                if row:
+                    project_name = row[0] or project_name
+                    client_name = row[1] or client_name
+                    overhead_rate = row[2] or 0.0
+                    profit_rate = row[3] or 0.0
+                    currency = row[4] or currency
+
+            exchange_rates = []
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_exchange_rates'")
+            if cursor.fetchone():
+                cursor.execute("SELECT currency, rate, date, operator FROM estimate_exchange_rates")
+                for r in cursor.fetchall():
+                    exchange_rates.append({
+                        "currency": r[0],
+                        "rate": r[1],
+                        "date": r[2],
+                        "operator": r[3]
+                    })
+            
+            domains["project_settings"] = {
+                "project_name": project_name,
+                "client_name": client_name,
+                "base_currency": currency,
+                "overhead_percent": overhead_rate,
+                "profit_margin_percent": profit_rate,
+                "exchange_rates": exchange_rates,
+                "master_database": os.path.basename(master_db_path)
+            }
+            conn.close()
+        except Exception as e:
+            domains["project_settings"] = {"error": f"Failed to parse settings: {str(e)}"}
+    else:
+        domains["project_settings"] = {
+            "project_name": project_name,
+            "base_currency": currency,
+            "overhead_percent": overhead_rate,
+            "profit_margin_percent": profit_rate,
+            "exchange_rates": []
+        }
+
+    # 2. Ingest Resources Data
+    resources = {
+        "materials": {"count": 0, "sample": []},
+        "labor": {"count": 0, "sample": []},
+        "equipment": {"count": 0, "sample": []},
+        "plant": {"count": 0, "sample": []},
+        "indirect_costs": {"count": 0, "sample": []}
+    }
+    for db_file in ["construction_costs.db", master_db_path]:
+        if not db_file or not os.path.exists(db_file):
+            continue
+        try:
+            conn = sqlite3.connect(db_file)
+            cursor = conn.cursor()
+            for tbl in ["materials", "labor", "equipment", "plant", "indirect_costs"]:
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,))
+                if cursor.fetchone():
+                    name_col = "name" if tbl != "labor" else "trade"
+                    if tbl == "indirect_costs":
+                        name_col = "description"
+                    cursor.execute(f"SELECT COUNT(*), GROUP_CONCAT({name_col}) FROM {tbl}")
+                    count_row = cursor.fetchone()
+                    if count_row and count_row[0] > 0:
+                        resources[tbl]["count"] += count_row[0]
+                        sample = [x.strip() for x in (count_row[1] or "").split(",") if x.strip()][:5]
+                        resources[tbl]["sample"] = list(set(resources[tbl]["sample"] + sample))[:5]
+            conn.close()
+        except Exception:
+            pass
+    domains["resources_summary"] = resources
+
+    # 3. Ingest SOR Data
+    sor_dir = os.path.join(project_dir, "SOR")
+    sor_items = []
+    if os.path.exists(sor_dir):
+        for f in os.listdir(sor_dir):
+            if f.lower().endswith('.db'):
+                db_path = os.path.join(sor_dir, f)
+                try:
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sor_items'")
+                    if cursor.fetchone():
+                        cursor.execute("SELECT Sheet, Ref, Description, Quantity, Unit, GrossRate, RateCode FROM sor_items LIMIT 50")
+                        for row in cursor.fetchall():
+                            sor_items.append({
+                                "database": f,
+                                "sheet": row[0],
+                                "ref": row[1],
+                                "description": row[2],
+                                "quantity": row[3],
+                                "unit": row[4],
+                                "gross_rate": row[5],
+                                "rate_code": row[6]
+                            })
+                    conn.close()
+                except Exception:
+                    pass
+    domains["sor_data"] = sor_items
+
+    # 4. Ingest PBOQ Data
+    pboq_dir = os.path.join(project_dir, "Priced BOQs")
+    pboq_sheets = []
+    total_priced_value = 0.0
+    total_items_count = 0
+    priced_items_count = 0
+    plugged_items_count = 0
+
+    if os.path.exists(pboq_dir):
+        for f in os.listdir(pboq_dir):
+            if f.lower().endswith('.db'):
+                db_path = os.path.join(pboq_dir, f)
+                try:
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                    if cursor.fetchone():
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        cols = [col[1] for col in cursor.fetchall()]
+                        
+                        desc_col = next((c for c in ["Description", "Column 1", "Column 2"] if c in cols), "Description")
+                        qty_col = next((c for c in ["Quantity", "Qty", "Column 3"] if c in cols), "Quantity")
+                        bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Column 4"] if c in cols), "BillRate")
+                        bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Column 5"] if c in cols), "BillAmount")
+                        plug_col = next((c for c in ["PlugRate", "Plug Rate"] if c in cols), None)
+                        
+                        cursor.execute(f"SELECT COUNT(*), SUM(CAST(REPLACE(REPLACE(REPLACE(\"{bill_amt_col}\", ',', ''), '₵', ''), '$', '') AS REAL)) FROM pboq_items")
+                        tot_row = cursor.fetchone()
+                        
+                        tot_items = tot_row[0] or 0
+                        tot_val = tot_row[1] or 0.0
+                        
+                        total_items_count += tot_items
+                        total_priced_value += tot_val
+                        
+                        cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{bill_rate_col}\" > 0")
+                        priced_items_count += cursor.fetchone()[0] or 0
+                        
+                        if plug_col:
+                            cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
+                            plugged_items_count += cursor.fetchone()[0] or 0
+                            
+                        pboq_sheets.append({
+                            "database": f,
+                            "total_items": tot_items,
+                            "subtotal": tot_val,
+                            "priced_items": priced_items_count
+                        })
+                    conn.close()
+                except Exception:
+                    pass
+                    
+    domains["pboq_summary"] = {
+        "sheets": pboq_sheets,
+        "total_items_count": total_items_count,
+        "priced_items_count": priced_items_count,
+        "plugged_items_count": plugged_items_count,
+        "total_priced_value": total_priced_value,
+        "pricing_completeness_percent": round((priced_items_count / total_items_count * 100) if total_items_count > 0 else 0.0, 2)
+    }
+
+    # 5. Ingest Analytics Data
+    try:
+        combined_markup = (overhead_rate + profit_rate) / 100.0
+        net_subtotal = total_priced_value / (1.0 + combined_markup) if total_priced_value > 0 else 0.0
+        
+        outliers_data = get_outlier_items(
+            os.path.join(pboq_dir, pboq_sheets[0]["database"]) if pboq_sheets else None
+        )
+        
+        domains["analytics_summary"] = {
+            "net_subtotal": round(net_subtotal, 2),
+            "grand_total": round(total_priced_value, 2),
+            "overhead_amount": round(net_subtotal * (overhead_rate / 100.0), 2),
+            "profit_margin_amount": round(net_subtotal * (profit_rate / 100.0), 2),
+            "pricing_variance_outliers_count": len(outliers_data.get("outlier_deviations", [])),
+            "manual_plugs_count": len(outliers_data.get("manual_plug_rates", []))
+        }
+    except Exception:
+        domains["analytics_summary"] = {
+            "net_subtotal": 0.0,
+            "grand_total": total_priced_value,
+            "pricing_variance_outliers_count": 0,
+            "manual_plugs_count": 0
+        }
+
+    return domains
+
+
+def build_unified_knowledge_graph(project_dir=None):
+    """
+    Assembles a relation-driven semantic knowledge graph for deep project comprehension:
+    1. WBS Parsing: Groups items under phases/sections (Substructure, Superstructure, etc.)
+    2. Recipe Coupling: Maps active PBOQ items to their composite buildup recipes
+    3. Resource Dependency Mapping: Flags missing dependencies (concrete vs steel vs formwork)
+    """
+    if not project_dir:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+
+    if not project_dir or not os.path.exists(project_dir):
+        return {"error": "No active project directory found."}
+
+    proj_db_dir = os.path.join(project_dir, "Project Database")
+    master_db_path = None
+    if os.path.exists(proj_db_dir):
+        dbs = [f for f in os.listdir(proj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+        if dbs:
+            master_db_path = os.path.join(proj_db_dir, dbs[0])
+
+    graph = {
+        "wbs_hierarchy": {},
+        "recipe_coupling": {},
+        "resource_dependencies_warnings": []
+    }
+
+    category_prefixes = {
+        "Preliminaries": ["PRLM"],
+        "Earthworks": ["ETWK"],
+        "Concrete": ["CONC"],
+        "Formwork": ["FMWK"],
+        "Reinforcement": ["RFMT"],
+        "Structural Steelwork": ["STLS"],
+        "Blockwork": ["WALL"],
+        "Flooring": ["FLRG"],
+        "Doors & Windows": ["DRWD"],
+        "Plastering": ["PLST"],
+        "Painting": ["PNTG"],
+        "Roadwork & Fencing": ["RDWK"],
+        "Miscellaneous": ["MISC"],
+        "External Works": ["EXWK"],
+        "Waterproofing": ["WPFG"],
+        "Precast": ["PRCT"]
+    }
+
+    def get_wbs_section(rate_code, description):
+        code_upper = str(rate_code).upper().strip()
+        desc_lower = str(description).lower()
+        
+        for section, prefixes in category_prefixes.items():
+            for p in prefixes:
+                if code_upper.startswith(p):
+                    return section
+                    
+        if "prelim" in desc_lower or "insurance" in desc_lower or "mobilization" in desc_lower:
+            return "Preliminaries"
+        elif "excavat" in desc_lower or "earth" in desc_lower or "fill" in desc_lower or "pit" in desc_lower or "trench" in desc_lower:
+            return "Earthworks"
+        elif "concrete" in desc_lower or "grade c" in desc_lower:
+            return "Concrete"
+        elif "formwork" in desc_lower or "shutter" in desc_lower or "edge" in desc_lower:
+            return "Formwork"
+        elif "reinforc" in desc_lower or "rebar" in desc_lower or "mesh" in desc_lower or "stirrup" in desc_lower:
+            return "Reinforcement"
+        elif "brick" in desc_lower or "block" in desc_lower or "wall" in desc_lower:
+            return "Blockwork"
+        elif "door" in desc_lower or "window" in desc_lower:
+            return "Doors & Windows"
+        elif "paint" in desc_lower:
+            return "Painting"
+        elif "plaster" in desc_lower or "screed" in desc_lower:
+            return "Plastering"
+            
+        return "Miscellaneous"
+
+    pboq_dir = os.path.join(project_dir, "Priced BOQs")
+    all_pboq_items = []
+    
+    if os.path.exists(pboq_dir):
+        for f in os.listdir(pboq_dir):
+            if f.lower().endswith('.db'):
+                db_path = os.path.join(pboq_dir, f)
+                try:
+                    conn = sqlite3.connect(db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                    if cursor.fetchone():
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        cols = [col[1] for col in cursor.fetchall()]
+                        
+                        desc_col = next((c for c in ["Description", "Column 1", "Column 2"] if c in cols), "Description")
+                        qty_col = next((c for c in ["Quantity", "Qty", "Column 3"] if c in cols), "Quantity")
+                        bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Column 4"] if c in cols), "BillRate")
+                        bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Column 5"] if c in cols), "BillAmount")
+                        rate_code_col = next((c for c in ["RateCode", "Rate Code", "rate_code"] if c in cols), "RateCode")
+                        plug_code_col = next((c for c in ["PlugCode", "Plug Code", "plug_code"] if c in cols), "PlugCode")
+                        sheet_col = "Sheet" if "Sheet" in cols else "sheet"
+                        
+                        query_cols = [sheet_col, desc_col, qty_col, bill_rate_col, bill_amt_col, rate_code_col, plug_code_col]
+                        sel_cols = []
+                        for c in query_cols:
+                            if c in cols:
+                                sel_cols.append(f"\"{c}\"")
+                            else:
+                                sel_cols.append("''")
+                                
+                        cursor.execute(f"SELECT rowid, {', '.join(sel_cols)} FROM pboq_items")
+                        for row in cursor.fetchall():
+                            row_id, sheet, desc, qty, br, ba, rcode, pcode = row
+                            desc_low = (desc or "").lower()
+                            if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
+                                continue
+                            
+                            active_code = pcode if pcode and str(pcode).strip() else rcode
+                            section = get_wbs_section(active_code, desc)
+                            
+                            item_dict = {
+                                "row_id": row_id,
+                                "database": f,
+                                "sheet": sheet,
+                                "description": desc,
+                                "quantity": qty,
+                                "bill_rate": br,
+                                "bill_amount": ba,
+                                "rate_code": active_code,
+                                "wbs_section": section
+                            }
+                            
+                            all_pboq_items.append(item_dict)
+                            
+                            if sheet not in graph["wbs_hierarchy"]:
+                                graph["wbs_hierarchy"][sheet] = {}
+                            if section not in graph["wbs_hierarchy"][sheet]:
+                                graph["wbs_hierarchy"][sheet][section] = []
+                            graph["wbs_hierarchy"][sheet][section].append({
+                                "row_id": row_id,
+                                "description": desc,
+                                "bill_amount": ba,
+                                "rate_code": active_code
+                            })
+                    conn.close()
+                except Exception:
+                    pass
+
+    buildup_recipes = {}
+    if master_db_path and os.path.exists(master_db_path):
+        try:
+            conn = sqlite3.connect(master_db_path)
+            cursor = conn.cursor()
+            
+            cursor.execute("SELECT id, rate_code, project_name, net_total, grand_total, category FROM estimates")
+            ests = cursor.fetchall()
+            for est_id, rate_code, name, net, grand, cat in ests:
+                if not rate_code:
+                    continue
+                
+                recipe = {
+                    "estimate_id": est_id,
+                    "description": name,
+                    "net_total": net,
+                    "grand_total": grand,
+                    "category": cat,
+                    "materials": [],
+                    "labor": [],
+                    "equipment": [],
+                    "plant": [],
+                    "indirect_costs": []
+                }
+                
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_materials'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT name, quantity, unit, price, currency, formula FROM estimate_materials WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                    for m in cursor.fetchall():
+                        recipe["materials"].append({
+                            "name": m[0],
+                            "quantity": m[1],
+                            "unit": m[2],
+                            "price": m[3],
+                            "currency": m[4],
+                            "formula": m[5]
+                        })
+                        
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_labor'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT name_trade, hours, unit, rate, currency, formula FROM estimate_labor WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                    for l in cursor.fetchall():
+                        recipe["labor"].append({
+                            "trade": l[0],
+                            "hours": l[1],
+                            "unit": l[2],
+                            "rate": l[3],
+                            "currency": l[4],
+                            "formula": l[5]
+                        })
+                        
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_plant'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT name_trade, hours, unit, rate, currency, formula FROM estimate_plant WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                    for p in cursor.fetchall():
+                        recipe["plant"].append({
+                            "name": p[0],
+                            "hours": p[1],
+                            "unit": p[2],
+                            "rate": p[3],
+                            "currency": p[4],
+                            "formula": p[5]
+                        })
+                        
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_equipment'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT name_trade, hours, unit, rate, currency, formula FROM estimate_equipment WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                    for eq in cursor.fetchall():
+                        recipe["equipment"].append({
+                            "name": eq[0],
+                            "hours": eq[1],
+                            "unit": eq[2],
+                            "rate": eq[3],
+                            "currency": eq[4],
+                            "formula": eq[5]
+                        })
+                        
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_indirect_costs'")
+                if cursor.fetchone():
+                    cursor.execute("SELECT description, amount, unit, currency, formula FROM estimate_indirect_costs WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                    for ind in cursor.fetchall():
+                        recipe["indirect_costs"].append({
+                            "description": ind[0],
+                            "amount": ind[1],
+                            "unit": ind[2],
+                            "currency": ind[3],
+                            "formula": ind[4]
+                        })
+                
+                buildup_recipes[rate_code] = recipe
+            conn.close()
+        except Exception:
+            pass
+
+    for item in all_pboq_items:
+        rcode = item["rate_code"]
+        if rcode and rcode in buildup_recipes:
+            graph["recipe_coupling"][item["description"]] = buildup_recipes[rcode]
+
+    sheets = list(set(item["sheet"] for item in all_pboq_items))
+    for sheet in sheets:
+        sheet_items = [item for item in all_pboq_items if item["sheet"] == sheet]
+        
+        concrete_slab_items = []
+        has_formwork = False
+        has_reinforcement = False
+        
+        for item in sheet_items:
+            desc_low = (item["description"] or "").lower()
+            rcode_upper = str(item["rate_code"]).upper()
+            
+            if "concrete" in desc_low and ("bed" in desc_low or "slab" in desc_low or "foundation" in desc_low or "strip" in desc_low):
+                concrete_slab_items.append(item)
+                
+            if "formwork" in desc_low or "shuttering" in desc_low or rcode_upper.startswith("FMWK"):
+                has_formwork = True
+                
+            if "reinforc" in desc_low or "rebar" in desc_low or "mesh" in desc_low or rcode_upper.startswith("RFMT"):
+                has_reinforcement = True
+                
+        if concrete_slab_items:
+            for conc_item in concrete_slab_items:
+                if not has_formwork:
+                    graph["resource_dependencies_warnings"].append({
+                        "sheet": sheet,
+                        "wbs_section": conc_item["wbs_section"],
+                        "item": conc_item["description"],
+                        "rate_code": conc_item["rate_code"],
+                        "issue": "Formwork (shuttering) record is missing on sheet for concrete slab/foundation item.",
+                        "severity": "High"
+                    })
+                if not has_reinforcement:
+                    graph["resource_dependencies_warnings"].append({
+                        "sheet": sheet,
+                        "wbs_section": conc_item["wbs_section"],
+                        "item": conc_item["description"],
+                        "rate_code": conc_item["rate_code"],
+                        "issue": "Reinforcement steel (rebar/mesh) record is missing on sheet for concrete slab/foundation item.",
+                        "severity": "Medium"
+                    })
+
+    return graph
+

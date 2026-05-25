@@ -162,59 +162,8 @@ def test_ai_worker_local_intelligence(qapp):
     
     assert len(errors) == 0, f"Worker failed with errors: {errors}"
     assert len(results) == 1, "Worker must emit finished signal once."
-    assert "#" in results[0], "Local response must contain Markdown headings."
-    assert "KPI" in results[0] or "Estimate" in results[0] or "Project" in results[0], "Local summary query response should present dashboard statistics."
-
-def test_ai_worker_pboq_local_intelligence(qapp):
-    # Setup dummy database with PBOQ structure
-    dummy_pboq = "dummy_pboq_test_local.db"
-    if os.path.exists(dummy_pboq):
-        try: os.remove(dummy_pboq)
-        except Exception: pass
-        
-    try:
-        conn = sqlite3.connect(dummy_pboq)
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE pboq_items (
-                Description TEXT,
-                "Bill Rate" TEXT,
-                "Bill Amount" TEXT,
-                PlugRate REAL
-            )
-        """)
-        cursor.execute("INSERT INTO pboq_items VALUES ('Item 1', '10.50', '1,050.00', 0.0)")
-        cursor.execute("INSERT INTO pboq_items VALUES ('Item 2', '20.00', '2,000.00', 1.0)")
-        conn.commit()
-        conn.close()
-        
-        # Test worker with custom summary dictionary mock/active_summary
-        worker = AICopilotWorker("Show active estimate KPIs", main_window=None)
-        
-        # Mock active_summary returning PBOQ keys
-        active_summary = {
-            "source": "Mock PBOQ",
-            "project_name": "dummy_pboq_test_local.db",
-            "total_boq_items": 2,
-            "plugged_items": 1,
-            "priced_items": 2,
-            "outstanding_items": 0,
-            "grand_total": 3050.00,
-            "currency": "USD ($)",
-            "pboq_database_path": dummy_pboq
-        }
-        
-        # Run local interpreter directly to verify it parses Case A: PBOQ sheet
-        res = worker._generate_local_response("Show active estimate KPIs", active_summary, [], {"outlier_deviations": [], "manual_plug_rates": []})
-        
-        assert "Active Priced BOQ Dashboard" in res
-        assert "dummy_pboq_test_local.db" in res
-        assert "3,050.00" in res
-        assert "Total BOQ Items" in res
-    finally:
-        if os.path.exists(dummy_pboq):
-            try: os.remove(dummy_pboq)
-            except Exception: pass
+    assert "Cannot Connect to AI Reasoner" in results[0], "Local response must notify user about the offline state."
+    assert "sam860/LFM2:1.2b" in results[0], "Should reference the target local LLM model name."
 
 
 def test_call_local_ollama_queries_database(qapp, monkeypatch):
@@ -339,30 +288,4 @@ def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
     assert messages[-1]["role"] == "user"
     assert "[System Tool Result]" in messages[-1]["content"]
 
-def test_ai_worker_simple_questions_direct_answer(qapp):
-    worker = AICopilotWorker("what is the currency of the project?", main_window=None)
-    
-    active_summary = {
-        "source": "Loaded Project Directory Database (Atlantic Catering School)",
-        "project_name": "Atlantic Catering School",
-        "client_name": "Atlantic Catering School",
-        "overhead_percent": 10.0,
-        "profit_margin_percent": 10.0,
-        "currency": "USD ($)",
-        "subtotal": 1253441.24,
-        "overhead_amount": 125344.12,
-        "profit_amount": 125344.12,
-        "grand_total": 1504129.48,
-        "total_boq_items": 1288
-    }
-    
-    # Test currency query
-    res = worker._generate_local_response("what is the currency of the project?", active_summary, [], {})
-    assert "USD ($)" in res
-    assert "The base currency of the project is" in res
-    
-    # Test overhead query
-    res2 = worker._generate_local_response("what is the overhead markup?", active_summary, [], {})
-    assert "10.0%" in res2
-    assert "The overhead markup for the active project is" in res2
 
