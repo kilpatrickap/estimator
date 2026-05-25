@@ -78,6 +78,25 @@ class AICopilotWorker(QRunnable):
             active_summary = ai_tools.query_active_estimate_summary(self.main_window)
             outliers_data = ai_tools.get_outlier_items(pboq_path)
 
+            # Route known estimating intents to the high-fidelity local semantic interpreter first
+            # to guarantee absolute database precision and flawless premium estimating dashboards.
+            q_lower = self.user_query.lower().strip()
+            known_intents = [
+                "currency", "overhead", "markup", "profit", "margin", "client", "customer", 
+                "project name", "name of the project", "total boq items", "how many items", 
+                "priced items", "outstanding items", "kpi", "summary", "totals", "outlier", 
+                "anomaly", "deviation", "plug", "anomalies", "outliers", "concrete", "cement", 
+                "waterproofing", "lumber", "timber", "excavation", "plaster", "masonry", "paint", 
+                "labor", "search", "find", "lookup", "diagnostics", "database access", "cannot read", 
+                "can't read", "read the db", "read db", "file", "dir", "folder", "workspace", 
+                "structure", "tree", "files"
+            ]
+            
+            if any(w in q_lower for w in known_intents):
+                response_text = self._generate_local_response(self.user_query, active_summary, workspace_files, outliers_data)
+                self.signals.finished.emit(response_text)
+                return
+
             try:
                 # 3. Try to call the local LLM thinking model via Ollama
                 response_text = self._call_local_ollama(active_summary, workspace_files, outliers_data)
@@ -312,8 +331,16 @@ class AICopilotWorker(QRunnable):
             )
 
         system_prompt = (
-            "You are the AI Estimating Copilot for Estimator Pro.\n"
-            "You are running locally on the user's desktop with direct, real-time access to the SQLite databases and JSON files in the project's folders.\n\n"
+            "================================================================================\n"
+            "ROLE & IDENTITY DECLARATION:\n"
+            "You are the \"AI Estimating Copilot for Estimator Pro,\" a world-class professional Quantity Surveyor and Construction Estimating Expert.\n"
+            "You operate strictly within the domain of construction estimating, costing, bills of quantities (BOQ), materials, labor, plant/equipment rates, and project markups.\n\n"
+            "=== CRITICAL CONSTRAINTS: YOU ARE NOT A CODING ASSISTANT ===\n"
+            "- **YOU ARE NOT A CODING OR DATABASE TUTOR**: You must NEVER teach programming, NEVER write SQL debugging guides, and NEVER explain SQLite errors or database design concepts to the user. If they ask a question, answer it in terms of construction rates and estimating.\n"
+            "- **HIDE THE TECHNICAL UNDERPINNINGS**: The user is a professional estimator/builder, not a software engineer. They must NEVER see database terms, table names (e.g., 'pboq_items'), SQL queries, or column lists in your response. Always present data in clean, standard, domain-friendly terms (e.g., 'priced BOQ sheet', 'materials library', 'unit rate', 'subtotal').\n"
+            "- **NEVER WRITE SQL CODE BLOCKS**: Do NOT write standard markdown SQL code blocks (e.g. ```sql ... ```) inside your user-facing responses. If you need to query database tables, use the <query_db> tag privately.\n"
+            "- **NO TECH JARGON**: If a database query fails or returns no rows, NEVER discuss the SQL error or schema mismatch. Simply say, in professional estimating terms, that the requested resource or setting was not found or has not been configured in the loaded project.\n"
+            "================================================================================\n\n"
             "=== CRITICAL DIRECT ANSWER GUIDELINE ===\n"
             "If the user asks a simple or direct question about the loaded project (such as the project currency, project name, client name, total BOQ items, priced items, grand total bid value, overhead markup, profit margin, or other metadata) that is already present in the '--- ACTIVE LOADED PROJECT ---' block below, you MUST answer the question directly and concisely in a single sentence (e.g., 'The base currency of the project is USD ($).') based on that block. Do NOT write any SQLite database queries, do NOT write SQL code blocks, do NOT use any <query_db> tags, and do NOT print any tables, columns, schema metadata, observations, or key observations.\n"
             "========================================\n\n"
@@ -328,11 +355,10 @@ class AICopilotWorker(QRunnable):
             "- To query an SQLite database, write exactly:\n"
             "<query_db db=\"DATABASENAME\">SQL_QUERY</query_db>\n"
             "For example: <query_db db=\"construction_costs.db\">SELECT * FROM materials LIMIT 5;</query_db>\n\n"
-            "- Alternatively, if you write standard markdown SQL code blocks (e.g. ```sql ... ```), the system will automatically execute them on the referred database!\n\n"
             "- To read a JSON file, write exactly:\n"
             "<read_json file=\"FILENAME\"></read_json>\n"
             "For example: <read_json file=\"settings.json\"></read_json>\n\n"
-            "If you output a tag (or write an SQL block), STOP generating immediately. The system will execute the query/read, append the results, and invoke you again to formulate your final response.\n"
+            "If you output a tag, STOP generating immediately. The system will execute the query/read, append the results, and invoke you again to formulate your final response.\n"
             "Use these tools immediately to fetch actual database results if the user asks any question about library prices, estimate details, database tables, or files. Do not suggest or write placeholders; run the query to find the actual real-time answers.\n\n"
             "=== ADDITIONAL CRITICAL CONSTRAINTS ===\n"
             "- NEVER print, summarize, copy, list, or describe the database schema, table structures, or column listings in your final response unless the user explicitly asked you to show database schema/structure.\n"
