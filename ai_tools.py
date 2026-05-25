@@ -1095,17 +1095,42 @@ def build_unified_knowledge_graph(project_dir=None):
                 except Exception:
                     pass
 
-    buildup_recipes = {}
+    # Aggregate all database files under the project folder (e.g. Project Database, Imported Library) and the cost library
+    estimate_db_paths = []
     if master_db_path and os.path.exists(master_db_path):
+        estimate_db_paths.append(master_db_path)
+        
+    imported_lib_dir = os.path.join(project_dir, "Imported Library")
+    if os.path.exists(imported_lib_dir):
+        for f in os.listdir(imported_lib_dir):
+            if f.endswith('.db'):
+                estimate_db_paths.append(os.path.join(imported_lib_dir, f))
+                
+    costs_db_path = os.path.join(APP_DIR, "construction_costs.db")
+    if os.path.exists(costs_db_path):
+        estimate_db_paths.append(costs_db_path)
+
+    buildup_recipes = {}
+    for db_path in estimate_db_paths:
         try:
-            conn = sqlite3.connect(master_db_path)
+            conn = sqlite3.connect(db_path)
             cursor = conn.cursor()
-            
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+            if not cursor.fetchone():
+                conn.close()
+                continue
+                
             cursor.execute("SELECT id, rate_code, project_name, net_total, grand_total, category FROM estimates")
             ests = cursor.fetchall()
             for est_id, rate_code, name, net, grand, cat in ests:
                 if not rate_code:
                     continue
+                    
+                # Prefer more detailed buildup recipe if we already loaded one
+                if rate_code in buildup_recipes:
+                    existing = buildup_recipes[rate_code]
+                    if len(existing.get("materials", [])) + len(existing.get("labor", [])) > 1:
+                        continue
                 
                 recipe = {
                     "estimate_id": est_id,

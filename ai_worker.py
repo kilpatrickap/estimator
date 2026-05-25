@@ -303,11 +303,209 @@ class AICopilotWorker(QRunnable):
                 "-----------------------------\n\n"
             )
 
+        # Proactive context generation for local LLM helper
+        extra_context = ""
+        query_lower = self.user_query.lower()
+        
+        # 1. PBOQ Price Outliers & Anomalies Context
+        if outliers_data:
+            devs = outliers_data.get("outlier_deviations", [])
+            plugs = outliers_data.get("manual_plug_rates", [])
+            if devs or plugs:
+                extra_context += "--- ACTIVE PROJECT PRICE OUTLIERS & ANOMALIES ---\n"
+                if devs:
+                    extra_context += "Deviations of ±15% from library baseline:\n"
+                    for d in devs[:10]:
+                        extra_context += f"  - {d['type']} '{d['item']}' in task '{d['task']}': Current rate {d['current_rate']} vs Library rate {d['library_rate']} (Dev: {d['deviation']})\n"
+                if plugs:
+                    extra_context += "Manual Plug Rates:\n"
+                    for p in plugs[:10]:
+                        extra_context += f"  - Row {p['row_id']}: '{p['description']}' plugged at {p['plug_rate']} (Flagged: {p['is_flagged_for_review']})\n"
+                extra_context += "------------------------------------------------\n\n"
+
+        # 2. Rate buildup recipe coupling context
+        found_codes = []
+        for word in re.split(r'[^a-zA-Z0-9\-]', self.user_query):
+            if len(word) >= 4 and not word.isdigit():
+                found_codes.append(word.upper())
+                
+        if found_codes:
+            try:
+                graph_data = ai_tools.build_unified_knowledge_graph()
+                recipe_coupling = graph_data.get("recipe_coupling", {})
+                for code in found_codes:
+                    recipe = None
+                    for name, r in recipe_coupling.items():
+                        if str(r.get("rate_code", "")).upper() == code:
+                            recipe = r
+                            break
+                    if not recipe:
+                        # Scan all project estimate databases to find the composite buildup
+                        fallback_dbs = []
+                        db_path = ai_tools.get_active_project_db_path()
+                        if db_path and os.path.exists(db_path):
+                            fallback_dbs.append(db_path)
+                            
+                        # Also check Imported Library
+                        try:
+                            costs_db = sqlite3.connect(os.path.join(APP_DIR, "construction_costs.db"))
+                            cursor = costs_db.cursor()
+                            cursor.execute("SELECT value FROM settings WHERE key='last_project_dir'")
+                            row = cursor.fetchone()
+                            if row and row[0]:
+                                pdir = row[0].replace('\\', '/')
+                                # Resolve clean path
+                                for sub in ["Imported Library", "Project Database", "Priced BOQs", "SOR", "PBOQ States", "Received RFQs"]:
+                                    if pdir.endswith("/" + sub):
+                                        pdir = pdir[:-len(sub)-1]
+                                    elif "/" + sub + "/" in pdir:
+                                        pdir = pdir.split("/" + sub)[0]
+                                        
+                                imp_dir = os.path.join(pdir, "Imported Library")
+                                if os.path.exists(imp_dir):
+                                    for f in os.listdir(imp_dir):
+                                        if f.endswith('.db'):
+                                            fallback_dbs.append(os.path.join(imp_dir, f))
+                            costs_db.close()
+                        except Exception:
+                            pass
+                            
+                        # Also check construction_costs.db
+                        costs_db_path = os.path.join(APP_DIR, "construction_costs.db")
+                        if os.path.exists(costs_db_path):
+                            fallback_dbs.append(costs_db_path)
+                            
+                        for fdb in fallback_dbs:
+                            try:
+                                conn = sqlite3.connect(fdb)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+                                if not cursor.fetchone():
+                                    conn.close()
+                                    continue
+                                    
+                                cursor.execute("SELECT id, project_name, net_total, grand_total, category FROM estimates WHERE UPPER(rate_code) = ?", (code,))
+                                res = cursor.fetchone()
+                                if res:
+                                    est_id, name, net, grand, cat = res
+                                    candidate = {
+                                        "rate_code": code,
+                                        "description": name,
+                                        "net_total": net,
+                                        "grand_total": grand,
+                                        "category": cat,
+                                        "materials": [], "labor": [], "plant": [], "equipment": [], "indirect_costs": []
+                                    }
+                                    
+                                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_materials'")
+                                    if cursor.fetchone():
+                                        cursor.execute("SELECT name, quantity, unit, price, currency FROM estimate_materials WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                                        candidate["materials"] = [{"name": r[0], "quantity": r[1], "unit": r[2], "price": r[3], "currency": r[4]} for r in cursor.fetchall()]
+                                        
+                                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_labor'")
+                                    if cursor.fetchone():
+                                        cursor.execute("SELECT name_trade, hours, unit, rate, currency FROM estimate_labor WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                                        candidate["labor"] = [{"trade": r[0], "hours": r[1], "unit": r[2], "rate": r[3], "currency": r[4]} for r in cursor.fetchall()]
+                                        
+                                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_plant'")
+                                    if cursor.fetchone():
+                                        cursor.execute("SELECT name_trade, hours, unit, rate, currency FROM estimate_plant WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                                        candidate["plant"] = [{"name": r[0], "hours": r[1], "unit": r[2], "rate": r[3], "currency": r[4]} for r in cursor.fetchall()]
+                                        
+                                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_equipment'")
+                                    if cursor.fetchone():
+                                        cursor.execute("SELECT name_trade, hours, unit, rate, currency FROM estimate_equipment WHERE task_id IN (SELECT id FROM tasks WHERE estimate_id = ?)", (est_id,))
+                                        candidate["equipment"] = [{"name": r[0], "hours": r[1], "unit": r[2], "rate": r[3], "currency": r[4]} for r in cursor.fetchall()]
+                                        
+                                    conn.close()
+                                    
+                                    # If this estimate is detailed, choose it and stop searching
+                                    if len(candidate["materials"]) + len(candidate["labor"]) > 1 or not recipe:
+                                        recipe = candidate
+                                        if len(candidate["materials"]) + len(candidate["labor"]) > 1:
+                                            break
+                                else:
+                                    conn.close()
+                            except Exception:
+                                pass
+
+                    if recipe:
+                        extra_context += f"--- COMPOSITE RATE BUILDUP RECIPE FOR '{code}' ---\n"
+                        extra_context += f"Description: {recipe.get('description')}\n"
+                        extra_context += f"Net Rate Cost: {recipe.get('net_total')}\n"
+                        extra_context += f"Adjusted Gross Rate: {recipe.get('grand_total')}\n"
+                        if recipe.get("materials"):
+                            extra_context += "Underlying Materials:\n"
+                            for m in recipe["materials"]:
+                                extra_context += f"  - Material: {m['name']} | Qty: {m['quantity']} | Price: {m['price']} {m.get('currency', 'USD')}\n"
+                        if recipe.get("labor"):
+                            extra_context += "Underlying Labor:\n"
+                            for l in recipe["labor"]:
+                                extra_context += f"  - Labor: {l['trade']} | Hours: {l['hours']} hr @ {l['rate']} {l.get('currency', 'USD')}\n"
+                        if recipe.get("plant"):
+                            extra_context += "Underlying Plant:\n"
+                            for p in recipe["plant"]:
+                                extra_context += f"  - Plant: {p['name']} | Hours: {p['hours']} hr @ {p['rate']} {p.get('currency', 'USD')}\n"
+                        if recipe.get("equipment"):
+                            extra_context += "Underlying Equipment:\n"
+                            for eq in recipe["equipment"]:
+                                extra_context += f"  - Equipment: {eq['name']} | Hours: {eq['hours']} hr @ {eq['rate']} {eq.get('currency', 'USD')}\n"
+                        extra_context += "--------------------------------------------------\n\n"
+            except Exception:
+                pass
+
+        # 3. WBS & Under-Measurement QS Warnings Context
+        if any(k in query_lower for k in ["wbs", "hierarchy", "section", "under-measurement", "dependency", "slab", "concrete"]):
+            try:
+                graph_data = ai_tools.build_unified_knowledge_graph()
+                wbs = graph_data.get("wbs_hierarchy", {})
+                warnings = graph_data.get("resource_dependencies_warnings", [])
+                
+                if wbs and any(k in query_lower for k in ["wbs", "hierarchy", "section"]):
+                    extra_context += "--- ACTIVE PROJECT WBS HIERARCHY SUMMARY ---\n"
+                    for sheet, sections in wbs.items():
+                        extra_context += f"Sheet: '{sheet}':\n"
+                        for sec, items in sections.items():
+                            extra_context += f"  Section: '{sec}':\n"
+                            for it in items[:6]:
+                                extra_context += f"    - Item: {it['description']} | Code: {it['rate_code']} | Amt: {it['bill_amount']}\n"
+                    extra_context += "--------------------------------------------\n\n"
+                    
+                if warnings and any(k in query_lower for k in ["under-measurement", "dependency", "slab", "concrete"]):
+                    extra_context += "--- ACTIVE PROJECT QS DEPENDENCY WARNINGS ---\n"
+                    for w in warnings:
+                        extra_context += f"  - WARNING in sheet '{w['sheet']}' section '{w['wbs_section']}': '{w['item']}' (Code: {w['rate_code']}) -> {w['issue']} (Severity: {w['severity']})\n"
+                    extra_context += "---------------------------------------------\n\n"
+            except Exception:
+                pass
+
+        # 4. Ingest / SOR Domains Context
+        if any(k in query_lower for k in ["sor", "schedule of rates", "ingest", "settings", "exchange"]):
+            try:
+                domains_data = ai_tools.ingest_project_domains()
+                settings = domains_data.get("project_settings", {})
+                pboq = domains_data.get("pboq_summary", {})
+                analytics = domains_data.get("analytics_summary", {})
+                
+                extra_context += "--- INGESTED PROJECT DOMAINS METADATA ---\n"
+                if settings:
+                    extra_context += f"Project settings: Overhead: {settings.get('overhead_percent')}%, Profit: {settings.get('profit_margin_percent')}%, Currency: {settings.get('base_currency')}\n"
+                if pboq:
+                    extra_context += f"PBOQ summary: Total items: {pboq.get('total_items_count')}, Priced: {pboq.get('priced_items_count')}, Total Value: {pboq.get('total_priced_value')}\n"
+                if analytics:
+                    extra_context += f"Analytics: Net Subtotal: {analytics.get('net_subtotal')}, Grand Total: {analytics.get('grand_total')}\n"
+                extra_context += "-----------------------------------------\n\n"
+            except Exception:
+                pass
+
         system_prompt = (
             "================================================================================\n"
             "ROLE & IDENTITY DECLARATION:\n"
             "You are the \"AI Estimating Copilot for Estimator Pro,\" a world-class professional Quantity Surveyor and Construction Estimating Expert.\n"
             "You operate strictly within the domain of construction estimating, costing, bills of quantities (BOQ), materials, labor, plant/equipment rates, and project markups.\n\n"
+            "=== ACTIVE PROJECT REAL-TIME QS DATA ===\n"
+            f"{extra_context}"
+            "========================================\n\n"
             "=== CRITICAL CONSTRAINTS: YOU ARE NOT A CODING ASSISTANT ===\n"
             "- **YOU ARE NOT A CODING OR DATABASE TUTOR**: You must NEVER teach programming, NEVER write SQL debugging guides, and NEVER explain SQLite errors or database design concepts to the user. If they ask a question, answer it in terms of construction rates and estimating.\n"
             "- **HIDE THE TECHNICAL UNDERPINNINGS**: The user is a professional estimator/builder, not a software engineer. They must NEVER see database terms, table names (e.g., 'pboq_items'), SQL queries, or column lists in your response. Always present data in clean, standard, domain-friendly terms (e.g., 'priced BOQ sheet', 'materials library', 'unit rate', 'subtotal').\n"

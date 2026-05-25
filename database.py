@@ -523,7 +523,15 @@ class DatabaseManager:
     def get_setting(self, key, default=None):
         with self.Session() as session:
             s = session.query(Setting).get(key)
-            return s.value if s else default
+            val = s.value if s else default
+            if key == 'last_project_dir' and val:
+                val = val.replace('\\', '/')
+                for sub in ["Imported Library", "Project Database", "Priced BOQs", "SOR", "PBOQ States", "Received RFQs"]:
+                    if val.endswith("/" + sub):
+                        val = val[:-len(sub)-1]
+                    elif "/" + sub + "/" in val:
+                        val = val.split("/" + sub)[0]
+            return val
 
     def set_setting(self, key, value):
         with self.Session() as session:
