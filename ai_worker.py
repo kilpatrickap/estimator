@@ -111,31 +111,56 @@ class AICopilotWorker(QRunnable):
         if not target_path:
             return None
             
+        target_path = target_path.replace('\\', '/')
+        
         # 1. If absolute, check if it exists
         if os.path.isabs(target_path) and os.path.exists(target_path):
             return target_path
-        
-        # 2. Check in APP_DIR directly
-        direct_path = os.path.join(APP_DIR, os.path.basename(target_path))
-        if os.path.exists(direct_path):
-            return direct_path
-        
-        # 3. Recursively search in APP_DIR
+            
+        # 2. Check directly in APP_DIR
+        direct_app = os.path.join(APP_DIR, target_path)
+        if os.path.exists(direct_app):
+            return direct_app
+            
+        # 3. Check relative to APP_DIR if target_path has basename
+        basename = os.path.basename(target_path)
+        direct_app_base = os.path.join(APP_DIR, basename)
+        if os.path.exists(direct_app_base):
+            return direct_app_base
+            
+        # 4. Walk APP_DIR to find match
         for root, dirs, files in os.walk(APP_DIR):
             dirs[:] = [d for d in dirs if d not in {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'PyTest'}]
-            if os.path.basename(target_path) in files:
-                return os.path.join(root, os.path.basename(target_path))
-                
-        # 4. Check loaded project directory from DB settings
+            for f in files:
+                full_f = os.path.join(root, f)
+                rel_f = os.path.relpath(full_f, APP_DIR).replace('\\', '/')
+                if rel_f == target_path or f == target_path or f == basename:
+                    return full_f
+                    
+        # 5. Check in loaded project directory
         try:
             from database import DatabaseManager
             costs_db = DatabaseManager("construction_costs.db")
             project_dir = costs_db.get_setting('last_project_dir', '')
             if project_dir and os.path.exists(project_dir):
+                proj_base = os.path.basename(project_dir)
+                
+                # Strip the project base prefix if present
+                clean_target = target_path
+                if target_path.startswith(f"{proj_base}/"):
+                    clean_target = target_path[len(proj_base)+1:]
+                    
+                direct_proj = os.path.join(project_dir, clean_target)
+                if os.path.exists(direct_proj):
+                    return direct_proj
+                    
                 # Search recursively inside project folder
                 for root, dirs, files in os.walk(project_dir):
-                    if os.path.basename(target_path) in files:
-                        return os.path.join(root, os.path.basename(target_path))
+                    for f in files:
+                        full_f = os.path.join(root, f)
+                        rel_f = os.path.relpath(full_f, project_dir).replace('\\', '/')
+                        if rel_f == clean_target or f == clean_target or f == basename:
+                            return full_f
         except Exception:
             pass
             
@@ -242,13 +267,14 @@ class AICopilotWorker(QRunnable):
             # Trigger fallback to the offline rule interpreter
             raise Exception(str(e))
 
-        # Scan for db and json files to list in system prompt dynamically
+        # Scan for db and json files to list in system prompt dynamically (using workspace/project relative paths)
         available_files = []
         for root, dirs, files in os.walk(APP_DIR):
             dirs[:] = [d for d in dirs if d not in {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'PyTest'}]
             for f in files:
                 if f.endswith('.db') or f.endswith('.json'):
-                    available_files.append(f)
+                    rel = os.path.relpath(os.path.join(root, f), APP_DIR).replace('\\', '/')
+                    available_files.append(rel)
         try:
             from database import DatabaseManager
             costs_db = DatabaseManager("construction_costs.db")
@@ -256,17 +282,39 @@ class AICopilotWorker(QRunnable):
             if project_dir and os.path.exists(project_dir):
                 for root, dirs, files in os.walk(project_dir):
                     for f in files:
-                        if (f.endswith('.db') or f.endswith('.json')) and f not in available_files:
-                            available_files.append(f)
+                        if f.endswith('.db') or f.endswith('.json'):
+                            rel = os.path.relpath(os.path.join(root, f), project_dir).replace('\\', '/')
+                            proj_base = os.path.basename(project_dir)
+                            path_in_project = f"{proj_base}/{rel}".replace('\\', '/')
+                            if path_in_project not in available_files:
+                                available_files.append(path_in_project)
         except Exception:
             pass
 
         # Generate database schemas to give model precise, real-time knowledge of all tables and columns
         schema_context = self._generate_schema_context(available_files)
 
+        # Build active project context description (gives the model instant project KPIs and settings context)
+        active_context = ""
+        if active_summary and "status" not in active_summary:
+            active_context = (
+                "--- ACTIVE LOADED PROJECT ---\n"
+                f"Project Name: {active_summary.get('project_name', 'N/A')}\n"
+                f"Client Name: {active_summary.get('client_name', 'N/A')}\n"
+                f"Base Currency: {active_summary.get('currency', 'GHS (₵)')}\n"
+                f"Total BOQ Items: {active_summary.get('total_boq_items', 0)} items\n"
+                f"Priced BOQ Items: {active_summary.get('priced_items', 0)} priced\n"
+                f"Grand Total Bid Value: {active_summary.get('currency', 'GHS').split(' ')[0]} {active_summary.get('grand_total', 0.0):,.2f}\n"
+                f"Overhead Markup: {active_summary.get('overhead_percent', 0.0)}%\n"
+                f"Profit Margin: {active_summary.get('profit_margin_percent', 0.0)}%\n"
+                f"Project Directory: {active_summary.get('project_directory', 'N/A')}\n"
+                "-----------------------------\n\n"
+            )
+
         system_prompt = (
             "You are the AI Estimating Copilot for Estimator Pro.\n"
             "You are running locally on the user's desktop with direct, real-time access to the SQLite databases and JSON files in the project's folders.\n\n"
+            f"{active_context}"
             "Here is the database schema context of the project:\n"
             f"{schema_context}\n\n"
             "CRITICAL SQLite METADATA INSTRUCTIONS:\n"
@@ -323,15 +371,24 @@ class AICopilotWorker(QRunnable):
                     
                     # Detect database name from content or user query
                     detected_db = None
+                    # 1. Direct match
                     for f in available_files:
                         if f.endswith('.db') and f.lower() in content.lower():
                             detected_db = f
                             break
+                    # 2. Prioritize Project Database if name collides
+                    if not detected_db:
+                        project_dbs = [f for f in available_files if f.endswith('.db') and "project database" in f.lower() and os.path.basename(f).lower() in content.lower()]
+                        if project_dbs:
+                            detected_db = project_dbs[0]
+                    # 3. Suffix match
                     if not detected_db:
                         for f in available_files:
-                            if f.endswith('.db') and f.lower() in self.user_query.lower():
+                            basename = os.path.basename(f)
+                            if basename.lower() in content.lower() or basename.lower() in self.user_query.lower():
                                 detected_db = f
                                 break
+                    # 4. Fallbacks
                     if not detected_db:
                         pboq_path = active_summary.get('pboq_database_path')
                         if pboq_path:
