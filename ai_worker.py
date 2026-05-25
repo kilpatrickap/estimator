@@ -430,26 +430,34 @@ class AICopilotWorker(QRunnable):
                                 pass
 
                     if recipe:
+                        def safe_format(val):
+                            if val is None:
+                                return "0.00"
+                            try:
+                                return f"{float(val):.2f}"
+                            except (ValueError, TypeError):
+                                return str(val)
+
                         extra_context += f"--- COMPOSITE RATE BUILDUP RECIPE FOR '{code}' ---\n"
                         extra_context += f"Description: {recipe.get('description')}\n"
-                        extra_context += f"Net Rate Cost: {recipe.get('net_total')}\n"
-                        extra_context += f"Adjusted Gross Rate: {recipe.get('grand_total')}\n"
+                        extra_context += f"Net Rate Cost: {safe_format(recipe.get('net_total'))}\n"
+                        extra_context += f"Adjusted Gross Rate: {safe_format(recipe.get('grand_total'))}\n"
                         if recipe.get("materials"):
                             extra_context += "Underlying Materials:\n"
                             for m in recipe["materials"]:
-                                extra_context += f"  - Material: {m['name']} | Qty: {m['quantity']} | Price: {m['price']} {m.get('currency', 'USD')}\n"
+                                extra_context += f"  - Material: {m['name']} | Qty: {safe_format(m['quantity'])} | Price: {safe_format(m['price'])} {m.get('currency', 'USD')}\n"
                         if recipe.get("labor"):
                             extra_context += "Underlying Labor:\n"
                             for l in recipe["labor"]:
-                                extra_context += f"  - Labor: {l['trade']} | Hours: {l['hours']} hr @ {l['rate']} {l.get('currency', 'USD')}\n"
+                                extra_context += f"  - Labor: {l['trade']} | Hours: {safe_format(l['hours'])} hr @ {safe_format(l['rate'])} {l.get('currency', 'USD')}\n"
                         if recipe.get("plant"):
                             extra_context += "Underlying Plant:\n"
                             for p in recipe["plant"]:
-                                extra_context += f"  - Plant: {p['name']} | Hours: {p['hours']} hr @ {p['rate']} {p.get('currency', 'USD')}\n"
+                                extra_context += f"  - Plant: {p['name']} | Hours: {safe_format(p['hours'])} hr @ {safe_format(p['rate'])} {p.get('currency', 'USD')}\n"
                         if recipe.get("equipment"):
                             extra_context += "Underlying Equipment:\n"
                             for eq in recipe["equipment"]:
-                                extra_context += f"  - Equipment: {eq['name']} | Hours: {eq['hours']} hr @ {eq['rate']} {eq.get('currency', 'USD')}\n"
+                                extra_context += f"  - Equipment: {eq['name']} | Hours: {safe_format(eq['hours'])} hr @ {safe_format(eq['rate'])} {eq.get('currency', 'USD')}\n"
                         extra_context += "--------------------------------------------------\n\n"
             except Exception:
                 pass
