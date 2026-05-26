@@ -274,7 +274,7 @@ class AICopilotWorker(QRunnable):
     def _generate_schema_context(self, available_files):
         """
         Queries all available database files dynamically to generate a compact schema context
-        (databases and their tables) to inject into the system prompt.
+        (databases, their tables, and columns) to inject into the system prompt.
         """
         schema_info = []
         for f in available_files:
@@ -288,9 +288,16 @@ class AICopilotWorker(QRunnable):
                 cursor = conn.cursor()
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table';")
                 tables = [row[0] for row in cursor.fetchall() if not row[0].startswith('sqlite_')]
+                
+                table_schemas = []
+                for table in tables:
+                    cursor.execute(f"PRAGMA table_info(\"{table}\");")
+                    cols = [row[1] for row in cursor.fetchall()]
+                    table_schemas.append(f"{table} ({', '.join(cols)})")
                 conn.close()
-                if tables:
-                    schema_info.append(f"Database '{f}' contains tables: {', '.join(tables)}")
+                
+                if table_schemas:
+                    schema_info.append(f"Database '{f}' contains tables:\n  - " + "\n  - ".join(table_schemas))
             except Exception:
                 pass
         return "\n".join(schema_info)
