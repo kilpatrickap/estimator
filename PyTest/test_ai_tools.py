@@ -345,4 +345,63 @@ def test_ai_worker_priced_boq_items_context(qapp, monkeypatch):
     assert "1575.00" in system_prompt
 
 
+def test_ai_worker_proactive_search_context(qapp, monkeypatch):
+    import json
+    
+    # Mock search databases/historical rates to return static items
+    monkeypatch.setattr(ai_tools, "query_historical_rates", lambda q: [
+        {"rate_code": "CONC1A", "project_name": "Plain concrete", "unit": "m3", "currency": "USD", "net_total": 155.93, "grand_total": 155.93, "_source_db": "Atlantic Catering School.db"}
+    ])
+    monkeypatch.setattr(ai_tools, "search_active_database", lambda q: {
+        "materials": [{"name": "Standard concrete mix", "price": 120.00, "currency": "USD", "unit": "m3", "source": "Library"}]
+    })
+    
+    worker = AICopilotWorker("Search historical rates for Concrete", main_window=None)
+    
+    captured_payloads = []
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "Found historical concrete rates."
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # Run _call_local_ollama
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert "Found historical concrete rates" in res
+    assert len(captured_payloads) == 1
+    system_prompt = captured_payloads[0]["messages"][0]["content"]
+    assert "--- REAL-TIME SEARCH RESULTS FOR 'concrete' ---" in system_prompt
+    assert "CONC1A" in system_prompt
+    assert "Plain concrete" in system_prompt
+    assert "Standard concrete mix" in system_prompt
+    assert "155.93" in system_prompt
+    assert "120.0" in system_prompt
+
+
+
 

@@ -577,6 +577,46 @@ class AICopilotWorker(QRunnable):
             except Exception:
                 pass
 
+        # 6. Proactive Database & Historical Rate Search Context
+        search_terms = []
+        stop_words = {"show", "search", "find", "query", "historical", "rates", "rate", "for", "the", "a", "an", "is", "in", "active", "project", "database", "library", "libraries", "costs", "cost"}
+        for word in re.split(r'[^a-zA-Z0-9\-]', query_lower):
+            if len(word) >= 3 and word not in stop_words and not word.isdigit():
+                search_terms.append(word)
+                
+        if search_terms:
+            try:
+                search_query = " ".join(search_terms[:2])
+                hist_rates = ai_tools.query_historical_rates(search_query)
+                db_results = ai_tools.search_active_database(search_query)
+                
+                if hist_rates or any(db_results.values()):
+                    extra_context += f"--- REAL-TIME SEARCH RESULTS FOR '{search_query}' ---\n"
+                    if hist_rates:
+                        extra_context += "Matching Historical/Library Estimates & Rates:\n"
+                        for r in hist_rates[:15]:
+                            extra_context += f"  - Code: {r.get('rate_code')} | Desc: {r.get('project_name')} | Unit: {r.get('unit')} | Currency: {r.get('currency')} | Net: {r.get('net_total')} | Grand Total: {r.get('grand_total')} (Source: {r.get('_source_db', 'Library')})\n"
+                    
+                    for category, items in db_results.items():
+                        if items:
+                            extra_context += f"Matching {category.title()} in active databases:\n"
+                            for item in items[:10]:
+                                if category == "materials":
+                                    extra_context += f"  - Material: {item['name']} | Price: {item['price']} {item['currency']} | Unit: {item['unit']} (Source: {item['source']})\n"
+                                elif category == "labor":
+                                    extra_context += f"  - Labor Trade: {item['trade']} | Rate: {item['rate']} {item['currency']} | Unit: {item['unit']} (Source: {item['source']})\n"
+                                elif category == "equipment":
+                                    extra_context += f"  - Equipment: {item['name']} | Rate: {item['rate']} {item['currency']} | Unit: {item['unit']} (Source: {item['source']})\n"
+                                elif category == "plant":
+                                    extra_context += f"  - Plant: {item['name']} | Rate: {item['rate']} {item['currency']} | Unit: {item['unit']} (Source: {item['source']})\n"
+                                elif category == "tasks":
+                                    extra_context += f"  - Task: {item['description']} | Qty: {item['quantity']} {item['unit']} (Source: {item['source']})\n"
+                                elif category == "pboq_items":
+                                    extra_context += f"  - Priced BOQ: {item['description']} | Bill Rate: {item['bill_rate']} | Plug: {item['plug_rate']} | Unit: {item['unit']} (Source: {item['source']})\n"
+                    extra_context += "-----------------------------------------------------\n\n"
+            except Exception:
+                pass
+
         system_prompt = (
             "================================================================================\n"
             "ROLE & IDENTITY DECLARATION:\n"
