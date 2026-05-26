@@ -254,7 +254,19 @@ class AICopilotWorker(QRunnable):
                 md += f"\n*(Showing first 50 of {len(rows)} rows)*"
             return md
         except Exception as e:
-            return f"Error executing SQL: {str(e)}"
+            error_str = str(e)
+            try:
+                import re
+                table_match = re.search(r'FROM\s+["\']?([a-zA-Z0-9_]+)["\']?', sql_query, re.IGNORECASE)
+                if table_match:
+                    tbl = table_match.group(1)
+                    cursor.execute(f"PRAGMA table_info(\"{tbl}\");")
+                    cols = [row[1] for row in cursor.fetchall()]
+                    if cols:
+                        return f"Error executing SQL: {error_str}. Note that table '{tbl}' has columns: {', '.join(cols)}. Please correct the SQL query to use only these columns."
+            except Exception:
+                pass
+            return f"Error executing SQL: {error_str}"
 
     def _read_json(self, file_name):
         """
@@ -270,6 +282,69 @@ class AICopilotWorker(QRunnable):
             return json.dumps(data, indent=2)
         except Exception as e:
             return f"Error reading JSON: {str(e)}"
+
+    def _format_proactive_context_as_response(self, extra_context):
+        """
+        Extracts rate/search data from the pre-built extra_context string and formats
+        it as a clean markdown table. Used as a fallback when the LLM returns an empty response
+        but the proactive context already contains the answer.
+        """
+        lines = extra_context.split('\n')
+        response_parts = []
+        
+        # Extract historical/library rate entries
+        rate_entries = []
+        material_entries = []
+        for line in lines:
+            line = line.strip()
+            if line.startswith("- Code:"):
+                # Parse: "- Code: CONC1A | Desc: Plain concrete | Unit: m3 | Currency: USD | Net: 155.93 | Grand Total: 155.93 (Source: Library)"
+                parts = {}
+                for segment in line[2:].split(" | "):
+                    if ": " in segment:
+                        key, val = segment.split(": ", 1)
+                        # Strip source suffix like "(Source: Library)"
+                        if "(" in val:
+                            val = val[:val.rfind("(")].strip()
+                        parts[key.strip()] = val.strip()
+                if parts:
+                    rate_entries.append(parts)
+            elif line.startswith("- Material:"):
+                parts = {}
+                for segment in line[2:].split(" | "):
+                    if ": " in segment:
+                        key, val = segment.split(": ", 1)
+                        if "(" in val:
+                            val = val[:val.rfind("(")].strip()
+                        parts[key.strip()] = val.strip()
+                if parts:
+                    material_entries.append(parts)
+        
+        if rate_entries:
+            response_parts.append("### Historical & Library Rates\n")
+            response_parts.append("| Rate Code | Description | Unit | Currency | Net Rate | Grand Total |")
+            response_parts.append("| --- | --- | --- | --- | --- | --- |")
+            for r in rate_entries:
+                response_parts.append(
+                    f"| {r.get('Code', '-')} | {r.get('Desc', '-')} | {r.get('Unit', '-')} "
+                    f"| {r.get('Currency', '-')} | {r.get('Net', '-')} | {r.get('Grand Total', '-')} |"
+                )
+        
+        if material_entries:
+            response_parts.append("\n### Matching Materials\n")
+            response_parts.append("| Material | Unit | Price | Currency |")
+            response_parts.append("| --- | --- | --- | --- |")
+            for m in material_entries:
+                response_parts.append(
+                    f"| {m.get('Material', '-')} | {m.get('Unit', '-')} "
+                    f"| {m.get('Price', '-')} | {m.get('Currency', '-')} |"
+                )
+        
+        if response_parts:
+            return "\n".join(response_parts)
+        
+        # If we couldn't parse structured data, return a generic message
+        return "I found matching data in your project libraries. Please try asking a more specific question to see detailed results."
 
     def _generate_schema_context(self, available_files):
         """
@@ -643,6 +718,16 @@ class AICopilotWorker(QRunnable):
                                 elif category == "pboq_items":
                                     extra_context += f"  - Priced BOQ: {item['description']} | Bill Rate: {item['bill_rate']} | Plug: {item['plug_rate']} | Unit: {item['unit']} (Source: {item['source']})\n"
                     extra_context += "-----------------------------------------------------\n\n"
+                    
+                    # PROACTIVE CONTEXT SIGNAL: Instruct the LLM to use pre-fetched data directly
+                    if hist_rates or any(db_results.values()):
+                        extra_context += (
+                            "[SYSTEM DIRECTIVE: The REAL-TIME SEARCH RESULTS above already contain the data matching the user's query. "
+                            "You MUST present this data directly in a clean, professional markdown table as your answer. "
+                            "Do NOT issue any additional <query_db> calls or write any SQL. "
+                            "Format the results with columns: Rate Code, Description, Unit, Currency, Net Rate, Grand Total. "
+                            "If materials/labor/equipment matches are also present, include them in a separate table below.]\n\n"
+                        )
             except Exception:
                 pass
 
@@ -654,11 +739,18 @@ class AICopilotWorker(QRunnable):
             "=== ACTIVE PROJECT REAL-TIME QS DATA ===\n"
             f"{extra_context}"
             "========================================\n\n"
+            "=== MANDATORY DATA USAGE RULE (HIGHEST PRIORITY) ===\n"
+            "If the 'REAL-TIME SEARCH RESULTS', 'ACTIVE PROJECT PRICED BOQ ITEMS', 'COMPOSITE RATE BUILDUP RECIPE', or 'ACTIVE PROJECT PRICE OUTLIERS' sections above contain data that answers or is relevant to the user's question, "
+            "you MUST use that pre-fetched data directly in your response. Do NOT issue additional <query_db> calls, do NOT write SQL, and do NOT hallucinate or invent prices. "
+            "Present the pre-fetched data in a clean, professional markdown table with appropriate columns (e.g., Rate Code | Description | Unit | Currency | Net Rate | Grand Total). "
+            "If no pre-fetched data is present for the user's query, THEN and ONLY THEN should you use <query_db> to fetch data.\n"
+            "========================================\n\n"
             "=== CRITICAL CONSTRAINTS: YOU ARE NOT A CODING ASSISTANT ===\n"
             "- **YOU ARE NOT A CODING OR DATABASE TUTOR**: You must NEVER teach programming, NEVER write SQL debugging guides, and NEVER explain SQLite errors or database design concepts to the user. If they ask a question, answer it in terms of construction rates and estimating.\n"
             "- **HIDE THE TECHNICAL UNDERPINNINGS**: The user is a professional estimator/builder, not a software engineer. They must NEVER see database terms, table names (e.g., 'pboq_items'), SQL queries, or column lists in your response. Always present data in clean, standard, domain-friendly terms (e.g., 'priced BOQ sheet', 'materials library', 'unit rate', 'subtotal').\n"
             "- **NEVER WRITE SQL CODE BLOCKS**: Do NOT write standard markdown SQL code blocks (e.g. ```sql ... ```) inside your user-facing responses. If you need to query database tables, use the <query_db> tag privately.\n"
             "- **NO TECH JARGON**: If a database query fails or returns no rows, NEVER discuss the SQL error or schema mismatch. Simply say, in professional estimating terms, that the requested resource or setting was not found or has not been configured in the loaded project.\n"
+            "- **SELF-CORRECTION ON ERROR**: If a <query_result> returns an SQL error with column hints (e.g., 'table X has columns: a, b, c'), you MUST silently retry with the correct column names. NEVER show or describe the error to the user under any circumstances.\n"
             "================================================================================\n\n"
             "=== CRITICAL DIRECT ANSWER GUIDELINE ===\n"
             "If the user asks a simple or direct question about the loaded project (such as the project currency, project name, client name, total BOQ items, priced items, grand total bid value, overhead markup, profit margin, or other metadata) that is already present in the '--- ACTIVE LOADED PROJECT ---' block below, you MUST answer the question directly and concisely in a single sentence (e.g., 'The base currency of the project is USD ($).') based on that block. Do NOT write any SQLite database queries, do NOT write SQL code blocks, do NOT use any <query_db> tags, and do NOT print any tables, columns, schema metadata, observations, or key observations.\n"
@@ -686,7 +778,8 @@ class AICopilotWorker(QRunnable):
             "=== ADDITIONAL CRITICAL CONSTRAINTS ===\n"
             "- NEVER print, summarize, copy, list, or describe the database schema, table structures, or column listings in your final response unless the user explicitly asked you to show database schema/structure.\n"
             "- Simple questions must be answered with a simple, direct, friendly sentence. Keep the database technical details completely invisible to the user by default.\n"
-            "- Focus only on extracting the requested information and answering the user directly."
+            "- Focus only on extracting the requested information and answering the user directly.\n"
+            "- You MUST always produce a substantive, non-empty response. Never return only whitespace or thinking tags."
         )
 
         messages = [
@@ -850,8 +943,37 @@ class AICopilotWorker(QRunnable):
                 if think_match:
                     thinking = think_match.group(1).strip()
                     actual_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                    
+                    # EMPTY RESPONSE GUARD: If the LLM produced only <think> tags with no actual answer,
+                    # generate a meaningful fallback instead of returning a blank bubble.
+                    if not actual_content:
+                        # Try to produce a useful response from the pre-fetched context
+                        if extra_context and "REAL-TIME SEARCH RESULTS" in extra_context:
+                            return (
+                                "I found the following results from your project libraries:\n\n"
+                                + self._format_proactive_context_as_response(extra_context)
+                            )
+                        return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
+                    
                     return f"> [!THINK]\n> {thinking}\n\n{actual_content}"
+                
+                # EMPTY RESPONSE GUARD: Handle completely empty LLM output
+                if not content or not content.strip():
+                    if extra_context and "REAL-TIME SEARCH RESULTS" in extra_context:
+                        return (
+                            "I found the following results from your project libraries:\n\n"
+                            + self._format_proactive_context_as_response(extra_context)
+                        )
+                    return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
+                
                 return content
 
         # If it reaches the iteration limit, return the last generated content
+        if not content or not content.strip():
+            if extra_context and "REAL-TIME SEARCH RESULTS" in extra_context:
+                return (
+                    "I found the following results from your project libraries:\n\n"
+                    + self._format_proactive_context_as_response(extra_context)
+                )
+            return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
         return content

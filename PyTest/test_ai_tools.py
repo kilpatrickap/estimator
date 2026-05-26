@@ -470,6 +470,130 @@ def test_ai_worker_typo_resilience(qapp, monkeypatch):
     assert "Error:" not in second_call_messages[-1]["content"], "Should successfully find the database file and return rows, not a file-not-found error"
 
 
+def test_ai_worker_self_correcting_loop(qapp, monkeypatch):
+    worker = AICopilotWorker("Count materials", main_window=None)
+    
+    # Run a query on construction_costs.db using non-existent column "item_name"
+    sql = "SELECT item_name FROM materials"
+    res = worker._execute_sql("construction_costs.db", sql)
+    
+    assert "Error executing SQL" in res
+    assert "Note that table 'materials' has columns" in res
+    assert "name" in res
+    assert "price" in res
+    assert "unit" in res
+
+def test_ai_worker_empty_response_guard(qapp, monkeypatch):
+    """Verify that when the LLM returns only <think> tags with no actual content,
+    the system falls back to presenting the pre-fetched search results."""
+    import json
+    
+    # Mock search databases to return concrete rates
+    monkeypatch.setattr(ai_tools, "query_historical_rates", lambda q: [
+        {"rate_code": "CONC1A", "project_name": "Plain concrete", "unit": "m3", "currency": "USD", "net_total": 155.93, "grand_total": 155.93, "_source_db": "Library"}
+    ])
+    monkeypatch.setattr(ai_tools, "search_active_database", lambda q: {
+        "materials": [{"name": "Standard concrete mix", "price": 120.00, "currency": "USD", "unit": "m3", "source": "Library"}]
+    })
+    
+    worker = AICopilotWorker("Search historical rates for Concrete", main_window=None)
+    
+    api_calls = []
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+        elif "v1/chat/completions" in url:
+            api_calls.append(True)
+            # Simulate LLM returning ONLY <think> tags with no actual content
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "<think>I need to look up concrete rates in the database.</think>"
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    # Should NOT return an empty string — must fall back to presenting the pre-fetched data
+    assert res is not None
+    assert len(res.strip()) > 0, "Response must not be empty when pre-fetched data exists"
+    assert "CONC1A" in res or "project libraries" in res, "Should contain rate data or library reference"
+
+
+def test_ai_worker_proactive_directive_injected(qapp, monkeypatch):
+    """Verify that when proactive search results are found, the SYSTEM DIRECTIVE
+    instructing the LLM to use pre-fetched data is injected into the system prompt."""
+    import json
+    
+    monkeypatch.setattr(ai_tools, "query_historical_rates", lambda q: [
+        {"rate_code": "CONC1A", "project_name": "Plain concrete", "unit": "m3", "currency": "USD", "net_total": 155.93, "grand_total": 155.93, "_source_db": "Library"}
+    ])
+    monkeypatch.setattr(ai_tools, "search_active_database", lambda q: {"materials": []})
+    
+    worker = AICopilotWorker("Search historical rates for Concrete", main_window=None)
+    
+    captured_payloads = []
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "Here are the concrete rates from your project."
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert len(captured_payloads) == 1
+    system_prompt = captured_payloads[0]["messages"][0]["content"]
+    
+    # Verify the mandatory data usage rule is present
+    assert "MANDATORY DATA USAGE RULE" in system_prompt, "Should include mandatory data usage directive"
+    
+    # Verify the proactive context signal directive is present
+    assert "[SYSTEM DIRECTIVE:" in system_prompt, "Should include SYSTEM DIRECTIVE when search results found"
+    assert "Do NOT issue any additional" in system_prompt, "Should instruct LLM to avoid additional queries"
+    
+    # Verify the self-correction constraint is present
+    assert "SELF-CORRECTION ON ERROR" in system_prompt, "Should include self-correction directive"
 
 
 
