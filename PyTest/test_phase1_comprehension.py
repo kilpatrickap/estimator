@@ -16,7 +16,7 @@ def project_dir():
     path = db.get_setting('last_project_dir', '')
     if not path or not os.path.exists(path):
         # Fallback path if setting not configured
-        path = "C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School"
+        path = "C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Project Database"
     return path
 
 

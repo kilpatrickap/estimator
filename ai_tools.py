@@ -725,6 +725,12 @@ def ingest_project_domains(project_dir=None):
         except Exception:
             pass
 
+    if project_dir:
+        # Strip trailing "Project Database" to locate relative folders (Priced BOQs, SOR, etc.)
+        project_dir = project_dir.replace('\\', '/')
+        if os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+
     if not project_dir or not os.path.exists(project_dir):
         return {"error": "No active project directory found."}
 
@@ -960,6 +966,12 @@ def build_unified_knowledge_graph(project_dir=None):
             project_dir = costs_db.get_setting('last_project_dir', '')
         except Exception:
             pass
+
+    if project_dir:
+        # Strip trailing "Project Database" to locate relative folders (Priced BOQs, SOR, etc.)
+        project_dir = project_dir.replace('\\', '/')
+        if os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
 
     if not project_dir or not os.path.exists(project_dir):
         return {"error": "No active project directory found."}

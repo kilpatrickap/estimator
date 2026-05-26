@@ -78,6 +78,15 @@ class AICopilotWorker(QRunnable):
             active_summary = ai_tools.query_active_estimate_summary(self.main_window)
             outliers_data = ai_tools.get_outlier_items(pboq_path)
 
+            # Resolve target local LLM model dynamically
+            model_name = "lfm2:24b"
+            try:
+                from database import DatabaseManager
+                costs_db = DatabaseManager("construction_costs.db")
+                model_name = costs_db.get_setting("ai_model_name", "lfm2:24b")
+            except Exception:
+                pass
+
             try:
                 # 3. Try to call the local LLM thinking model via Ollama
                 response_text = self._call_local_ollama(active_summary, workspace_files, outliers_data)
@@ -87,14 +96,14 @@ class AICopilotWorker(QRunnable):
                 error_msg = str(ollama_err)
                 notice = (
                     f"### 🔌 Cannot Connect to AI Reasoner\n\n"
-                    f"The AI Estimating Copilot requires a running local Ollama instance with the **lfm2:24b** model installed. "
+                    f"The AI Estimating Copilot requires a running local Ollama instance with the **{model_name}** model installed. "
                     f"We encountered the following issue:\n"
                     f"> **{error_msg}**\n\n"
                     f"#### 🛠️ How to start the AI Reasoner:\n"
                     f"1. **Download & Install Ollama** from [ollama.com](https://ollama.com).\n"
                     f"2. **Download the model** by running the following command in your terminal:\n"
                     f"   ```bash\n"
-                    f"   ollama run lfm2:24b\n"
+                    f"   ollama run {model_name}\n"
                     f"   ```\n"
                     f"3. **Ensure Ollama is running** in the background, then try sending your query again."
                 )
@@ -240,18 +249,25 @@ class AICopilotWorker(QRunnable):
 
     def _call_local_ollama(self, active_summary, workspace_files, outliers_data):
         """
-        Queries the local Ollama instance strictly using the lfm2:24b model,
+        Queries the local Ollama instance dynamically using the configured local LLM model,
         supporting recursive execution of SQLite queries and JSON file reading.
         """
         # A. Auto-detect and verify specific model via tags API
         model_name = "lfm2:24b"
+        try:
+            from database import DatabaseManager
+            costs_db = DatabaseManager("construction_costs.db")
+            model_name = costs_db.get_setting("ai_model_name", "lfm2:24b")
+        except Exception:
+            pass
+
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=2) as response:
                 tags_data = json.loads(response.read().decode("utf-8"))
                 models = tags_data.get("models", [])
                 installed_names = [m.get("name", "").lower() for m in models]
-                if not any(model_name.lower() in name or "lfm2:24b" in name for name in installed_names):
+                if not any(model_name.lower() in name or name.startswith(model_name.lower()) for name in installed_names):
                     raise Exception(f"Required model '{model_name}' is not installed in Ollama.")
         except urllib.error.URLError:
             raise Exception("Ollama is not running locally.")
@@ -286,22 +302,26 @@ class AICopilotWorker(QRunnable):
         # Generate database schemas to give model precise, real-time knowledge of all tables and columns
         schema_context = self._generate_schema_context(available_files)
 
-        # Build active project context description (gives the model instant project KPIs and settings context)
+        # Build active project context description dynamically
         active_context = ""
         if active_summary and "status" not in active_summary:
-            active_context = (
-                "--- ACTIVE LOADED PROJECT ---\n"
-                f"Project Name: {active_summary.get('project_name', 'N/A')}\n"
-                f"Client Name: {active_summary.get('client_name', 'N/A')}\n"
-                f"Base Currency: {active_summary.get('currency', 'GHS (₵)')}\n"
-                f"Total BOQ Items: {active_summary.get('total_boq_items', 0)} items\n"
-                f"Priced BOQ Items: {active_summary.get('priced_items', 0)} priced\n"
-                f"Grand Total Bid Value: {active_summary.get('currency', 'GHS').split(' ')[0]} {active_summary.get('grand_total', 0.0):,.2f}\n"
-                f"Overhead Markup: {active_summary.get('overhead_percent', 0.0)}%\n"
-                f"Profit Margin: {active_summary.get('profit_margin_percent', 0.0)}%\n"
-                f"Project Directory: {active_summary.get('project_directory', 'N/A')}\n"
-                "-----------------------------\n\n"
-            )
+            lines = ["--- ACTIVE LOADED PROJECT ---"]
+            for key, val in active_summary.items():
+                if key in ["source", "pboq_database_path", "project_directory"]:
+                    continue
+                
+                title = key.replace('_', ' ').replace('boq', 'BOQ').title()
+                
+                if isinstance(val, float) and "percent" not in key:
+                    currency_prefix = active_summary.get('currency', 'GHS').split(' ')[0]
+                    lines.append(f"{title}: {currency_prefix} {val:,.2f}")
+                elif isinstance(val, float):
+                    lines.append(f"{title}: {val:.2f}%")
+                else:
+                    lines.append(f"{title}: {val}")
+            
+            lines.append("-----------------------------\n\n")
+            active_context = "\n".join(lines)
 
         # Proactive context generation for local LLM helper
         extra_context = ""
