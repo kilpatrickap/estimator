@@ -33,43 +33,69 @@ class AICopilotWorker(QRunnable):
         try:
             # 1. Extract active project paths from MainWindow if available
             pboq_path = None
+            project_dir = None
             if self.main_window:
                 active_win = self.main_window._get_active_estimate_window()
                 active_class = getattr(active_win, '__class__', None).__name__ if active_win else None
                 if active_class == 'PBOQDialog' and hasattr(active_win, 'pboq_file_selector'):
                     pboq_path = active_win.pboq_file_selector.currentData()
+                    if pboq_path:
+                        project_dir = os.path.dirname(os.path.dirname(pboq_path))
+                elif active_class == 'AnalyticsDashboard' and hasattr(active_win, 'project_dir'):
+                    project_dir = active_win.project_dir
 
-            # Fallback A: Detect best PBOQ database from loaded project folder if no active window has it
-            if not pboq_path:
+            # Resolve project_dir from settings if not set
+            if not project_dir:
                 try:
                     from database import DatabaseManager
-                    import sqlite3
                     costs_db = DatabaseManager("construction_costs.db")
                     project_dir = costs_db.get_setting('last_project_dir', '')
-                    if project_dir and os.path.exists(project_dir):
-                        if os.path.basename(project_dir) == "Project Database":
-                            project_dir = os.path.dirname(project_dir)
-                        pboq_dir = os.path.join(project_dir, "Priced BOQs")
-                        if os.path.exists(pboq_dir):
-                            dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
-                            best_pboq = None
-                            max_items = -1
-                            for p in dbs:
-                                try:
-                                    conn = sqlite3.connect(p)
-                                    cursor = conn.cursor()
-                                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-                                    if cursor.fetchone():
-                                        cursor.execute("SELECT COUNT(*) FROM pboq_items")
-                                        total_items = cursor.fetchone()[0]
-                                        if total_items > max_items or (total_items == max_items and os.path.basename(p).startswith("PBOQ_")):
-                                            max_items = total_items
-                                            best_pboq = p
-                                    conn.close()
-                                except Exception:
-                                    pass
-                            if best_pboq:
-                                pboq_path = best_pboq
+                except:
+                    pass
+
+            if project_dir and os.path.exists(project_dir):
+                project_dir = project_dir.replace('\\', '/')
+                if os.path.basename(project_dir) == "Project Database":
+                    project_dir = os.path.dirname(project_dir)
+                
+                # Try to load last active/viewed PBOQ sheet from viewer_state.json
+                state_file = os.path.join(project_dir, "PBOQ States", "viewer_state.json")
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file, 'r') as sf:
+                            state_data = json.load(sf)
+                            last_bill = state_data.get('last_bill')
+                            if last_bill:
+                                cand_path = os.path.join(project_dir, "Priced BOQs", last_bill)
+                                if os.path.exists(cand_path):
+                                    pboq_path = cand_path
+                    except:
+                        pass
+
+            # Fallback A: Detect best PBOQ database from loaded project folder if no active window has it
+            if not pboq_path and project_dir:
+                try:
+                    pboq_dir = os.path.join(project_dir, "Priced BOQs")
+                    if os.path.exists(pboq_dir):
+                        dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
+                        best_pboq = None
+                        max_items = -1
+                        for p in dbs:
+                            try:
+                                conn = sqlite3.connect(p)
+                                cursor = conn.cursor()
+                                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                                if cursor.fetchone():
+                                    cursor.execute("SELECT COUNT(*) FROM pboq_items")
+                                    total_items = cursor.fetchone()[0]
+                                    if total_items > max_items or (total_items == max_items and os.path.basename(p).startswith("PBOQ_")):
+                                        max_items = total_items
+                                        best_pboq = p
+                                conn.close()
+                            except Exception:
+                                pass
+                        if best_pboq:
+                            pboq_path = best_pboq
                 except Exception:
                     pass
 

@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import json
 from sqlalchemy import create_engine
 from database import DatabaseManager
 from orm_models import Material, Labor, Equipment, Plant, IndirectCost, DBEstimate, DBTask
@@ -39,274 +40,297 @@ def query_active_estimate_summary(main_window=None):
     Checks the active subwindow first, and falls back to scanning
     the recent records in construction_costs.db.
     """
+    import json
     # 1. Try to get details from the active PyQt6 MDI subwindow
+    project_dir = None
+    pboq_path = None
+    active_class = None
+    
     if main_window:
         try:
             active_win = main_window._get_active_estimate_window()
-            if active_win and hasattr(active_win, 'estimate'):
-                est = active_win.estimate
-                totals = est.calculate_totals()
-                return {
-                    "source": "Active PyQt6 Window (Rate Build-up Editor)",
-                    "project_name": getattr(est, 'project_name', 'Unnamed Project'),
-                    "client_name": getattr(est, 'client_name', 'N/A'),
-                    "rate_code": getattr(est, 'rate_code', 'N/A'),
-                    "category": getattr(est, 'category', 'N/A'),
-                    "rate_type": getattr(est, 'rate_type', 'Simple'),
-                    "overhead_percent": getattr(est, 'overhead_percent', 0.0),
-                    "profit_margin_percent": getattr(est, 'profit_margin_percent', 0.0),
-                    "currency": getattr(est, 'currency', 'GHS (₵)'),
-                    "unit": getattr(est, 'unit', 'each'),
-                    "notes": getattr(est, 'notes', ''),
-                    "subtotal": totals.get("subtotal", 0.0),
-                    "overhead_amount": totals.get("overhead", 0.0),
-                    "profit_amount": totals.get("profit", 0.0),
-                    "grand_total": totals.get("grand_total", 0.0)
-                }
-            
-            # Check for PBOQ Viewer active window
-            active_class = getattr(active_win, '__class__', None).__name__ if active_win else None
-            if active_class == 'PBOQDialog':
-                pboq_path = active_win.pboq_file_selector.currentData()
-                if pboq_path and os.path.exists(pboq_path):
-                    conn = sqlite3.connect(pboq_path)
-                    cursor = conn.cursor()
-                    
-                    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-                    table_exists = cursor.fetchone()
-                    
-                    total_items = 0
-                    plugged_items = 0
-                    priced_items = 0
-                    grand_total = 0.0
-                    
-                    if table_exists:
-                        cursor.execute("SELECT COUNT(*) FROM pboq_items")
-                        total_items = cursor.fetchone()[0]
-                        
-                        cursor.execute("PRAGMA table_info(pboq_items)")
-                        actual_cols = [c[1] for c in cursor.fetchall()]
-                        
-                        plug_col = next((c for c in ["PlugRate", "Plug Rate", "PlugRate "] if c in actual_cols), None)
-                        if plug_col:
-                            cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
-                            plugged_items = cursor.fetchone()[0]
-                        
-                        bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Bill Rate "] if c in actual_cols), None)
-                        if bill_rate_col:
-                            cursor.execute(f"SELECT \"{bill_rate_col}\" FROM pboq_items")
-                            for (val_str,) in cursor.fetchall():
-                                if val_str:
-                                    try:
-                                        val_f = float(str(val_str).replace(',', '').strip())
-                                        if val_f > 0:
-                                            priced_items += 1
-                                    except ValueError:
-                                        pass
-                        
-                        bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Bill Amount "] if c in actual_cols), None)
-                        if bill_amt_col:
-                            cursor.execute(f"SELECT \"{bill_amt_col}\" FROM pboq_items")
-                            for (val_str,) in cursor.fetchall():
-                                if val_str:
-                                    try:
-                                        grand_total += float(str(val_str).replace(',', '').strip())
-                                    except ValueError:
-                                        pass
-                    
-                    conn.close()
-                    
-                    currency = 'GHS (₵)'
-                    overhead_percent = 0.0
-                    profit_margin_percent = 0.0
-                    factor = 1.0
-                    try:
-                        proj_db = get_active_project_db_path()
-                        if proj_db and os.path.exists(proj_db):
-                            db = DatabaseManager(proj_db)
-                            currency = db.get_setting('currency', 'GHS (₵)')
-                            overhead_percent = float(db.get_setting('overhead', 0.0))
-                            profit_margin_percent = float(db.get_setting('profit', 0.0))
-                            factor = float(db.get_setting('factor', 1.0))
-                        else:
-                            db = DatabaseManager("construction_costs.db")
-                            currency = db.get_setting('currency', 'GHS (₵)')
-                            overhead_percent = float(db.get_setting('overhead', 0.0))
-                            profit_margin_percent = float(db.get_setting('profit', 0.0))
-                            factor = float(db.get_setting('factor', 1.0))
-                    except Exception:
-                        pass
-                    
+            if active_win:
+                active_class = getattr(active_win, '__class__', None).__name__
+                if hasattr(active_win, 'estimate'):
+                    est = active_win.estimate
+                    totals = est.calculate_totals()
                     return {
-                        "source": f"Active PyQt6 Window (PBOQ Dialog: {os.path.basename(pboq_path)})",
-                        "project_name": os.path.basename(pboq_path),
-                        "total_boq_items": total_items,
-                        "plugged_items": plugged_items,
-                        "priced_items": priced_items,
-                        "outstanding_items": max(0, total_items - priced_items),
-                        "grand_total": grand_total,
-                        "currency": currency,
-                        "overhead_percent": overhead_percent,
-                        "profit_margin_percent": profit_margin_percent,
-                        "factor": factor,
-                        "pboq_database_path": pboq_path
+                        "source": "Active PyQt6 Window (Rate Build-up Editor)",
+                        "project_name": getattr(est, 'project_name', 'Unnamed Project'),
+                        "client_name": getattr(est, 'client_name', 'N/A'),
+                        "rate_code": getattr(est, 'rate_code', 'N/A'),
+                        "category": getattr(est, 'category', 'N/A'),
+                        "rate_type": getattr(est, 'rate_type', 'Simple'),
+                        "overhead_percent": getattr(est, 'overhead_percent', 0.0),
+                        "profit_margin_percent": getattr(est, 'profit_margin_percent', 0.0),
+                        "currency": getattr(est, 'currency', 'GHS (₵)'),
+                        "unit": getattr(est, 'unit', 'each'),
+                        "notes": getattr(est, 'notes', ''),
+                        "subtotal": totals.get("subtotal", 0.0),
+                        "overhead_amount": totals.get("overhead", 0.0),
+                        "profit_amount": totals.get("profit", 0.0),
+                        "grand_total": totals.get("grand_total", 0.0)
                     }
-        except Exception as e:
+                elif active_class == 'PBOQDialog' and hasattr(active_win, 'pboq_file_selector'):
+                    pboq_path = active_win.pboq_file_selector.currentData()
+                    if pboq_path:
+                        project_dir = os.path.dirname(os.path.dirname(pboq_path))
+                elif active_class == 'AnalyticsDashboard' and hasattr(active_win, 'project_dir'):
+                    project_dir = active_win.project_dir
+        except:
             pass
 
-    # 2. Fallback A: Check if a project directory is active/loaded in settings
-    try:
-        costs_db = DatabaseManager("construction_costs.db")
-        project_dir = costs_db.get_setting('last_project_dir', '')
-        if project_dir and os.path.exists(project_dir):
-            project_name = os.path.basename(project_dir)
-            if project_name == "Project Database":
+    # Fallback to database setting for recent project directory if not found via active window
+    if not project_dir:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except:
+            pass
+
+    if project_dir and os.path.exists(project_dir):
+        try:
+            project_dir = project_dir.replace('\\', '/')
+            if os.path.basename(project_dir) == "Project Database":
                 project_dir = os.path.dirname(project_dir)
-                project_name = os.path.basename(project_dir)
-            
-            # A1. Scan Priced BOQs for a non-empty PBOQ database sheet
+                
+            project_name = os.path.basename(project_dir)
             pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            
             if os.path.exists(pboq_dir):
+                # 1. Load project settings (currency, overhead, profit) from the master project database
+                overhead_percent = 0.0
+                profit_margin_percent = 0.0
+                currency = "GHS (₵)"
+                factor = 1.0
+                try:
+                    db_dir = os.path.join(project_dir, "Project Database")
+                    if os.path.exists(db_dir):
+                        dbs = [f for f in os.listdir(db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+                        if dbs:
+                            db_path = os.path.join(db_dir, dbs[0])
+                            conn = sqlite3.connect(db_path)
+                            cursor = conn.cursor()
+                            try:
+                                cursor.execute("SELECT value FROM settings WHERE key='overhead'")
+                                row = cursor.fetchone()
+                                if row: overhead_percent = float(row[0])
+                                
+                                cursor.execute("SELECT value FROM settings WHERE key='profit'")
+                                row = cursor.fetchone()
+                                if row: profit_margin_percent = float(row[0])
+                                
+                                cursor.execute("SELECT value FROM settings WHERE key='currency'")
+                                row = cursor.fetchone()
+                                if row: currency = row[0]
+                                
+                                cursor.execute("SELECT value FROM settings WHERE key='factor'")
+                                row = cursor.fetchone()
+                                if row: factor = float(row[0])
+                            except: pass
+                            conn.close()
+                except: pass
+                
+                # 2. Iterate and aggregate across all PBOQ databases
                 dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
+                total_net_cost = 0.0
+                total_items = 0
+                priced_items = 0
+                plugged_items = 0
                 best_pboq = None
-                max_items = -1
-                best_priced_items = 0
-                best_plugged_items = 0
-                best_grand_total = 0.0
+                
+                # If there was a viewer_state.json, load it to get best_pboq fallback
+                state_file_viewer = os.path.join(project_dir, "PBOQ States", "viewer_state.json")
+                if os.path.exists(state_file_viewer):
+                    try:
+                        with open(state_file_viewer, 'r') as sf:
+                            state_data = json.load(sf)
+                            last_bill = state_data.get('last_bill')
+                            if last_bill:
+                                cand_path = os.path.join(pboq_dir, last_bill)
+                                if os.path.exists(cand_path):
+                                    best_pboq = cand_path
+                    except: pass
+                
+                if not best_pboq and dbs:
+                    best_pboq = dbs[0]
                 
                 for path in dbs:
+                    f = os.path.basename(path)
+                    
+                    qty_col_idx = -1
+                    desc_col_idx = -1
+                    bill_rate_col_idx = -1
+                    bill_amt_col_idx = -1
+                    dummy_val = 0.1
+                    
+                    state_file = os.path.join(project_dir, "PBOQ States", f + ".json")
+                    state_data = {}
+                    if os.path.exists(state_file):
+                        try:
+                            with open(state_file, 'r') as sf:
+                                state_data = json.load(sf)
+                                m = state_data.get('mappings', {})
+                                qty_col_idx = m.get('qty', -1)
+                                desc_col_idx = m.get('desc', -1)
+                                bill_rate_col_idx = m.get('bill_rate', -1)
+                                bill_amt_col_idx = m.get('bill_amount', -1)
+                                dummy_val = state_data.get('dummy_rate', 0.1)
+                        except: pass
+                        
                     try:
                         conn = sqlite3.connect(path)
                         cursor = conn.cursor()
                         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-                        if cursor.fetchone():
-                            cursor.execute("SELECT COUNT(*) FROM pboq_items")
-                            total_items = cursor.fetchone()[0]
-                            if total_items > max_items or (total_items == max_items and os.path.basename(path).startswith("PBOQ_")):
-                                max_items = total_items
-                                best_pboq = path
+                        if not cursor.fetchone():
+                            conn.close()
+                            continue
+                            
+                        cursor.execute("PRAGMA table_info(pboq_items)")
+                        cols = [info[1] for info in cursor.fetchall()]
+                        
+                        qty_name = cols[qty_col_idx + 1] if qty_col_idx >= 0 and (qty_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                        desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
+                        bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate", "column 4"]), None)
+                        bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                        
+                        col_map = {
+                            'desc': desc_name,
+                            'qty': qty_name,
+                            'bill_rate': bill_rate_name,
+                            'bill_amt': bill_amt_name,
+                            'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                            'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                            'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                            'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                            'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                            'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                            'rcode': next((c for c in cols if c.lower() in ["ratecode", "rate_code"]), None),
+                            'pcode': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None)
+                        }
+                        
+                        if not (col_map['desc'] and col_map['qty']):
+                            conn.close()
+                            continue
+                            
+                        query_cols = []
+                        for k in ['desc', 'qty', 'bill_rate', 'bill_amt', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'rcode', 'pcode']:
+                            if col_map[k]: query_cols.append(f"\"{col_map[k]}\"")
+                            else: query_cols.append("''")
+                            
+                        cursor.execute(f"SELECT {', '.join(query_cols)} FROM pboq_items")
+                        rows = cursor.fetchall()
+                        
+                        rate_cache = {}
+                        def get_net_rate(rate_code):
+                            if not rate_code: return 0.0
+                            if rate_code in rate_cache: return rate_cache[rate_code]
+                            try:
+                                db_dir2 = os.path.join(project_dir, "Project Database")
+                                dbs2 = [f2 for f2 in os.listdir(db_dir2) if f2.lower().endswith('.db') and "rates" not in f2.lower()]
+                                if dbs2:
+                                    db_path2 = os.path.join(db_dir2, dbs2[0])
+                                    conn2 = sqlite3.connect(db_path2)
+                                    cursor2 = conn2.cursor()
+                                    cursor2.execute("SELECT net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+                                    res = cursor2.fetchone()
+                                    conn2.close()
+                                    if res:
+                                        rate_cache[rate_code] = float(res[0] or 0.0)
+                                        return rate_cache[rate_code]
+                            except: pass
+                            rate_cache[rate_code] = 0.0
+                            return 0.0
+                            
+                        def to_float(val):
+                            if not val: return 0.0
+                            if isinstance(val, (int, float)): return float(val)
+                            try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+                            except: return 0.0
+                            
+                        for r in rows:
+                            desc, q, br, ba, gross, plug, sub, prov, pc, dw, rcode, pcode = r
+                            desc_low = (desc or "").lower()
+                            if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
+                                continue
                                 
-                                # Gather other metrics
-                                cursor.execute("PRAGMA table_info(pboq_items)")
-                                actual_cols = [c[1] for c in cursor.fetchall()]
+                            qty_f = to_float(q)
+                            bill_rate_f = to_float(br)
+                            bill_amt_f = to_float(ba)
+                            
+                            if qty_f == 0 and bill_amt_f == 0:
+                                continue
                                 
-                                plugged_items = 0
-                                plug_col = next((c for c in ["PlugRate", "Plug Rate", "PlugRate "] if c in actual_cols), None)
-                                if plug_col:
-                                    cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
-                                    plugged_items = cursor.fetchone()[0]
+                            g_val = to_float(gross)
+                            p_val = to_float(plug)
+                            s_val = to_float(sub)
+                            pr_val = to_float(prov)
+                            pc_val = to_float(pc)
+                            d_val = to_float(dw)
+                            
+                            is_row_priced = (g_val > 0 or p_val > 0 or s_val > 0 or pr_val > 0 or pc_val > 0 or d_val > 0)
+                            if not is_row_priced:
+                                if bill_rate_f > 0 and abs(bill_rate_f - dummy_val) > 0.0001:
+                                    is_row_priced = True
+                                    
+                            is_priced = is_row_priced
+                            
+                            active_code = pcode if pcode and str(pcode).strip() else rcode
+                            master_net_cost = get_net_rate(active_code) if active_code else 0.0
+                            
+                            unit_cost = 0.0
+                            if pr_val > 0: unit_cost = pr_val
+                            elif pc_val > 0: unit_cost = pc_val
+                            elif d_val > 0: unit_cost = d_val
+                            elif master_net_cost > 0: unit_cost = master_net_cost
+                            else:
+                                if p_val > 0: unit_cost = p_val
+                                elif s_val > 0: unit_cost = s_val
+                                elif g_val > 0: unit_cost = g_val
+                                else:
+                                    if bill_amt_f > 0:
+                                        unit_cost = bill_amt_f if qty_f <= 1 else 0.0
+                                        
+                            calc_qty = qty_f if qty_f > 0 else (1.0 if bill_amt_f > 0 else 0.0)
+                            item_net_cost = round(unit_cost * calc_qty, 2) if is_priced else 0.0
+                            
+                            total_items += 1
+                            if is_priced: priced_items += 1
+                            total_net_cost += item_net_cost
+                            
+                            if plug and to_float(plug) > 0:
+                                plugged_items += 1
                                 
-                                priced_items = 0
-                                bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Bill Rate "] if c in actual_cols), None)
-                                if bill_rate_col:
-                                    cursor.execute(f"SELECT \"{bill_rate_col}\" FROM pboq_items")
-                                    for (val_str,) in cursor.fetchall():
-                                        if val_str:
-                                            try:
-                                                val_f = float(str(val_str).replace(',', '').strip())
-                                                if val_f > 0:
-                                                    priced_items += 1
-                                            except ValueError:
-                                                pass
-                                                
-                                grand_total = 0.0
-                                bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Bill Amount "] if c in actual_cols), None)
-                                if bill_amt_col:
-                                    cursor.execute(f"SELECT \"{bill_amt_col}\" FROM pboq_items")
-                                    for (val_str,) in cursor.fetchall():
-                                        if val_str:
-                                            try:
-                                                grand_total += float(str(val_str).replace(',', '').strip())
-                                            except ValueError:
-                                                pass
-                                
-                                best_priced_items = priced_items
-                                best_plugged_items = plugged_items
-                                best_grand_total = grand_total
                         conn.close()
                     except Exception:
                         pass
                 
-                if best_pboq:
-                    currency = 'GHS (₵)'
-                    overhead_percent = 0.0
-                    profit_margin_percent = 0.0
-                    factor = 1.0
-                    try:
-                        proj_db = get_active_project_db_path()
-                        if proj_db and os.path.exists(proj_db):
-                            db = DatabaseManager(proj_db)
-                            currency = db.get_setting('currency', 'GHS (₵)')
-                            overhead_percent = float(db.get_setting('overhead', 0.0))
-                            profit_margin_percent = float(db.get_setting('profit', 0.0))
-                            factor = float(db.get_setting('factor', 1.0))
-                        else:
-                            currency = costs_db.get_setting('currency', 'GHS (₵)')
-                            overhead_percent = float(costs_db.get_setting('overhead', 0.0))
-                            profit_margin_percent = float(costs_db.get_setting('profit', 0.0))
-                            factor = float(costs_db.get_setting('factor', 1.0))
-                    except Exception:
-                        pass
-                    return {
-                        "source": f"Loaded Project Directory ({project_name})",
-                        "project_name": project_name,
-                        "total_boq_items": max_items,
-                        "plugged_items": best_plugged_items,
-                        "priced_items": best_priced_items,
-                        "outstanding_items": max(0, max_items - best_priced_items),
-                        "grand_total": best_grand_total,
-                        "currency": currency,
-                        "overhead_percent": overhead_percent,
-                        "profit_margin_percent": profit_margin_percent,
-                        "factor": factor,
-                        "pboq_database_path": best_pboq,
-                        "project_directory": project_dir
-                    }
-            
-            # A2. Fallback to Project Database folder if no non-empty PBOQ found
-            project_db_dir = os.path.join(project_dir, "Project Database")
-            if os.path.exists(project_db_dir):
-                dbs = [os.path.join(project_db_dir, f) for f in os.listdir(project_db_dir) if f.endswith('.db')]
-                for path in dbs:
-                    try:
-                        conn = sqlite3.connect(path)
-                        cursor = conn.cursor()
-                        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
-                        if cursor.fetchone():
-                            cursor.execute("SELECT * FROM estimates WHERE id=1")
-                            row = cursor.fetchone()
-                            if not row:
-                                cursor.execute("SELECT * FROM estimates ORDER BY id ASC LIMIT 1")
-                                row = cursor.fetchone()
-                            
-                            if row:
-                                cursor.execute("PRAGMA table_info(estimates)")
-                                cols = [c[1] for c in cursor.fetchall()]
-                                est_data = dict(zip(cols, row))
-                                conn.close()
-                                
-                                currency = est_data.get('currency', 'USD ($)')
-                                net_total = est_data.get('net_total', 0.0)
-                                overhead_pct = est_data.get('overhead_percent', 0.0)
-                                profit_pct = est_data.get('profit_margin_percent', 0.0)
-                                return {
-                                    "source": f"Loaded Project Directory Database ({project_name})",
-                                    "project_name": est_data.get('project_name') or project_name,
-                                    "client_name": est_data.get('client_name') or 'N/A',
-                                    "overhead_percent": overhead_pct,
-                                    "profit_margin_percent": profit_pct,
-                                    "currency": currency,
-                                    "subtotal": net_total,
-                                    "overhead_amount": (net_total * overhead_pct / 100.0),
-                                    "profit_amount": (net_total * profit_pct / 100.0),
-                                    "grand_total": est_data.get('grand_total', 0.0),
-                                    "project_directory": project_dir
-                                }
-                        conn.close()
-                    except Exception:
-                        pass
-    except Exception:
-        pass
+                combined_markup = (overhead_percent + profit_margin_percent) / 100.0
+                grand_total = total_net_cost * (1.0 + combined_markup)
+                
+                source_str = f"Loaded Project Directory ({project_name})"
+                if pboq_path:
+                    source_str = f"Active PyQt6 Window (PBOQ Dialog: {os.path.basename(pboq_path)})"
+                elif active_class == 'AnalyticsDashboard':
+                    source_str = f"Active PyQt6 Window (Analytics Dashboard: {project_name})"
+                
+                return {
+                    "source": source_str,
+                    "project_name": project_name,
+                    "total_boq_items": total_items,
+                    "plugged_items": plugged_items,
+                    "priced_items": priced_items,
+                    "outstanding_items": max(0, total_items - priced_items),
+                    "grand_total": round(grand_total, 2),
+                    "currency": currency,
+                    "overhead_percent": overhead_percent,
+                    "profit_margin_percent": profit_margin_percent,
+                    "factor": factor,
+                    "pboq_database_path": pboq_path or best_pboq,
+                    "project_directory": project_dir
+                }
+        except:
+            pass
 
     # 3. Fallback B: Query the construction_costs.db for recent estimate information
     try:
@@ -909,52 +933,180 @@ def ingest_project_domains(project_dir=None):
         for f in os.listdir(pboq_dir):
             if f.lower().endswith('.db'):
                 db_path = os.path.join(pboq_dir, f)
+                
+                sheet_net_cost = 0.0
+                sheet_total_items = 0
+                sheet_priced_items = 0
+                sheet_plugged_items = 0
+                
+                qty_col_idx = -1
+                desc_col_idx = -1
+                bill_rate_col_idx = -1
+                bill_amt_col_idx = -1
+                dummy_val = 0.1
+                
+                state_file = os.path.join(project_dir, "PBOQ States", f + ".json")
+                state_data = {}
+                if os.path.exists(state_file):
+                    try:
+                        with open(state_file, 'r', encoding='utf-8') as sf:
+                            state_data = json.load(sf)
+                            m = state_data.get('mappings', {})
+                            qty_col_idx = m.get('qty', -1)
+                            desc_col_idx = m.get('desc', -1)
+                            bill_rate_col_idx = m.get('bill_rate', -1)
+                            bill_amt_col_idx = m.get('bill_amount', -1)
+                            dummy_val = state_data.get('dummy_rate', 0.1)
+                    except: pass
+                    
                 try:
                     conn = sqlite3.connect(db_path)
                     cursor = conn.cursor()
                     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
-                    if cursor.fetchone():
-                        cursor.execute("PRAGMA table_info(pboq_items)")
-                        cols = [col[1] for col in cursor.fetchall()]
+                    if not cursor.fetchone():
+                        conn.close()
+                        continue
                         
-                        desc_col = next((c for c in ["Description", "Column 1", "Column 2"] if c in cols), "Description")
-                        qty_col = next((c for c in ["Quantity", "Qty", "Column 3"] if c in cols), "Quantity")
-                        bill_rate_col = next((c for c in ["Bill Rate", "BillRate", "Column 4"] if c in cols), "BillRate")
-                        bill_amt_col = next((c for c in ["Bill Amount", "BillAmount", "Column 5"] if c in cols), "BillAmount")
-                        plug_col = next((c for c in ["PlugRate", "Plug Rate"] if c in cols), None)
+                    cursor.execute("PRAGMA table_info(pboq_items)")
+                    cols = [info[1] for info in cursor.fetchall()]
+                    
+                    qty_name = cols[qty_col_idx + 1] if qty_col_idx >= 0 and (qty_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                    desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
+                    bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate", "column 4"]), None)
+                    bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                    
+                    col_map = {
+                        'desc': desc_name,
+                        'qty': qty_name,
+                        'bill_rate': bill_rate_name,
+                        'bill_amt': bill_amt_name,
+                        'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                        'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                        'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                        'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                        'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                        'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                        'rcode': next((c for c in cols if c.lower() in ["ratecode", "rate_code"]), None),
+                        'pcode': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None)
+                    }
+                    
+                    if not (col_map['desc'] and col_map['qty']):
+                        conn.close()
+                        continue
                         
-                        cursor.execute(f"SELECT COUNT(*), SUM(CAST(REPLACE(REPLACE(REPLACE(\"{bill_amt_col}\", ',', ''), '₵', ''), '$', '') AS REAL)) FROM pboq_items")
-                        tot_row = cursor.fetchone()
+                    query_cols = []
+                    for k in ['desc', 'qty', 'bill_rate', 'bill_amt', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'rcode', 'pcode']:
+                        if col_map[k]: query_cols.append(f"\"{col_map[k]}\"")
+                        else: query_cols.append("''")
                         
-                        tot_items = tot_row[0] or 0
-                        tot_val = tot_row[1] or 0.0
+                    cursor.execute(f"SELECT {', '.join(query_cols)} FROM pboq_items")
+                    rows = cursor.fetchall()
+                    
+                    rate_cache = {}
+                    def get_net_rate(rate_code):
+                        if not rate_code: return 0.0
+                        if rate_code in rate_cache: return rate_cache[rate_code]
+                        try:
+                            db_dir2 = os.path.join(project_dir, "Project Database")
+                            dbs2 = [f2 for f2 in os.listdir(db_dir2) if f2.lower().endswith('.db') and "rates" not in f2.lower()]
+                            if dbs2:
+                                db_path2 = os.path.join(db_dir2, dbs2[0])
+                                conn2 = sqlite3.connect(db_path2)
+                                cursor2 = conn2.cursor()
+                                cursor2.execute("SELECT net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+                                res = cursor2.fetchone()
+                                conn2.close()
+                                if res:
+                                    rate_cache[rate_code] = float(res[0] or 0.0)
+                                    return rate_cache[rate_code]
+                        except: pass
+                        rate_cache[rate_code] = 0.0
+                        return 0.0
                         
-                        total_items_count += tot_items
-                        total_priced_value += tot_val
+                    def to_float(val):
+                        if not val: return 0.0
+                        if isinstance(val, (int, float)): return float(val)
+                        try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+                        except: return 0.0
                         
-                        cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{bill_rate_col}\" > 0")
-                        priced_items_count += cursor.fetchone()[0] or 0
-                        
-                        if plug_col:
-                            cursor.execute(f"SELECT COUNT(*) FROM pboq_items WHERE \"{plug_col}\" > 0")
-                            plugged_items_count += cursor.fetchone()[0] or 0
+                    for r in rows:
+                        desc, q, br, ba, gross, plug, sub, prov, pc, dw, rcode, pcode = r
+                        desc_low = (desc or "").lower()
+                        if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
+                            continue
                             
-                        pboq_sheets.append({
-                            "database": f,
-                            "total_items": tot_items,
-                            "subtotal": tot_val,
-                            "priced_items": priced_items_count
-                        })
+                        qty_f = to_float(q)
+                        bill_rate_f = to_float(br)
+                        bill_amt_f = to_float(ba)
+                        
+                        if qty_f == 0 and bill_amt_f == 0:
+                            continue
+                            
+                        g_val = to_float(gross)
+                        p_val = to_float(plug)
+                        s_val = to_float(sub)
+                        pr_val = to_float(prov)
+                        pc_val = to_float(pc)
+                        d_val = to_float(dw)
+                        
+                        is_row_priced = (g_val > 0 or p_val > 0 or s_val > 0 or pr_val > 0 or pc_val > 0 or d_val > 0)
+                        if not is_row_priced:
+                            if bill_rate_f > 0 and abs(bill_rate_f - dummy_val) > 0.0001:
+                                is_row_priced = True
+                                
+                        is_priced = is_row_priced
+                        
+                        active_code = pcode if pcode and str(pcode).strip() else rcode
+                        master_net_cost = get_net_rate(active_code) if active_code else 0.0
+                        
+                        unit_cost = 0.0
+                        if pr_val > 0: unit_cost = pr_val
+                        elif pc_val > 0: unit_cost = pc_val
+                        elif d_val > 0: unit_cost = d_val
+                        elif master_net_cost > 0: unit_cost = master_net_cost
+                        else:
+                            if p_val > 0: unit_cost = p_val
+                            elif s_val > 0: unit_cost = s_val
+                            elif g_val > 0: unit_cost = g_val
+                            else:
+                                if bill_amt_f > 0:
+                                    unit_cost = bill_amt_f if qty_f <= 1 else 0.0
+                                    
+                        calc_qty = qty_f if qty_f > 0 else (1.0 if bill_amt_f > 0 else 0.0)
+                        item_net_cost = round(unit_cost * calc_qty, 2) if is_priced else 0.0
+                        
+                        sheet_total_items += 1
+                        if is_priced: sheet_priced_items += 1
+                        sheet_net_cost += item_net_cost
+                        
+                        if plug and to_float(plug) > 0:
+                            sheet_plugged_items += 1
+                            
                     conn.close()
                 except Exception:
                     pass
-                    
+                
+                combined_markup = (overhead_rate + profit_rate) / 100.0
+                sheet_bid_value = sheet_net_cost * (1.0 + combined_markup)
+                
+                total_items_count += sheet_total_items
+                priced_items_count += sheet_priced_items
+                plugged_items_count += sheet_plugged_items
+                total_priced_value += sheet_bid_value
+                
+                pboq_sheets.append({
+                    "database": f,
+                    "total_items": sheet_total_items,
+                    "subtotal": round(sheet_bid_value, 2),
+                    "priced_items": sheet_priced_items
+                })
+                
     domains["pboq_summary"] = {
         "sheets": pboq_sheets,
         "total_items_count": total_items_count,
         "priced_items_count": priced_items_count,
         "plugged_items_count": plugged_items_count,
-        "total_priced_value": total_priced_value,
+        "total_priced_value": round(total_priced_value, 2),
         "pricing_completeness_percent": round((priced_items_count / total_items_count * 100) if total_items_count > 0 else 0.0, 2)
     }
 

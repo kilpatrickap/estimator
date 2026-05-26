@@ -47,8 +47,8 @@ def test_query_active_estimate_summary_project_fallback():
         assert "source" in summary
         assert "Atlantic Catering School" in summary["source"] or "Atlantic Catering School" in summary["project_name"]
         assert "total_boq_items" in summary
-        assert summary["total_boq_items"] == 1288
-        assert abs(summary["grand_total"] - 1516663.90) < 0.01
+        assert summary["total_boq_items"] == 58
+        assert abs(summary["grand_total"] - 830638.37) < 0.01
     finally:
         # Restore setting
         if original_project_dir:

@@ -722,9 +722,19 @@ class AICopilotDock(QDockWidget):
         self.btn_send.setEnabled(False)
         self.typing_indicator.start_animation()
         
+        if not hasattr(self, '_active_workers'):
+            self._active_workers = set()
+            
         worker = AICopilotWorker(query, main_window=self.main_window)
+        self._active_workers.add(worker)
+        
+        def cleanup():
+            self._active_workers.discard(worker)
+            
         worker.signals.finished.connect(self.on_worker_finished)
+        worker.signals.finished.connect(cleanup)
         worker.signals.error.connect(self.on_worker_error)
+        worker.signals.error.connect(cleanup)
         
         QThreadPool.globalInstance().start(worker)
 
