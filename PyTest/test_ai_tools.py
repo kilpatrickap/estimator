@@ -403,5 +403,73 @@ def test_ai_worker_proactive_search_context(qapp, monkeypatch):
     assert "120.0" in system_prompt
 
 
+def test_ai_worker_typo_resilience(qapp, monkeypatch):
+    import json
+    
+    worker = AICopilotWorker("Count materials", main_window=None)
+    
+    # 1. Verify fuzzy path resolution resolves LLM typo "constructioncosts.db" -> "construction_costs.db"
+    resolved = worker._resolve_file_path("constructioncosts.db")
+    assert resolved is not None
+    assert "construction_costs.db" in resolved.replace('\\', '/')
+
+    # 2. Mock URL open to verify that querydb with a typo parses successfully as a tool call
+    api_calls = []
+    
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            api_calls.append(payload)
+            
+            # First call returns the typoed tag
+            if len(api_calls) == 1:
+                return MockResponse({
+                    "choices": [{
+                        "message": {
+                            "content": "Let me search the library:\n<querydb db=\"constructioncosts.db\">SELECT COUNT(*) FROM materials</querydb>"
+                        }
+                    }]
+                })
+            else:
+                return MockResponse({
+                    "choices": [{
+                        "message": {
+                            "content": "Successfully searched using typo-resilient parsing."
+                        }
+                    }]
+                })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # Run _call_local_ollama
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert "Successfully searched using typo-resilient parsing" in res
+    assert len(api_calls) == 2, "Should parse the typoed tag as a valid tool execution call"
+    
+    # Verify the tool result payload in the second call
+    second_call_messages = api_calls[1]["messages"]
+    assert second_call_messages[-1]["role"] == "user"
+    assert "query_result" in second_call_messages[-1]["content"]
+    assert "Error:" not in second_call_messages[-1]["content"], "Should successfully find the database file and return rows, not a file-not-found error"
+
+
+
 
 

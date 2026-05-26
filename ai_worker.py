@@ -198,6 +198,28 @@ class AICopilotWorker(QRunnable):
         except Exception:
             pass
             
+        # 6. Fuzzy alphanumeric fallback (ignores typos like missing underscores, spaces, hyphens)
+        clean_target = re.sub(r'[^a-zA-Z0-9]', '', target_path.lower())
+        if clean_target.endswith('db') or clean_target.endswith('json'):
+            # Match APP_DIR
+            for root, dirs, files in os.walk(APP_DIR):
+                dirs[:] = [d for d in dirs if d not in {'.git', '.idea', '__pycache__', '.pytest_cache', '.vscode', 'PyTest'}]
+                for f in files:
+                    if re.sub(r'[^a-zA-Z0-9]', '', f.lower()) == clean_target:
+                        return os.path.join(root, f)
+            # Match project_dir
+            try:
+                from database import DatabaseManager
+                costs_db = DatabaseManager("construction_costs.db")
+                project_dir = costs_db.get_setting('last_project_dir', '')
+                if project_dir and os.path.exists(project_dir):
+                    for root, dirs, files in os.walk(project_dir):
+                        for f in files:
+                            if re.sub(r'[^a-zA-Z0-9]', '', f.lower()) == clean_target:
+                                return os.path.join(root, f)
+            except Exception:
+                pass
+            
         return None
 
     def _execute_sql(self, db_name, sql_query):
@@ -685,18 +707,18 @@ class AICopilotWorker(QRunnable):
                 raise Exception(f"Local LLM API error: {str(e)}")
 
             # Check for <query_db>, <read_json>, <get_knowledge_graph>, or <ingest_project_domains> tags
-            db_match = re.search(r'<query_db\s+db=["\'](.*?)["\']>(.*?)</query_db>', content, re.DOTALL | re.IGNORECASE)
-            json_match = re.search(r'<read_json\s+file=["\'](.*?)["\']>(.*?)</read_json>', content, re.DOTALL | re.IGNORECASE)
+            db_match = re.search(r'<query[-_]?db\s+db=["\']?([^"\'\s>]+)["\']?>(.*?)(?:</query[-_]?db>|$)', content, re.DOTALL | re.IGNORECASE)
+            json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'\s>]+)["\']?>(.*?)(?:</read[-_]?json>|$)', content, re.DOTALL | re.IGNORECASE)
             if not json_match:
-                json_match = re.search(r'<read_json\s+file=["\'](.*?)["\']\s*/>', content, re.IGNORECASE)
+                json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
                 
-            graph_match = re.search(r'<get_knowledge_graph\s*/>', content, re.IGNORECASE)
+            graph_match = re.search(r'<get_knowledge_graph\s*/?>', content, re.IGNORECASE)
             if not graph_match:
-                graph_match = re.search(r'<get_knowledge_graph\s*>(.*?)</get_knowledge_graph>', content, re.DOTALL | re.IGNORECASE)
+                graph_match = re.search(r'<get_knowledge_graph\s*>(.*?)(?:</get_knowledge_graph>|$)', content, re.DOTALL | re.IGNORECASE)
                 
-            domains_match = re.search(r'<ingest_project_domains\s*/>', content, re.IGNORECASE)
+            domains_match = re.search(r'<ingest_project_domains\s*/?>', content, re.IGNORECASE)
             if not domains_match:
-                domains_match = re.search(r'<ingest_project_domains\s*>(.*?)</ingest_project_domains>', content, re.DOTALL | re.IGNORECASE)
+                domains_match = re.search(r'<ingest_project_domains\s*>(.*?)(?:</ingest_project_domains>|$)', content, re.DOTALL | re.IGNORECASE)
 
             # Heuristic: If no explicit tag matches, but the model output contains a SQL code block, treat it as an implicit database query!
             if not db_match and not json_match and not graph_match and not domains_match:
