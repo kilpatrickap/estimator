@@ -2,7 +2,7 @@ import os
 import re
 from PyQt6.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
                              QPushButton, QLabel, QScrollArea, QFrame, QTextBrowser, 
-                             QGraphicsDropShadowEffect)
+                             QGraphicsDropShadowEffect, QSizePolicy)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThreadPool, QSize
 from ai_worker import AICopilotWorker
@@ -186,13 +186,13 @@ def markdown_to_html(text):
             continue
             
         if line_stripped.startswith("### "):
-            html_lines.append(f'<h4 style="color: #2e7d32; margin-top: 10px; margin-bottom: 4px; font-size: 13px; font-weight: bold;">{parse_inline_markdown(line_stripped[4:])}</h4>')
+            html_lines.append(f'<h4 style="color: #2e7d32; margin-top: 6px; margin-bottom: 2px; font-size: 13px; font-weight: bold;">{parse_inline_markdown(line_stripped[4:])}</h4>')
         elif line_stripped.startswith("## "):
-            html_lines.append(f'<h3 style="color: #2e7d32; margin-top: 14px; margin-bottom: 6px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; font-weight: bold;">{parse_inline_markdown(line_stripped[3:])}</h3>')
+            html_lines.append(f'<h3 style="color: #2e7d32; margin-top: 8px; margin-bottom: 3px; font-size: 14px; border-bottom: 1px solid #cbd5e1; padding-bottom: 2px; font-weight: bold;">{parse_inline_markdown(line_stripped[3:])}</h3>')
         elif line_stripped.startswith("# "):
-            html_lines.append(f'<h2 style="color: #1b5e20; margin-top: 18px; margin-bottom: 8px; font-size: 16px; border-bottom: 2px solid #2e7d32; padding-bottom: 4px; font-weight: bold;">{parse_inline_markdown(line_stripped[2:])}</h2>')
+            html_lines.append(f'<h2 style="color: #1b5e20; margin-top: 10px; margin-bottom: 4px; font-size: 16px; border-bottom: 2px solid #2e7d32; padding-bottom: 4px; font-weight: bold;">{parse_inline_markdown(line_stripped[2:])}</h2>')
         else:
-            html_lines.append(f'<p style="margin: 4px 0; line-height: 1.4;">{parse_inline_markdown(line_stripped)}</p>')
+            html_lines.append(f'<p style="margin: 2px 0; line-height: 1.3;">{parse_inline_markdown(line_stripped)}</p>')
             
         i += 1
         
@@ -275,6 +275,7 @@ class MessageBubble(QFrame):
         self.zoom_level = zoom_level
         
         self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         
         if self.is_ai:
             self.setObjectName("AiBubble")
@@ -303,17 +304,18 @@ class MessageBubble(QFrame):
         self.setGraphicsEffect(shadow)
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 6, 10, 6)
-        layout.setSpacing(2)
+        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setSpacing(1)
         
         # Sender Header
         self.author_label = QLabel(self)
         if self.is_ai:
             self.author_label.setText("🤖 <b>AI Estimating Copilot</b>")
-            self.author_label.setStyleSheet("color: #2e7d32; font-size: 10px; font-weight: bold;")
+            self.author_label.setStyleSheet("color: #2e7d32; font-size: 10px; font-weight: bold; margin: 0px; padding: 0px;")
         else:
             self.author_label.setText("👤 <b>You</b>")
-            self.author_label.setStyleSheet("color: #475569; font-size: 10px; font-weight: bold;")
+            self.author_label.setStyleSheet("color: #475569; font-size: 10px; font-weight: bold; margin: 0px; padding: 0px;")
+        self.author_label.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.author_label)
         
         # Transparent Text Browser (permits selection, copying, and rendering of complex markup tables)
@@ -323,6 +325,7 @@ class MessageBubble(QFrame):
         self.text_browser.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.text_browser.viewport().setAutoFillBackground(False)
         self.text_browser.setOpenExternalLinks(True)
+        self.text_browser.document().setDocumentMargin(0)
         self.update_font_size(self.zoom_level)
         
         self.html_content = markdown_to_html(text)
@@ -336,14 +339,18 @@ class MessageBubble(QFrame):
     def adjust_browser_height(self):
         doc = self.text_browser.document()
         doc.adjustSize()
-        height = int(doc.size().height()) + 8
-        self.text_browser.setFixedHeight(max(30, height))
+        height = int(doc.size().height()) + 2
+        self.text_browser.setFixedHeight(max(14, height))
 
     def update_font_size(self, size):
         self.zoom_level = size
         self.text_browser.setStyleSheet(f"""
             QTextBrowser {{
                 background: transparent;
+                background-color: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
                 color: #1e293b;
                 font-family: "Segoe UI", sans-serif;
                 font-size: {self.zoom_level}px;
@@ -419,8 +426,8 @@ class AICopilotDock(QDockWidget):
         
         # Layouts
         self.main_layout = QVBoxLayout(self.widget_container)
-        self.main_layout.setContentsMargins(6, 6, 6, 6)
-        self.main_layout.setSpacing(6)
+        self.main_layout.setContentsMargins(4, 4, 4, 4)
+        self.main_layout.setSpacing(4)
         
         # 1. Header Row
         self._setup_header()
@@ -582,7 +589,7 @@ class AICopilotDock(QDockWidget):
         self.chat_content_widget.setStyleSheet("background-color: transparent;")
         self.chat_layout = QVBoxLayout(self.chat_content_widget)
         self.chat_layout.setContentsMargins(2, 2, 2, 2)
-        self.chat_layout.setSpacing(10)
+        self.chat_layout.setSpacing(4)
         self.chat_layout.addStretch()
         
         self.scroll_area.setWidget(self.chat_content_widget)

@@ -161,7 +161,7 @@ class MainWindow(QMainWindow):
         from ai_copilot_dock import AICopilotDock
         self.ai_copilot_dock = AICopilotDock(self, self)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.ai_copilot_dock)
-        self.ai_copilot_dock.setVisible(True)
+        self.ai_copilot_dock.setVisible(False)
         
         # Connect active window change to update toolbar state
         self.mdi_area.subWindowActivated.connect(self._update_toolbar_state)
