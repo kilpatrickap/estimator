@@ -308,6 +308,10 @@ def query_active_estimate_summary(main_window=None):
                 combined_markup = (overhead_percent + profit_margin_percent) / 100.0
                 grand_total = total_net_cost * (1.0 + combined_markup)
                 
+                subtotal = round(total_net_cost, 2)
+                overhead_amount = round(total_net_cost * (overhead_percent / 100.0), 2)
+                profit_amount = round(total_net_cost * (profit_margin_percent / 100.0), 2)
+                
                 source_str = f"Loaded Project Directory ({project_name})"
                 if pboq_path:
                     source_str = f"Active PyQt6 Window (PBOQ Dialog: {os.path.basename(pboq_path)})"
@@ -321,6 +325,9 @@ def query_active_estimate_summary(main_window=None):
                     "plugged_items": plugged_items,
                     "priced_items": priced_items,
                     "outstanding_items": max(0, total_items - priced_items),
+                    "subtotal": subtotal,
+                    "overhead_amount": overhead_amount,
+                    "profit_amount": profit_amount,
                     "grand_total": round(grand_total, 2),
                     "currency": currency,
                     "overhead_percent": overhead_percent,
@@ -1459,4 +1466,191 @@ def build_unified_knowledge_graph(project_dir=None):
                     })
 
     return graph
+
+
+def get_active_project_priced_items(project_dir=None):
+    """
+    Retrieves all priced items across all PBOQ databases in the project directory,
+    properly mapping columns and filtering dummy rates.
+    """
+    if not project_dir:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except:
+            pass
+
+    if project_dir:
+        project_dir = project_dir.replace('\\', '/')
+        if os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+
+    priced_items_list = []
+    if not project_dir or not os.path.exists(project_dir):
+        return priced_items_list
+
+    pboq_dir = os.path.join(project_dir, "Priced BOQs")
+    if os.path.exists(pboq_dir):
+        dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
+        for path in dbs:
+            f = os.path.basename(path)
+            sheet_name = f.replace('.db', '')
+            
+            qty_col_idx = -1
+            desc_col_idx = -1
+            bill_rate_col_idx = -1
+            bill_amt_col_idx = -1
+            unit_col_idx = -1
+            dummy_val = 0.1
+            
+            state_file = os.path.join(project_dir, "PBOQ States", f + ".json")
+            state_data = {}
+            if os.path.exists(state_file):
+                try:
+                    with open(state_file, 'r', encoding='utf-8') as sf:
+                        state_data = json.load(sf)
+                        m = state_data.get('mappings', {})
+                        qty_col_idx = m.get('qty', -1)
+                        desc_col_idx = m.get('desc', -1)
+                        bill_rate_col_idx = m.get('bill_rate', -1)
+                        bill_amt_col_idx = m.get('bill_amount', -1)
+                        unit_col_idx = m.get('unit', -1)
+                        dummy_val = state_data.get('dummy_rate', 0.1)
+                except: pass
+                
+            try:
+                conn = sqlite3.connect(path)
+                cursor = conn.cursor()
+                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                if not cursor.fetchone():
+                    conn.close()
+                    continue
+                    
+                cursor.execute("PRAGMA table_info(pboq_items)")
+                cols = [info[1] for info in cursor.fetchall()]
+                
+                qty_name = cols[qty_col_idx + 1] if qty_col_idx >= 0 and (qty_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
+                bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate", "column 4"]), None)
+                bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                unit_name = cols[unit_col_idx + 1] if unit_col_idx >= 0 and (unit_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["unit"]), None)
+                
+                col_map = {
+                    'desc': desc_name,
+                    'qty': qty_name,
+                    'bill_rate': bill_rate_name,
+                    'bill_amt': bill_amt_name,
+                    'unit': unit_name,
+                    'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                    'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                    'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                    'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                    'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                    'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                    'rcode': next((c for c in cols if c.lower() in ["ratecode", "rate_code"]), None),
+                    'pcode': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None),
+                    'sheet': next((c for c in cols if c.lower() == 'sheet'), None)
+                }
+                
+                if not (col_map['desc'] and col_map['qty']):
+                    conn.close()
+                    continue
+                    
+                query_cols = []
+                for k in ['desc', 'qty', 'bill_rate', 'bill_amt', 'gross', 'plug', 'sub', 'prov', 'pc', 'dw', 'rcode', 'pcode', 'unit', 'sheet']:
+                    if col_map[k]: query_cols.append(f"\"{col_map[k]}\"")
+                    else: query_cols.append("''")
+                    
+                cursor.execute(f"SELECT {', '.join(query_cols)} FROM pboq_items")
+                rows = cursor.fetchall()
+                
+                rate_cache = {}
+                def get_net_rate(rate_code):
+                    if not rate_code: return 0.0
+                    if rate_code in rate_cache: return rate_cache[rate_code]
+                    try:
+                        db_dir2 = os.path.join(project_dir, "Project Database")
+                        dbs2 = [f2 for f2 in os.listdir(db_dir2) if f2.lower().endswith('.db') and "rates" not in f2.lower()]
+                        if dbs2:
+                            db_path2 = os.path.join(db_dir2, dbs2[0])
+                            conn2 = sqlite3.connect(db_path2)
+                            cursor2 = conn2.cursor()
+                            cursor2.execute("SELECT net_total FROM estimates WHERE rate_code = ?", (rate_code,))
+                            res = cursor2.fetchone()
+                            conn2.close()
+                            if res:
+                                rate_cache[rate_code] = float(res[0] or 0.0)
+                                return rate_cache[rate_code]
+                    except: pass
+                    rate_cache[rate_code] = 0.0
+                    return 0.0
+                    
+                def to_float(val):
+                    if not val: return 0.0
+                    if isinstance(val, (int, float)): return float(val)
+                    try: return float(str(val).replace(',', '').replace(' ', '').replace('₵','').replace('$','').strip())
+                    except: return 0.0
+                    
+                for r in rows:
+                    desc, q, br, ba, gross, plug, sub, prov, pc, dw, rcode, pcode, unit, row_sheet = r
+                    desc_low = (desc or "").lower()
+                    if not str(desc).strip() or "collection" in desc_low or "summary" in desc_low:
+                        continue
+                        
+                    qty_f = to_float(q)
+                    bill_rate_f = to_float(br)
+                    bill_amt_f = to_float(ba)
+                    
+                    if qty_f == 0 and bill_amt_f == 0:
+                        continue
+                        
+                    g_val = to_float(gross)
+                    p_val = to_float(plug)
+                    s_val = to_float(sub)
+                    pr_val = to_float(prov)
+                    pc_val = to_float(pc)
+                    d_val = to_float(dw)
+                    
+                    is_row_priced = (g_val > 0 or p_val > 0 or s_val > 0 or pr_val > 0 or pc_val > 0 or d_val > 0)
+                    if not is_row_priced:
+                        if bill_rate_f > 0 and abs(bill_rate_f - dummy_val) > 0.0001:
+                            is_row_priced = True
+                            
+                    is_priced = is_row_priced
+                    
+                    if is_priced:
+                        active_code = pcode if pcode and str(pcode).strip() else rcode
+                        master_net_cost = get_net_rate(active_code) if active_code else 0.0
+                        
+                        unit_cost = 0.0
+                        if pr_val > 0: unit_cost = pr_val
+                        elif pc_val > 0: unit_cost = pc_val
+                        elif d_val > 0: unit_cost = d_val
+                        elif master_net_cost > 0: unit_cost = master_net_cost
+                        else:
+                            if p_val > 0: unit_cost = p_val
+                            elif s_val > 0: unit_cost = s_val
+                            elif g_val > 0: unit_cost = g_val
+                            else:
+                                if bill_amt_f > 0:
+                                    unit_cost = bill_amt_f if qty_f <= 1 else 0.0
+                                    
+                        calc_qty = qty_f if qty_f > 0 else (1.0 if bill_amt_f > 0 else 0.0)
+                        item_net_cost = round(unit_cost * calc_qty, 2)
+                        
+                        priced_items_list.append({
+                            "sheet": row_sheet or sheet_name,
+                            "description": desc,
+                            "qty": qty_f,
+                            "unit": unit or "each",
+                            "net_rate": unit_cost,
+                            "net_amount": item_net_cost
+                        })
+                        
+                conn.close()
+            except Exception:
+                pass
+                
+    return priced_items_list
+
 

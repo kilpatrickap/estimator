@@ -48,6 +48,9 @@ def test_query_active_estimate_summary_project_fallback():
         assert "Atlantic Catering School" in summary["source"] or "Atlantic Catering School" in summary["project_name"]
         assert "total_boq_items" in summary
         assert summary["total_boq_items"] == 58
+        assert abs(summary["subtotal"] - 692198.64) < 0.01
+        assert abs(summary["overhead_amount"] - 69219.86) < 0.01
+        assert abs(summary["profit_amount"] - 69219.86) < 0.01
         assert abs(summary["grand_total"] - 830638.37) < 0.01
     finally:
         # Restore setting
@@ -287,5 +290,59 @@ def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
     assert "query_db" in messages[-2]["content"]
     assert messages[-1]["role"] == "user"
     assert "[System Tool Result]" in messages[-1]["content"]
+
+
+def test_ai_worker_priced_boq_items_context(qapp, monkeypatch):
+    import json
+    # Mock get_active_project_priced_items to return a static list of items
+    monkeypatch.setattr(ai_tools, "get_active_project_priced_items", lambda pdir: [
+        {"sheet": "test_sheet", "description": "Concrete Slab Item", "qty": 10.5, "unit": "m3", "net_rate": 150.0, "net_amount": 1575.0}
+    ])
+    
+    worker = AICopilotWorker("list all priced BOQ items", main_window=None)
+    
+    captured_payloads = []
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "Here is the list of priced items: ..."
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    # Run _call_local_ollama
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert "Here is the list of priced items" in res
+    assert len(captured_payloads) == 1
+    system_prompt = captured_payloads[0]["messages"][0]["content"]
+    assert "--- ACTIVE PROJECT PRICED BOQ ITEMS ---" in system_prompt
+    assert "Concrete Slab Item" in system_prompt
+    assert "10.5" in system_prompt
+    assert "150.00" in system_prompt
+    assert "1575.00" in system_prompt
+
 
 

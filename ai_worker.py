@@ -552,6 +552,31 @@ class AICopilotWorker(QRunnable):
             except Exception:
                 pass
 
+        # 5. Priced BOQ Items Context
+        if any(k in query_lower for k in ["list", "show", "priced", "boq", "item"]):
+            try:
+                priced_items = ai_tools.get_active_project_priced_items(project_dir)
+                if priced_items:
+                    extra_context += "--- ACTIVE PROJECT PRICED BOQ ITEMS ---\n"
+                    extra_context += "| Sheet | Description | Quantity | Unit | Net Rate | Net Amount |\n"
+                    extra_context += "| --- | --- | --- | --- | --- | --- |\n"
+                    for item in priced_items:
+                        qty = item.get('qty', 0.0)
+                        try:
+                            rate = float(item.get('net_rate', 0.0))
+                            rate_str = f"{rate:.2f}"
+                        except:
+                            rate_str = str(item.get('net_rate', 0.0))
+                        try:
+                            amt = float(item.get('net_amount', 0.0))
+                            amt_str = f"{amt:.2f}"
+                        except:
+                            amt_str = str(item.get('net_amount', 0.0))
+                        extra_context += f"| {item['sheet']} | {item['description']} | {qty} | {item['unit']} | {rate_str} | {amt_str} |\n"
+                    extra_context += "---------------------------------------\n\n"
+            except Exception:
+                pass
+
         system_prompt = (
             "================================================================================\n"
             "ROLE & IDENTITY DECLARATION:\n"
