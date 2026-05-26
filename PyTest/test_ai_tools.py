@@ -163,7 +163,7 @@ def test_ai_worker_local_intelligence(qapp):
     assert len(errors) == 0, f"Worker failed with errors: {errors}"
     assert len(results) == 1, "Worker must emit finished signal once."
     assert "Cannot Connect to AI Reasoner" in results[0], "Local response must notify user about the offline state."
-    assert "sam860/LFM2:1.2b" in results[0], "Should reference the target local LLM model name."
+    assert "lfm2:24b" in results[0], "Should reference the target local LLM model name."
 
 
 def test_call_local_ollama_queries_database(qapp, monkeypatch):
@@ -187,8 +187,8 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
         # Determine URL
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            # Return a valid model list strictly containing sam860/LFM2:1.2b
-            return MockResponse({"models": [{"name": "sam860/LFM2:1.2b"}]})
+            # Return a valid model list strictly containing lfm2:24b
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
         elif "v1/chat/completions" in url:
             # Capture what was sent to chat completions
             payload = json.loads(req.data.decode("utf-8"))
@@ -214,7 +214,7 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
     
     assert "Success result" in res
     assert len(captured_payloads) == 1
-    assert captured_payloads[0]["model"] == "sam860/LFM2:1.2b", "Should strictly use the sam860/LFM2:1.2b model"
+    assert captured_payloads[0]["model"] == "lfm2:24b", "Should strictly use the lfm2:24b model"
     
     assert len(captured_payloads[0]["messages"]) == 2, "Should have system prompt and user query messages"
     assert captured_payloads[0]["messages"][0]["role"] == "system"
@@ -243,7 +243,7 @@ def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "sam860/LFM2:1.2b"}]})
+            return MockResponse({"models": [{"name": "lfm2:24b"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             api_calls.append(payload)

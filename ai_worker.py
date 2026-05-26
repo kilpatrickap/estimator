@@ -87,14 +87,14 @@ class AICopilotWorker(QRunnable):
                 error_msg = str(ollama_err)
                 notice = (
                     f"### 🔌 Cannot Connect to AI Reasoner\n\n"
-                    f"The AI Estimating Copilot requires a running local Ollama instance with the **sam860/LFM2:1.2b** model installed. "
+                    f"The AI Estimating Copilot requires a running local Ollama instance with the **lfm2:24b** model installed. "
                     f"We encountered the following issue:\n"
                     f"> **{error_msg}**\n\n"
                     f"#### 🛠️ How to start the AI Reasoner:\n"
                     f"1. **Download & Install Ollama** from [ollama.com](https://ollama.com).\n"
                     f"2. **Download the model** by running the following command in your terminal:\n"
                     f"   ```bash\n"
-                    f"   ollama run sam860/LFM2:1.2b\n"
+                    f"   ollama run lfm2:24b\n"
                     f"   ```\n"
                     f"3. **Ensure Ollama is running** in the background, then try sending your query again."
                 )
@@ -240,18 +240,18 @@ class AICopilotWorker(QRunnable):
 
     def _call_local_ollama(self, active_summary, workspace_files, outliers_data):
         """
-        Queries the local Ollama instance strictly using the sam860/LFM2:1.2b model,
+        Queries the local Ollama instance strictly using the lfm2:24b model,
         supporting recursive execution of SQLite queries and JSON file reading.
         """
         # A. Auto-detect and verify specific model via tags API
-        model_name = "sam860/LFM2:1.2b"
+        model_name = "lfm2:24b"
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
             with urllib.request.urlopen(req, timeout=2) as response:
                 tags_data = json.loads(response.read().decode("utf-8"))
                 models = tags_data.get("models", [])
                 installed_names = [m.get("name", "").lower() for m in models]
-                if not any(model_name.lower() in name or "sam860/lfm2:1.2b" in name for name in installed_names):
+                if not any(model_name.lower() in name or "lfm2:24b" in name for name in installed_names):
                     raise Exception(f"Required model '{model_name}' is not installed in Ollama.")
         except urllib.error.URLError:
             raise Exception("Ollama is not running locally.")
