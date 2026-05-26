@@ -117,14 +117,23 @@ def query_active_estimate_summary(main_window=None):
                     conn.close()
                     
                     currency = 'GHS (₵)'
+                    overhead_percent = 0.0
+                    profit_margin_percent = 0.0
+                    factor = 1.0
                     try:
                         proj_db = get_active_project_db_path()
                         if proj_db and os.path.exists(proj_db):
                             db = DatabaseManager(proj_db)
                             currency = db.get_setting('currency', 'GHS (₵)')
+                            overhead_percent = float(db.get_setting('overhead', 0.0))
+                            profit_margin_percent = float(db.get_setting('profit', 0.0))
+                            factor = float(db.get_setting('factor', 1.0))
                         else:
                             db = DatabaseManager("construction_costs.db")
                             currency = db.get_setting('currency', 'GHS (₵)')
+                            overhead_percent = float(db.get_setting('overhead', 0.0))
+                            profit_margin_percent = float(db.get_setting('profit', 0.0))
+                            factor = float(db.get_setting('factor', 1.0))
                     except Exception:
                         pass
                     
@@ -137,6 +146,9 @@ def query_active_estimate_summary(main_window=None):
                         "outstanding_items": max(0, total_items - priced_items),
                         "grand_total": grand_total,
                         "currency": currency,
+                        "overhead_percent": overhead_percent,
+                        "profit_margin_percent": profit_margin_percent,
+                        "factor": factor,
                         "pboq_database_path": pboq_path
                     }
         except Exception as e:
@@ -216,7 +228,25 @@ def query_active_estimate_summary(main_window=None):
                         pass
                 
                 if best_pboq:
-                    currency = costs_db.get_setting('currency', 'GHS (₵)')
+                    currency = 'GHS (₵)'
+                    overhead_percent = 0.0
+                    profit_margin_percent = 0.0
+                    factor = 1.0
+                    try:
+                        proj_db = get_active_project_db_path()
+                        if proj_db and os.path.exists(proj_db):
+                            db = DatabaseManager(proj_db)
+                            currency = db.get_setting('currency', 'GHS (₵)')
+                            overhead_percent = float(db.get_setting('overhead', 0.0))
+                            profit_margin_percent = float(db.get_setting('profit', 0.0))
+                            factor = float(db.get_setting('factor', 1.0))
+                        else:
+                            currency = costs_db.get_setting('currency', 'GHS (₵)')
+                            overhead_percent = float(costs_db.get_setting('overhead', 0.0))
+                            profit_margin_percent = float(costs_db.get_setting('profit', 0.0))
+                            factor = float(costs_db.get_setting('factor', 1.0))
+                    except Exception:
+                        pass
                     return {
                         "source": f"Loaded Project Directory ({project_name})",
                         "project_name": project_name,
@@ -226,6 +256,9 @@ def query_active_estimate_summary(main_window=None):
                         "outstanding_items": max(0, max_items - best_priced_items),
                         "grand_total": best_grand_total,
                         "currency": currency,
+                        "overhead_percent": overhead_percent,
+                        "profit_margin_percent": profit_margin_percent,
+                        "factor": factor,
                         "pboq_database_path": best_pboq,
                         "project_directory": project_dir
                     }
