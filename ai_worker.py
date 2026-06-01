@@ -387,11 +387,11 @@ class AICopilotWorker(QRunnable):
         supporting recursive execution of SQLite queries and JSON file reading.
         """
         # A. Auto-detect and verify specific model via tags API
-        model_name = "batiai/llama4-scout:iq3"
+        model_name = "qwen3.5:9b"
         try:
             from database import DatabaseManager
             costs_db = DatabaseManager("construction_costs.db")
-            model_name = costs_db.get_setting("ai_model_name", "batiai/llama4-scout:iq3")
+            model_name = costs_db.get_setting("ai_model_name", "qwen3.5:9b")
         except Exception:
             pass
 
