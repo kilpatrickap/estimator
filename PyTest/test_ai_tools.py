@@ -17,6 +17,16 @@ def qapp():
         app = QApplication(sys.argv)
     yield app
 
+@pytest.fixture(autouse=True)
+def mock_db_settings(monkeypatch):
+    from database import DatabaseManager
+    original_get_setting = DatabaseManager.get_setting
+    def patched_get_setting(self, key, default=None):
+        if key == "ai_model_name":
+            return "batiai/llama4-scout:iq3"
+        return original_get_setting(self, key, default)
+    monkeypatch.setattr(DatabaseManager, "get_setting", patched_get_setting)
+
 def test_get_workspace_structure():
     # Retrieve structural workspace contents
     structure = ai_tools.get_workspace_structure()

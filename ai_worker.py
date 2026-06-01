@@ -108,11 +108,11 @@ class AICopilotWorker(QRunnable):
             outliers_data = ai_tools.get_outlier_items(pboq_path)
 
             # Resolve target local LLM model dynamically
-            model_name = "batiai/llama4-scout:iq3"
+            model_name = "qwen3.5:9b"
             try:
                 from database import DatabaseManager
                 costs_db = DatabaseManager("construction_costs.db")
-                model_name = costs_db.get_setting("ai_model_name", "batiai/llama4-scout:iq3")
+                model_name = costs_db.get_setting("ai_model_name", "qwen3.5:9b")
             except Exception:
                 pass
 
