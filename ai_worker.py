@@ -230,6 +230,18 @@ class AICopilotWorker(QRunnable):
         """
         Executes a custom SQLite query on a specified database file and formats the result as a markdown table.
         """
+        # Automatically redirect project-specific table queries from global cost library to active project database
+        if db_name in ["construction_costs.db", "constructioncosts.db"]:
+            try:
+                active_proj_db = ai_tools.get_active_project_db_path()
+                if active_proj_db:
+                    project_tables = ["estimates", "tasks", "estimate_materials", "estimate_labor", "estimate_equipment", "estimate_plant", "estimate_indirect_costs", "estimate_sub_rates", "estimate_exchange_rates", "pboq_items"]
+                    query_lower = sql_query.lower()
+                    if any(re.search(rf"\b{tbl}\b", query_lower) for tbl in project_tables):
+                        db_name = active_proj_db
+            except Exception:
+                pass
+
         resolved_db = self._resolve_file_path(db_name)
         if not resolved_db:
             return f"Error: Database file '{db_name}' could not be located in the workspace or active project directory."
