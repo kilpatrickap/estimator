@@ -493,6 +493,30 @@ def test_ai_worker_self_correcting_loop(qapp, monkeypatch):
     assert "price" in res
     assert "unit" in res
 
+def test_ai_worker_sql_auto_correction(qapp, monkeypatch):
+    worker = AICopilotWorker("Count materials", main_window=None)
+    
+    # 1. Test pre-execution column rewrite (description -> name for materials)
+    sql1 = "SELECT description FROM materials LIMIT 1"
+    res1 = worker._execute_sql("construction_costs.db", sql1)
+    assert "Error executing SQL" not in res1
+    assert "name" in res1
+    assert res1.count("|") >= 6  # Confirm markdown table structure exists
+    
+    # 2. Test pre-execution column rewrite (name -> trade for labor)
+    sql2 = "SELECT name FROM labor LIMIT 1"
+    res2 = worker._execute_sql("construction_costs.db", sql2)
+    assert "Error executing SQL" not in res2
+    assert "trade" in res2
+    assert res2.count("|") >= 6  # Confirm markdown table structure exists
+
+    # 3. Test dynamic post-execution self-correction (desc -> name for materials)
+    sql3 = "SELECT desc FROM materials LIMIT 1"
+    res3 = worker._execute_sql("construction_costs.db", sql3)
+    assert "Error executing SQL" not in res3
+    assert "name" in res3
+    assert res3.count("|") >= 6  # Confirm markdown table structure exists
+
 def test_ai_worker_empty_response_guard(qapp, monkeypatch):
     """Verify that when the LLM returns only <think> tags with no actual content,
     the system falls back to presenting the pre-fetched search results."""

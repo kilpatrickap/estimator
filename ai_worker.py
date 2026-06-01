@@ -226,6 +226,73 @@ class AICopilotWorker(QRunnable):
             
         return None
 
+    def _auto_correct_query(self, sql_query):
+        """
+        Pre-execution query rewriting helper that maps columns to correct database column names.
+        """
+        query_lower = sql_query.lower()
+        modified_query = sql_query
+        
+        # Rewrite for materials
+        if "materials" in query_lower:
+            modified_query = re.sub(r'\bdescription\b', 'name', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name', modified_query, flags=re.IGNORECASE)
+            
+        # Rewrite for labor
+        if "labor" in query_lower or "labour" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bdescription\b', 'trade', modified_query, flags=re.IGNORECASE)
+            
+        # Rewrite for equipment
+        if "equipment" in query_lower:
+            modified_query = re.sub(r'\bdescription\b', 'name', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name', modified_query, flags=re.IGNORECASE)
+            
+        # Rewrite for plant
+        if "plant" in query_lower:
+            modified_query = re.sub(r'\bdescription\b', 'name', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name', modified_query, flags=re.IGNORECASE)
+            
+        # Rewrite for indirect_costs
+        if "indirect_costs" in query_lower or "indirect_cost" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'description', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'description', modified_query, flags=re.IGNORECASE)
+            
+        # Rewrite for estimate_materials
+        if "estimate_materials" in query_lower:
+            modified_query = re.sub(r'\bdescription\b', 'name', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name', modified_query, flags=re.IGNORECASE)
+
+        # Rewrite for estimate_labor
+        if "estimate_labor" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bdescription\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bprice\b', 'rate', modified_query, flags=re.IGNORECASE)
+
+        # Rewrite for estimate_equipment
+        if "estimate_equipment" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bdescription\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bprice\b', 'rate', modified_query, flags=re.IGNORECASE)
+
+        # Rewrite for estimate_plant
+        if "estimate_plant" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bdescription\b', 'name_trade', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bprice\b', 'rate', modified_query, flags=re.IGNORECASE)
+
+        # Rewrite for estimate_indirect_costs
+        if "estimate_indirect_costs" in query_lower or "estimate_indirect_cost" in query_lower:
+            modified_query = re.sub(r'\bname\b', 'description', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\btrade\b', 'description', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\bprice\b', 'amount', modified_query, flags=re.IGNORECASE)
+            modified_query = re.sub(r'\brate\b', 'amount', modified_query, flags=re.IGNORECASE)
+            
+        return modified_query
+
     def _execute_sql(self, db_name, sql_query):
         """
         Executes a custom SQLite query on a specified database file and formats the result as a markdown table.
@@ -259,6 +326,9 @@ class AICopilotWorker(QRunnable):
                 
             combined_md = []
             for stmt in statements:
+                # Apply pre-execution column mappings
+                stmt = self._auto_correct_query(stmt)
+                
                 try:
                     cursor.execute(stmt)
                     rows = cursor.fetchall()
@@ -279,6 +349,58 @@ class AICopilotWorker(QRunnable):
                     combined_md.append(md)
                 except Exception as stmt_err:
                     error_str = str(stmt_err)
+                    
+                    # Try dynamic self-correction on exception and retry once
+                    try:
+                        table_match = re.search(r'FROM\s+["\']?([a-zA-Z0-9_]+)["\']?', stmt, re.IGNORECASE)
+                        if table_match:
+                            tbl = table_match.group(1)
+                            cursor.execute(f"PRAGMA table_info(\"{tbl}\");")
+                            columns = [row[1] for row in cursor.fetchall()]
+                            if columns:
+                                corrected_stmt = stmt
+                                has_corrections = False
+                                for col in columns:
+                                    err_match = re.search(r'no such column:\s+([a-zA-Z0-9_]+)', error_str)
+                                    if err_match:
+                                        bad_col = err_match.group(1)
+                                        # Map bad description/desc/name/trade column names
+                                        if bad_col.lower() in ['description', 'desc', 'name'] and col.lower() in ['description', 'desc', 'name', 'name_trade', 'trade']:
+                                            corrected_stmt = re.sub(rf'\b{bad_col}\b', col, corrected_stmt, flags=re.IGNORECASE)
+                                            has_corrections = True
+                                        # Map bad price/rate/amount/cost/unit_cost column names
+                                        elif bad_col.lower() in ['price', 'rate', 'amount', 'unit_cost', 'cost'] and col.lower() in ['price', 'rate', 'amount', 'unit_cost', 'cost']:
+                                            corrected_stmt = re.sub(rf'\b{bad_col}\b', col, corrected_stmt, flags=re.IGNORECASE)
+                                            has_corrections = True
+                                            
+                                if has_corrections:
+                                    try:
+                                        cursor.execute(corrected_stmt)
+                                        rows = cursor.fetchall()
+                                        cols = [description[0] for description in cursor.description] if cursor.description else []
+                                        
+                                        if not rows:
+                                            combined_md.append(f"`{corrected_stmt}`:\nQuery completed successfully. No rows returned.\n")
+                                            continue
+                                            
+                                        md = f"`{corrected_stmt}`:\n\n| " + " | ".join(cols) + " |\n"
+                                        md += "| " + " | ".join(["---"] * len(cols)) + " |\n"
+                                        for row in rows[:50]:
+                                            row_str = [str(val) if val is not None else "NULL" for val in row]
+                                            md += "| " + " | ".join(row_str) + " |\n"
+                                            
+                                        if len(rows) > 50:
+                                            md += f"\n*(Showing first 50 of {len(rows)} rows)*\n"
+                                        combined_md.append(md)
+                                        continue
+                                    except Exception:
+                                        pass
+                    except Exception:
+                        pass
+                        
+                    # If self-correction was unsuccessful or not applicable, fall back to returning the raw error
+                    # with table schema information so that calling environments (like tests or agent loops)
+                    # can perform their own self-correction logic.
                     try:
                         table_match = re.search(r'FROM\s+["\']?([a-zA-Z0-9_]+)["\']?', stmt, re.IGNORECASE)
                         if table_match:
@@ -295,7 +417,7 @@ class AICopilotWorker(QRunnable):
             conn.close()
             return "\n\n".join(combined_md)
         except Exception as e:
-            return f"Error executing SQL query: {str(e)}"
+            return "The requested estimating database could not be accessed."
 
     def _read_json(self, file_name):
         """
