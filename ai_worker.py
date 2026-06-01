@@ -249,40 +249,53 @@ class AICopilotWorker(QRunnable):
         try:
             conn = sqlite3.connect(resolved_db)
             cursor = conn.cursor()
-            cursor.execute(sql_query)
-            rows = cursor.fetchall()
             
-            # Extract column headers
-            cols = [description[0] for description in cursor.description] if cursor.description else []
-            conn.close()
+            # Split queries by semicolon to support multiple queries executed sequentially
+            statements = [s.strip() for s in sql_query.split(';') if s.strip()]
             
-            if not rows:
+            if not statements:
+                conn.close()
                 return "Query completed successfully. No rows returned."
                 
-            # Build markdown table representation
-            md = "| " + " | ".join(cols) + " |\n"
-            md += "| " + " | ".join(["---"] * len(cols)) + " |\n"
-            for row in rows[:50]:  # Limit output to prevent context window explosion
-                row_str = [str(val) if val is not None else "NULL" for val in row]
-                md += "| " + " | ".join(row_str) + " |\n"
-                
-            if len(rows) > 50:
-                md += f"\n*(Showing first 50 of {len(rows)} rows)*"
-            return md
+            combined_md = []
+            for stmt in statements:
+                try:
+                    cursor.execute(stmt)
+                    rows = cursor.fetchall()
+                    cols = [description[0] for description in cursor.description] if cursor.description else []
+                    
+                    if not rows:
+                        combined_md.append(f"`{stmt}`:\nQuery completed successfully. No rows returned.\n")
+                        continue
+                        
+                    md = f"`{stmt}`:\n\n| " + " | ".join(cols) + " |\n"
+                    md += "| " + " | ".join(["---"] * len(cols)) + " |\n"
+                    for row in rows[:50]:
+                        row_str = [str(val) if val is not None else "NULL" for val in row]
+                        md += "| " + " | ".join(row_str) + " |\n"
+                        
+                    if len(rows) > 50:
+                        md += f"\n*(Showing first 50 of {len(rows)} rows)*\n"
+                    combined_md.append(md)
+                except Exception as stmt_err:
+                    error_str = str(stmt_err)
+                    try:
+                        table_match = re.search(r'FROM\s+["\']?([a-zA-Z0-9_]+)["\']?', stmt, re.IGNORECASE)
+                        if table_match:
+                            tbl = table_match.group(1)
+                            cursor.execute(f"PRAGMA table_info(\"{tbl}\");")
+                            cols = [row[1] for row in cursor.fetchall()]
+                            if cols:
+                                combined_md.append(f"Error executing SQL: {error_str}. Note that table '{tbl}' has columns: {', '.join(cols)}. Please correct the SQL query to use only these columns.\n")
+                                continue
+                    except Exception:
+                        pass
+                    combined_md.append(f"Error executing SQL: {error_str}\n")
+                    
+            conn.close()
+            return "\n\n".join(combined_md)
         except Exception as e:
-            error_str = str(e)
-            try:
-                import re
-                table_match = re.search(r'FROM\s+["\']?([a-zA-Z0-9_]+)["\']?', sql_query, re.IGNORECASE)
-                if table_match:
-                    tbl = table_match.group(1)
-                    cursor.execute(f"PRAGMA table_info(\"{tbl}\");")
-                    cols = [row[1] for row in cursor.fetchall()]
-                    if cols:
-                        return f"Error executing SQL: {error_str}. Note that table '{tbl}' has columns: {', '.join(cols)}. Please correct the SQL query to use only these columns."
-            except Exception:
-                pass
-            return f"Error executing SQL: {error_str}"
+            return f"Error executing SQL query: {str(e)}"
 
     def _read_json(self, file_name):
         """
