@@ -607,6 +607,11 @@ def search_active_database(query_str):
         return {}
 
     query_lower = query_str.lower().strip()
+    is_general_materials = query_lower in ["materials", "material"]
+    is_general_labor = query_lower in ["labor", "labour"]
+    is_general_equipment = query_lower in ["equipment"]
+    is_general_plant = query_lower in ["plant"]
+
     results = {
         "materials": [],
         "labor": [],
@@ -618,28 +623,24 @@ def search_active_database(query_str):
     
     db_paths = []
     
-    # Cost library (construction_costs.db)
+    # 1. Cost library (construction_costs.db)
     abs_costs_db = os.path.join(APP_DIR, "construction_costs.db")
     if os.path.exists(abs_costs_db):
         db_paths.append(("Cost Library", abs_costs_db))
         
-    # Active Project DB
-    proj_db = get_active_project_db_path()
-    if proj_db:
-        db_paths.append(("Project Database", proj_db))
-        
-    # Active Priced BOQs
+    # 2. Project databases (Project Database, Imported Library, Priced BOQs, SOR)
     try:
         costs_db = DatabaseManager("construction_costs.db")
         project_dir = costs_db.get_setting('last_project_dir', '')
         if project_dir and os.path.exists(project_dir):
             if os.path.basename(project_dir) == "Project Database":
                 project_dir = os.path.dirname(project_dir)
-            pboq_dir = os.path.join(project_dir, "Priced BOQs")
-            if os.path.exists(pboq_dir):
-                for f in os.listdir(pboq_dir):
-                    if f.endswith('.db'):
-                        db_paths.append(("Priced BOQ", os.path.join(pboq_dir, f)))
+            for sub in ["Project Database", "Imported Library", "Priced BOQs", "SOR"]:
+                sub_dir = os.path.join(project_dir, sub)
+                if os.path.exists(sub_dir):
+                    for f in os.listdir(sub_dir):
+                        if f.endswith('.db'):
+                            db_paths.append((sub, os.path.join(sub_dir, f)))
     except Exception:
         pass
         
@@ -660,12 +661,16 @@ def search_active_database(query_str):
                 cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (tbl,))
                 return cursor.fetchone() is not None
                 
+            # Search materials
             if table_exists("materials"):
                 cursor.execute("PRAGMA table_info(materials)")
                 cols = [c[1] for c in cursor.fetchall()]
                 name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
                 if name_col:
-                    cursor.execute(f"SELECT * FROM materials WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    if is_general_materials:
+                        cursor.execute(f"SELECT * FROM materials LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT * FROM materials WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
                     rows = cursor.fetchall()
                     for r in rows:
                         item = dict(zip(cols, r))
@@ -677,13 +682,37 @@ def search_active_database(query_str):
                             "price": item.get("price") or item.get("rate") or 0.0,
                             "currency": item.get("currency", "GHS")
                         })
+
+            # Search estimate_materials
+            if table_exists("estimate_materials"):
+                cursor.execute("PRAGMA table_info(estimate_materials)")
+                cols = [c[1] for c in cursor.fetchall()]
+                if "name" in cols:
+                    if is_general_materials:
+                        cursor.execute(f"SELECT DISTINCT name, unit, price, currency FROM estimate_materials LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT DISTINCT name, unit, price, currency FROM estimate_materials WHERE LOWER(name) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        results["materials"].append({
+                            "source": f"{source} (Estimate Resources)",
+                            "database": os.path.basename(path),
+                            "name": r[0],
+                            "unit": r[1] or "each",
+                            "price": r[2] or 0.0,
+                            "currency": r[3] or "GHS"
+                        })
                         
+            # Search labor
             if table_exists("labor"):
                 cursor.execute("PRAGMA table_info(labor)")
                 cols = [c[1] for c in cursor.fetchall()]
                 trade_col = "trade" if "trade" in cols else ("name" if "name" in cols else None)
                 if trade_col:
-                    cursor.execute(f"SELECT * FROM labor WHERE LOWER({trade_col}) LIKE ?", (f"%{query_lower}%",))
+                    if is_general_labor:
+                        cursor.execute(f"SELECT * FROM labor LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT * FROM labor WHERE LOWER({trade_col}) LIKE ?", (f"%{query_lower}%",))
                     rows = cursor.fetchall()
                     for r in rows:
                         item = dict(zip(cols, r))
@@ -695,13 +724,37 @@ def search_active_database(query_str):
                             "rate": item.get("rate") or item.get("price") or 0.0,
                             "currency": item.get("currency", "GHS")
                         })
+
+            # Search estimate_labor
+            if table_exists("estimate_labor"):
+                cursor.execute("PRAGMA table_info(estimate_labor)")
+                cols = [c[1] for c in cursor.fetchall()]
+                if "name_trade" in cols:
+                    if is_general_labor:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_labor LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_labor WHERE LOWER(name_trade) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        results["labor"].append({
+                            "source": f"{source} (Estimate Resources)",
+                            "database": os.path.basename(path),
+                            "trade": r[0],
+                            "unit": r[1] or "hr",
+                            "rate": r[2] or 0.0,
+                            "currency": r[3] or "GHS"
+                        })
                         
+            # Search equipment
             if table_exists("equipment"):
                 cursor.execute("PRAGMA table_info(equipment)")
                 cols = [c[1] for c in cursor.fetchall()]
                 name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
                 if name_col:
-                    cursor.execute(f"SELECT * FROM equipment WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    if is_general_equipment:
+                        cursor.execute(f"SELECT * FROM equipment LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT * FROM equipment WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
                     rows = cursor.fetchall()
                     for r in rows:
                         item = dict(zip(cols, r))
@@ -714,12 +767,36 @@ def search_active_database(query_str):
                             "currency": item.get("currency", "GHS")
                         })
 
+            # Search estimate_equipment
+            if table_exists("estimate_equipment"):
+                cursor.execute("PRAGMA table_info(estimate_equipment)")
+                cols = [c[1] for c in cursor.fetchall()]
+                if "name_trade" in cols:
+                    if is_general_equipment:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_equipment LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_equipment WHERE LOWER(name_trade) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        results["equipment"].append({
+                            "source": f"{source} (Estimate Resources)",
+                            "database": os.path.basename(path),
+                            "name": r[0],
+                            "unit": r[1] or "hr",
+                            "rate": r[2] or 0.0,
+                            "currency": r[3] or "GHS"
+                        })
+
+            # Search plant
             if table_exists("plant"):
                 cursor.execute("PRAGMA table_info(plant)")
                 cols = [c[1] for c in cursor.fetchall()]
                 name_col = "name" if "name" in cols else ("trade" if "trade" in cols else None)
                 if name_col:
-                    cursor.execute(f"SELECT * FROM plant WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
+                    if is_general_plant:
+                        cursor.execute(f"SELECT * FROM plant LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT * FROM plant WHERE LOWER({name_col}) LIKE ?", (f"%{query_lower}%",))
                     rows = cursor.fetchall()
                     for r in rows:
                         item = dict(zip(cols, r))
@@ -730,6 +807,26 @@ def search_active_database(query_str):
                             "unit": item.get("unit", "hr"),
                             "rate": item.get("rate") or item.get("price") or 0.0,
                             "currency": item.get("currency", "GHS")
+                        })
+
+            # Search estimate_plant
+            if table_exists("estimate_plant"):
+                cursor.execute("PRAGMA table_info(estimate_plant)")
+                cols = [c[1] for c in cursor.fetchall()]
+                if "name_trade" in cols:
+                    if is_general_plant:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_plant LIMIT 30")
+                    else:
+                        cursor.execute(f"SELECT DISTINCT name_trade, unit, rate, currency FROM estimate_plant WHERE LOWER(name_trade) LIKE ?", (f"%{query_lower}%",))
+                    rows = cursor.fetchall()
+                    for r in rows:
+                        results["plant"].append({
+                            "source": f"{source} (Estimate Resources)",
+                            "database": os.path.basename(path),
+                            "name": r[0],
+                            "unit": r[1] or "hr",
+                            "rate": r[2] or 0.0,
+                            "currency": r[3] or "GHS"
                         })
 
             if table_exists("tasks"):
