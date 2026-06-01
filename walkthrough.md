@@ -82,3 +82,18 @@ PyTest\test_subcontractor_analysis.py .                                  [100%]
 
 ====================== 39 passed, 121 warnings in 9.40s =======================
 ```
+
+---
+
+## 🔧 Bug Fix: Ollama Timeout Adjustments
+
+### The Issue
+When using local LLM reasoning models (e.g., `qwen3.5:9b`), the first-token or complete response generation easily exceeded the hardcoded `timeout=60` client-side limit in [ai_worker.py](file:///c:/Users/Consar-Kilpatrick/Estimator_Pro_20May26/estimator/ai_worker.py). This resulted in a **"Local LLM API error: timed out"** message inside the Estimator Pro chat pane, even though Ollama was running correctly in the terminal.
+
+### The Fix
+We updated the client-side timeouts in [ai_worker.py](file:///c:/Users/Consar-Kilpatrick/Estimator_Pro_20May26/estimator/ai_worker.py):
+- Increased the `/api/tags` connection test timeout from **2 seconds** to **10 seconds** for better resilience.
+- Increased the `/v1/chat/completions` chat completion timeout from **60 seconds** to **300 seconds (5 minutes)**.
+
+This permits heavy local reasoning models (which perform step-by-step thinking prior to responding) plenty of time to warm up, process data, and complete generations without getting cut off by a client timeout. All 39 test suites were re-run and confirmed to pass successfully.
+

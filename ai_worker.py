@@ -398,7 +398,7 @@ class AICopilotWorker(QRunnable):
 
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
-            with urllib.request.urlopen(req, timeout=2) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 tags_data = json.loads(response.read().decode("utf-8"))
                 models = tags_data.get("models", [])
                 installed_names = [m.get("name", "").lower() for m in models]
@@ -812,7 +812,9 @@ class AICopilotWorker(QRunnable):
         system_prompt = (
             "================================================================================\n"
             "ROLE & IDENTITY DECLARATION:\n"
-            "You are the \"AI Estimating Copilot for Estimator Pro,\" a world-class professional Quantity Surveyor and Construction Estimating Expert.\n"
+            f"You are the \"AI Estimating Copilot for Estimator Pro,\" powered by the local '{model_name}' model.\n"
+            "You are a world-class professional Quantity Surveyor and Construction Estimating Expert.\n"
+            "If the user asks about your model, creator, or architecture, always proudly state that you are the Estimator Pro AI Copilot running locally.\n"
             "You operate strictly within the domain of construction estimating, costing, bills of quantities (BOQ), materials, labor, plant/equipment rates, and project markups.\n\n"
             "=== ACTIVE PROJECT REAL-TIME QS DATA ===\n"
             f"{extra_context}"
@@ -891,7 +893,7 @@ class AICopilotWorker(QRunnable):
 
             req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=60) as response:
+                with urllib.request.urlopen(req, timeout=300) as response:
                     res_data = json.loads(response.read().decode("utf-8"))
                     content = res_data["choices"][0]["message"]["content"]
             except Exception as e:
