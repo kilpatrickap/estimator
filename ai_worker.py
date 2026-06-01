@@ -23,11 +23,14 @@ class AICopilotWorker(QRunnable):
     Asynchronous QRunnable background worker executing context-aware queries
     against SQLite databases, local workspace structures, and local LLM thinking models.
     """
-    def __init__(self, user_query, main_window=None):
+    def __init__(self, user_query, main_window=None, conversation_history=None):
         super().__init__()
         self.user_query = user_query
         self.main_window = main_window
+        self.conversation_history = conversation_history or []
         self.signals = AICopilotSignals()
+        self.recipe_tag = ""
+
 
     def run(self):
         try:
@@ -105,13 +108,14 @@ class AICopilotWorker(QRunnable):
             outliers_data = ai_tools.get_outlier_items(pboq_path)
 
             # Resolve target local LLM model dynamically
-            model_name = "lfm2:24b"
+            model_name = "batiai/llama4-scout:iq3"
             try:
                 from database import DatabaseManager
                 costs_db = DatabaseManager("construction_costs.db")
-                model_name = costs_db.get_setting("ai_model_name", "lfm2:24b")
+                model_name = costs_db.get_setting("ai_model_name", "batiai/llama4-scout:iq3")
             except Exception:
                 pass
+
 
             try:
                 # 3. Try to call the local LLM thinking model via Ollama
@@ -383,13 +387,14 @@ class AICopilotWorker(QRunnable):
         supporting recursive execution of SQLite queries and JSON file reading.
         """
         # A. Auto-detect and verify specific model via tags API
-        model_name = "lfm2:24b"
+        model_name = "batiai/llama4-scout:iq3"
         try:
             from database import DatabaseManager
             costs_db = DatabaseManager("construction_costs.db")
-            model_name = costs_db.get_setting("ai_model_name", "lfm2:24b")
+            model_name = costs_db.get_setting("ai_model_name", "batiai/llama4-scout:iq3")
         except Exception:
             pass
+
 
         try:
             req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
@@ -453,9 +458,56 @@ class AICopilotWorker(QRunnable):
             lines.append("-----------------------------\n\n")
             active_context = "\n".join(lines)
 
+        # Fetch real-time screen-focused context (Feature 4: Screen-Aware Context)
+        focused_str = ""
+        if self.main_window and hasattr(self.main_window, 'get_focused_item_context'):
+            try:
+                focused_context = self.main_window.get_focused_item_context()
+                if focused_context:
+                    win_type = focused_context.get("active_window_type")
+                    if win_type == "PBOQDialog":
+                        sel_row = focused_context.get("selected_row", {})
+                        if sel_row:
+                            focused_str += "--- SCREEN-AWARE CONTEXT: CURRENTLY FOCUSED/SELECTED ROW IN SHEET ---\n"
+                            focused_str += f"Sheet Name: {sel_row.get('sheet_name')}\n"
+                            focused_str += f"Row Number: {sel_row.get('row_index', 0) + 1}\n"
+                            focused_str += "Column Values:\n"
+                            for col_name, val in sel_row.get("columns", {}).items():
+                                focused_str += f"  - {col_name}: {val}\n"
+                            focused_str += "--------------------------------------------------------------------\n\n"
+                    elif win_type == "RateBuildUpDialog":
+                        est_ctx = focused_context.get("estimate_context", {})
+                        if est_ctx:
+                            focused_str += "--- SCREEN-AWARE CONTEXT: CURRENTLY OPEN RATE BUILD-UP RECIPE ---\n"
+                            focused_str += f"Rate Code: {est_ctx.get('rate_code')}\n"
+                            focused_str += f"Description: {est_ctx.get('project_name')}\n"
+                            focused_str += f"Category: {est_ctx.get('category')} | Rate Type: {est_ctx.get('rate_type')} | Unit: {est_ctx.get('unit')}\n"
+                            focused_str += f"Currency: {est_ctx.get('currency')} | Adjustment Factor: {est_ctx.get('adjustment_factor')}\n"
+                            focused_str += f"Subtotal: {est_ctx.get('subtotal')} | Overhead: {est_ctx.get('overhead')}% | Profit: {est_ctx.get('profit')}%\n"
+                            focused_str += f"Grand Total: {est_ctx.get('grand_total')}\n"
+                            
+                            if est_ctx.get("tasks"):
+                                focused_str += "Composite Recipe Tasks & Components:\n"
+                                for t in est_ctx.get("tasks"):
+                                    focused_str += f"  * Task: {t.get('description')} (Qty: {t.get('quantity')} {t.get('unit')})\n"
+                                    for m in t.get("materials", []):
+                                        focused_str += f"    - Material: {m.get('name')} | Qty: {m.get('qty')} | Price: {m.get('price')} | Total: {m.get('total')}\n"
+                                    for l in t.get("labor", []):
+                                        focused_str += f"    - Labor: {l.get('trade')} | Hours: {l.get('hours')} | Rate: {l.get('rate')} | Total: {l.get('total')}\n"
+                                    for p in t.get("plant", []):
+                                        focused_str += f"    - Plant: {p.get('name')} | Rate: {p.get('rate')} | Total: {p.get('total')}\n"
+                                    for e in t.get("equipment", []):
+                                        focused_str += f"    - Equipment: {e.get('name')} | Rate: {e.get('rate')} | Total: {e.get('total')}\n"
+                                    for ic in t.get("indirect_costs", []):
+                                        focused_str += f"    - Indirect Cost: {ic.get('description')} | Amount: {ic.get('amount')} | Total: {ic.get('total')}\n"
+                            focused_str += "-----------------------------------------------------------------\n\n"
+            except Exception:
+                pass
+
         # Proactive context generation for local LLM helper
-        extra_context = ""
+        extra_context = focused_str
         query_lower = self.user_query.lower()
+
         
         # 1. PBOQ Price Outliers & Anomalies Context
         if outliers_data:
@@ -681,6 +733,32 @@ class AICopilotWorker(QRunnable):
             except Exception:
                 pass
 
+        # 7. Subcontractor Quotes Context
+        if any(k in query_lower for k in ["sub", "subcontractor", "quote", "rfq", "tender"]):
+            try:
+                sub_quotes = ai_tools.get_subcontractor_quotes(project_dir)
+                if sub_quotes:
+                    extra_context += "--- RECEIVED SUBCONTRACTOR QUOTES ---\n"
+                    extra_context += "| Package | Subcontractor | Items Count | Total Quoted | Database File |\n"
+                    extra_context += "| --- | --- | --- | --- | --- |\n"
+                    for sq in sub_quotes:
+                        try:
+                            tq = float(sq['total_quoted'])
+                            tq_str = f"{tq:.2f}"
+                        except:
+                            tq_str = str(sq['total_quoted'])
+                        extra_context += f"| {sq['package']} | {sq['subcontractor']} | {sq['items_count']} | {tq_str} | {sq['db_file']} |\n"
+                    extra_context += "--------------------------------------\n\n"
+                    
+                    extra_context += (
+                        "[SYSTEM DIRECTIVE: The RECEIVED SUBCONTRACTOR QUOTES above already contain the subcontractor quotes data. "
+                        "You MUST present this data directly in a clean, professional markdown table as your answer. "
+                        "Do NOT issue any additional <query_db> calls or write any SQL. "
+                        "Keep any technical database queries hidden and show only clear, user-friendly subcontractor pricing details.]\n\n"
+                    )
+            except Exception:
+                pass
+
         # 6. Proactive Database & Historical Rate Search Context
         search_terms = []
         stop_words = {"show", "search", "find", "query", "historical", "rates", "rate", "for", "the", "a", "an", "is", "in", "active", "project", "database", "library", "libraries", "costs", "cost"}
@@ -773,8 +851,16 @@ class AICopilotWorker(QRunnable):
             "<get_knowledge_graph />\n\n"
             "- To ingest all project settings, resources summary lists, Schedule of Rates (SOR) items, priced BOQs metadata, and dynamic margin/outlier analytics, write exactly:\n"
             "<ingest_project_domains />\n\n"
+            "- To generate the PDF Executive Analytics Report for the project, write exactly:\n"
+            "<generate_report type=\"executive_summary\" />\n\n"
+            "- To run an in-memory ephemeral what-if pricing scenario, write exactly:\n"
+            "<what_if resource=\"RESOURCE_TYPE\" name=\"RESOURCE_NAME\" adjustment=\"ADJUSTMENT_PERCENT\" />\n"
+            "For example: <what_if resource=\"materials\" name=\"concrete\" adjustment=\"+12%\" />\n\n"
+            "- To draft or recommend a composite rate buildup for an unpriced item, write exactly:\n"
+            "<draft_rate description=\"ITEM_DESCRIPTION\" unit=\"ITEM_UNIT\" />\n"
+            "For example: <draft_rate description=\"Reinforced concrete slab 200mm\" unit=\"m3\" />\n\n"
             "If you output a tag, STOP generating immediately. The system will execute the query/read/graph ingestion, append the results, and invoke you again to formulate your final response.\n"
-            "Use these tools immediately to fetch actual database results or structural knowledge graph details if the user asks any question about library prices, estimate details, WBS sections, rate recipes, under-measurement warnings, database tables, or files. Do not suggest or write placeholders; run the query or tool to find the actual real-time answers.\n\n"
+            "Use these tools immediately to fetch actual database results, structural knowledge graph details, PDF reports, what-if analyses, or rate buildup recommendations if the user asks any question about library prices, estimate details, WBS sections, rate recipes, under-measurement warnings, database tables, files, reports, scenarios, or unpriced items. Do not suggest or write placeholders; run the query or tool to find the actual real-time answers.\n\n"
             "=== ADDITIONAL CRITICAL CONSTRAINTS ===\n"
             "- NEVER print, summarize, copy, list, or describe the database schema, table structures, or column listings in your final response unless the user explicitly asked you to show database schema/structure.\n"
             "- Simple questions must be answered with a simple, direct, friendly sentence. Keep the database technical details completely invisible to the user by default.\n"
@@ -782,10 +868,15 @@ class AICopilotWorker(QRunnable):
             "- You MUST always produce a substantive, non-empty response. Never return only whitespace or thinking tags."
         )
 
-        messages = [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": self.user_query}
-        ]
+        messages = [{"role": "system", "content": system_prompt}]
+        for turn in self.conversation_history:
+            role = turn.get("role")
+            content = turn.get("content", "")
+            if role == "assistant":
+                content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+            messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": self.user_query})
+
 
         url = "http://localhost:11434/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
@@ -820,8 +911,16 @@ class AICopilotWorker(QRunnable):
             if not domains_match:
                 domains_match = re.search(r'<ingest_project_domains\s*>(.*?)(?:</ingest_project_domains>|$)', content, re.DOTALL | re.IGNORECASE)
 
+            report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            if not report_match:
+                report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'\s>]+)["\']?\s*>(.*?)(?:</generate[-_]?report>|$)', content, re.DOTALL | re.IGNORECASE)
+                
+            what_if_match = re.search(r'<what[-_]?if\s+resource=["\']?([^"\'\s>]+)["\']?\s+name=["\']?([^"\'>]+)["\']?\s+adjustment=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            
+            draft_rate_match = re.search(r'<draft[-_]?rate\s+description=["\']?([^"\'>]+)["\']?\s+unit=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+
             # Heuristic: If no explicit tag matches, but the model output contains a SQL code block, treat it as an implicit database query!
-            if not db_match and not json_match and not graph_match and not domains_match:
+            if not db_match and not json_match and not graph_match and not domains_match and not report_match and not what_if_match and not draft_rate_match:
                 sql_block_match = re.search(r'```(?:sql|sqlite)\n(.*?)\n```', content, re.DOTALL | re.IGNORECASE)
                 if sql_block_match:
                     sql_query = sql_block_match.group(1).strip()
@@ -904,6 +1003,61 @@ class AICopilotWorker(QRunnable):
                 })
                 continue
 
+            elif report_match:
+                report_type = report_match.group(1).strip()
+                messages.append({"role": "assistant", "content": content})
+                try:
+                    res = ai_tools.generate_report(project_dir, report_type)
+                    if res.get("status") == "success":
+                        result = f"Success! PDF report generated at: {res.get('file_path')}"
+                    else:
+                        result = f"Error: {res.get('message')}"
+                except Exception as e:
+                    result = f"Error generating report: {str(e)}"
+                messages.append({
+                    "role": "user",
+                    "content": f"[System Tool Result]:\n<generate_report_result>\n{result}\n</generate_report_result>"
+                })
+                continue
+
+            elif what_if_match:
+                res_type = what_if_match.group(1).strip()
+                res_name = what_if_match.group(2).strip()
+                res_adj = what_if_match.group(3).strip()
+                messages.append({"role": "assistant", "content": content})
+                try:
+                    res = ai_tools.run_what_if_scenario(project_dir, res_type, res_name, res_adj)
+                    result = json.dumps(res, indent=2)
+                except Exception as e:
+                    result = f"Error running what-if scenario: {str(e)}"
+                messages.append({
+                    "role": "user",
+                    "content": f"[System Tool Result]:\n<what_if_result>\n{result}\n</what_if_result>"
+                })
+                continue
+
+            elif draft_rate_match:
+                desc = draft_rate_match.group(1).strip()
+                unit = draft_rate_match.group(2).strip()
+                messages.append({"role": "assistant", "content": content})
+                try:
+                    res = ai_tools.recommend_composite_buildup(desc, unit, project_dir)
+                    if "status" not in res:
+                        import base64
+                        b64_str = base64.b64encode(json.dumps(res).encode('utf-8')).decode('utf-8')
+                        self.recipe_tag = f'\n\n<draft_rate_recipe b64="{b64_str}" />'
+                    else:
+                        self.recipe_tag = ""
+                    result = json.dumps(res, indent=2)
+                except Exception as e:
+                    result = f"Error recommending composite buildup: {str(e)}"
+                    self.recipe_tag = ""
+                messages.append({
+                    "role": "user",
+                    "content": f"[System Tool Result]:\n<draft_rate_result>\n{result}\n</draft_rate_result>"
+                })
+                continue
+
             elif db_match:
                 db_name = db_match.group(1).strip()
                 sql_query = db_match.group(2).strip()
@@ -955,7 +1109,10 @@ class AICopilotWorker(QRunnable):
                             )
                         return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
                     
-                    return f"> [!THINK]\n> {thinking}\n\n{actual_content}"
+                    actual_ret = f"> [!THINK]\n> {thinking}\n\n{actual_content}"
+                    if self.recipe_tag:
+                        actual_ret += self.recipe_tag
+                    return actual_ret
                 
                 # EMPTY RESPONSE GUARD: Handle completely empty LLM output
                 if not content or not content.strip():
@@ -966,7 +1123,10 @@ class AICopilotWorker(QRunnable):
                         )
                     return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
                 
-                return content
+                actual_ret = content
+                if self.recipe_tag:
+                    actual_ret += self.recipe_tag
+                return actual_ret
 
         # If it reaches the iteration limit, return the last generated content
         if not content or not content.strip():
@@ -976,4 +1136,7 @@ class AICopilotWorker(QRunnable):
                     + self._format_proactive_context_as_response(extra_context)
                 )
             return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
-        return content
+        actual_ret = content
+        if self.recipe_tag:
+            actual_ret += self.recipe_tag
+        return actual_ret

@@ -166,7 +166,7 @@ def test_ai_worker_local_intelligence(qapp):
     assert len(errors) == 0, f"Worker failed with errors: {errors}"
     assert len(results) == 1, "Worker must emit finished signal once."
     assert "Cannot Connect to AI Reasoner" in results[0], "Local response must notify user about the offline state."
-    assert "lfm2:24b" in results[0], "Should reference the target local LLM model name."
+    assert "batiai/llama4-scout:iq3" in results[0], "Should reference the target local LLM model name."
 
 
 def test_call_local_ollama_queries_database(qapp, monkeypatch):
@@ -190,8 +190,8 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
         # Determine URL
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            # Return a valid model list strictly containing lfm2:24b
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            # Return a valid model list strictly containing batiai/llama4-scout:iq3
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             # Capture what was sent to chat completions
             payload = json.loads(req.data.decode("utf-8"))
@@ -217,7 +217,7 @@ def test_call_local_ollama_queries_database(qapp, monkeypatch):
     
     assert "Success result" in res
     assert len(captured_payloads) == 1
-    assert captured_payloads[0]["model"] == "lfm2:24b", "Should strictly use the lfm2:24b model"
+    assert captured_payloads[0]["model"] == "batiai/llama4-scout:iq3", "Should strictly use the batiai/llama4-scout:iq3 model"
     
     assert len(captured_payloads[0]["messages"]) == 2, "Should have system prompt and user query messages"
     assert captured_payloads[0]["messages"][0]["role"] == "system"
@@ -246,7 +246,7 @@ def test_ai_worker_agentic_tool_calling(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             api_calls.append(payload)
@@ -315,7 +315,7 @@ def test_ai_worker_priced_boq_items_context(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             captured_payloads.append(payload)
@@ -372,7 +372,7 @@ def test_ai_worker_proactive_search_context(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             captured_payloads.append(payload)
@@ -429,7 +429,7 @@ def test_ai_worker_typo_resilience(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             api_calls.append(payload)
@@ -512,7 +512,7 @@ def test_ai_worker_empty_response_guard(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             api_calls.append(True)
             # Simulate LLM returning ONLY <think> tags with no actual content
@@ -563,7 +563,7 @@ def test_ai_worker_proactive_directive_injected(qapp, monkeypatch):
     def mock_urlopen(req, *args, **kwargs):
         url = req.full_url if hasattr(req, 'full_url') else str(req)
         if "api/tags" in url:
-            return MockResponse({"models": [{"name": "lfm2:24b"}]})
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
         elif "v1/chat/completions" in url:
             payload = json.loads(req.data.decode("utf-8"))
             captured_payloads.append(payload)
@@ -594,6 +594,73 @@ def test_ai_worker_proactive_directive_injected(qapp, monkeypatch):
     
     # Verify the self-correction constraint is present
     assert "SELF-CORRECTION ON ERROR" in system_prompt, "Should include self-correction directive"
+
+
+def test_ai_worker_conversation_history(qapp, monkeypatch):
+    import json
+    
+    # 1. Test conversation history injection and <think> stripping
+    history = [
+        {"role": "user", "content": "Hello"},
+        {"role": "assistant", "content": "<think>Thinking...</think>Hi there!"}
+    ]
+    worker = AICopilotWorker("What is the cost?", main_window=None, conversation_history=history)
+    
+    captured_payloads = []
+    class MockResponse:
+        def __init__(self, data_dict):
+            self.data = json.dumps(data_dict).encode("utf-8")
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+            
+    def mock_urlopen(req, *args, **kwargs):
+        url = req.full_url if hasattr(req, 'full_url') else str(req)
+        if "api/tags" in url:
+            return MockResponse({"models": [{"name": "batiai/llama4-scout:iq3"}]})
+        elif "v1/chat/completions" in url:
+            payload = json.loads(req.data.decode("utf-8"))
+            captured_payloads.append(payload)
+            return MockResponse({
+                "choices": [{
+                    "message": {
+                        "content": "The cost is $100."
+                    }
+                }]
+            })
+        raise Exception(f"Unexpected URL: {url}")
+        
+    import urllib.request
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    
+    active_summary = {"source": "test", "project_name": "test"}
+    res = worker._call_local_ollama(active_summary, [], {})
+    
+    assert "The cost is $100." in res
+    assert len(captured_payloads) == 1
+    msgs = captured_payloads[0]["messages"]
+    
+    # Total messages should be system + user(1) + assistant(1) + user(current) = 4
+    assert len(msgs) == 4
+    assert msgs[0]["role"] == "system"
+    assert msgs[1]["role"] == "user"
+    assert msgs[1]["content"] == "Hello"
+    assert msgs[2]["role"] == "assistant"
+    # Ensure <think> block is stripped from history!
+    assert msgs[2]["content"] == "Hi there!"
+    assert msgs[3]["role"] == "user"
+    assert msgs[3]["content"] == "What is the cost?"
+
+
+def test_suggestions_and_proactive_warnings(qapp, monkeypatch):
+    # Test get_context_suggestions fallback and dynamic generation
+    suggestions = ai_tools.get_context_suggestions(None)
+    assert len(suggestions) > 0
+    assert "Show active estimate KPIs" in suggestions or "Analyze project outliers" in suggestions
+
 
 
 

@@ -791,3 +791,56 @@ class RateBuildUpDialog(QDialog):
         self.is_loading = False
         # self._update_undo_redo_buttons()
 
+    def get_estimate_context(self):
+        """
+        Retrieves real-time context from the active Rate Build-up editor,
+        including current calculations, totals, and task recipe structures.
+        """
+        if not self.estimate:
+            return {}
+            
+        totals = self.estimate.calculate_totals()
+        context = {
+            "rate_code": getattr(self.estimate, 'rate_code', 'N/A'),
+            "project_name": getattr(self.estimate, 'project_name', 'Unnamed Project'),
+            "category": getattr(self.estimate, 'category', 'N/A'),
+            "rate_type": getattr(self.estimate, 'rate_type', 'Simple'),
+            "currency": getattr(self.estimate, 'currency', 'GHS (₵)'),
+            "unit": getattr(self.estimate, 'unit', 'each'),
+            "adjustment_factor": getattr(self.estimate, 'adjustment_factor', 1.0),
+            "subtotal": totals.get("subtotal", 0.0),
+            "overhead": totals.get("overhead", 0.0),
+            "profit": totals.get("profit", 0.0),
+            "grand_total": totals.get("grand_total", 0.0),
+            "tasks": []
+        }
+        
+        # Extract materials, labor, plant, equipment from tasks
+        for task in getattr(self.estimate, 'tasks', []):
+            task_data = {
+                "description": getattr(task, 'description', ''),
+                "quantity": getattr(task, 'quantity', 0.0),
+                "unit": getattr(task, 'unit', ''),
+                "materials": [],
+                "labor": [],
+                "plant": [],
+                "equipment": [],
+                "indirect_costs": []
+            }
+            
+            for m in getattr(task, 'materials', []):
+                task_data["materials"].append({"name": m.get("name"), "qty": m.get("qty"), "price": m.get("price"), "currency": m.get("currency"), "total": m.get("total")})
+            for l in getattr(task, 'labor', []):
+                task_data["labor"].append({"trade": l.get("trade"), "hours": l.get("hours"), "rate": l.get("rate"), "currency": l.get("currency"), "total": l.get("total")})
+            for p in getattr(task, 'plant', []):
+                task_data["plant"].append({"name": p.get("name"), "rate": p.get("rate"), "currency": p.get("currency"), "total": p.get("total")})
+            for e in getattr(task, 'equipment', []):
+                task_data["equipment"].append({"name": e.get("name"), "rate": e.get("rate"), "currency": e.get("currency"), "total": e.get("total")})
+            for ic in getattr(task, 'indirect_costs', []):
+                task_data["indirect_costs"].append({"description": ic.get("description"), "amount": ic.get("amount"), "total": ic.get("total")})
+                
+            context["tasks"].append(task_data)
+            
+        return context
+
+

@@ -3838,3 +3838,47 @@ class PBOQDialog(QDialog):
                             item.setBackground(QColor("#fff9c4")) # Light yellow
                     return True
         return False
+
+    def get_selected_row_data(self):
+        """
+        Retrieves real-time context of the currently selected or active row in the spreadsheet view,
+        providing column values and physical sheet names to the AI Copilot.
+        """
+        table = self.tabs.currentWidget()
+        if not table or not isinstance(table, PBOQTable):
+            return {}
+            
+        row = table.currentRow()
+        if row < 0 or row >= table.rowCount():
+            return {}
+            
+        sheet_name = self.tabs.tabText(self.tabs.currentIndex())
+        row_id = None
+        item0 = table.item(row, 0)
+        if item0:
+            row_id = item0.data(Qt.ItemDataRole.UserRole)
+            
+        mappings = self.tools_pane.get_mappings()
+        data = {
+            "sheet_name": sheet_name,
+            "row_index": row,
+            "row_id": row_id,
+            "columns": {}
+        }
+        
+        # Read the values of all physical columns in this row
+        for c_idx in range(table.columnCount()):
+            col_name = self.db_columns[c_idx + 1] if (self.db_columns and c_idx + 1 < len(self.db_columns)) else f"Column {c_idx}"
+            item = table.item(row, c_idx)
+            val = item.text().strip() if item else ""
+            data["columns"][col_name] = val
+            
+        # Map logical roles
+        for role, col_num in mappings.items():
+            if col_num >= 0:
+                item = table.item(row, col_num)
+                val = item.text().strip() if item else ""
+                data[f"logical_{role}"] = val
+                
+        return data
+

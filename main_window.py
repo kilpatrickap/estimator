@@ -1130,6 +1130,142 @@ class MainWindow(QMainWindow):
             return active.widget()
         return None
 
+    def get_focused_item_context(self):
+        """
+        Scans the active workspace window and returns an structured dictionary
+        representing the active focused screen's context.
+        """
+        active_win = self._get_active_estimate_window()
+        if not active_win:
+            return {}
+            
+        active_class = getattr(active_win, '__class__', None).__name__
+        
+        if active_class == 'PBOQDialog' and hasattr(active_win, 'get_selected_row_data'):
+            return {
+                "active_window_type": "PBOQDialog",
+                "selected_row": active_win.get_selected_row_data()
+            }
+        elif hasattr(active_win, 'get_estimate_context'):
+            return {
+                "active_window_type": "RateBuildUpDialog",
+                "estimate_context": active_win.get_estimate_context()
+            }
+            
+        return {}
+
+
+    def apply_drafted_rate(self, rate_data: dict) -> bool:
+        """
+        Applies a recommended/drafted rate recipe to the currently selected PBOQ row.
+        Writes the rate code and gross total to the project's PBOQ sheet database,
+        updates the UI table cells, persists the changes to database, and saves
+        the rate recipe into the active project database.
+        """
+        active_win = self._get_active_estimate_window()
+        if not active_win or getattr(active_win, '__class__', None).__name__ != 'PBOQDialog':
+            return False
+            
+        table = active_win.tabs.currentWidget()
+        if not table or not hasattr(table, 'currentRow'):
+            return False
+            
+        row = table.currentRow()
+        if row < 0 or row >= table.rowCount():
+            return False
+            
+        row_id = None
+        item0 = table.item(row, 0)
+        if item0:
+            from PyQt6.QtCore import Qt
+            row_id = item0.data(Qt.ItemDataRole.UserRole)
+            
+        if not row_id:
+            return False
+            
+        mappings = active_win.tools_pane.get_mappings()
+        code_col = mappings.get('rate_code', -1)
+        rate_col = mappings.get('rate', -1)
+        
+        if code_col < 0 or rate_col < 0:
+            return False
+            
+        rate_code = rate_data.get("matched_rate_code")
+        gross_rate = rate_data.get("gross_rate", 0.0)
+        gross_rate_str = f"{gross_rate:.2f}"
+        
+        from PyQt6.QtWidgets import QTableWidgetItem
+        
+        code_item = table.item(row, code_col)
+        if not code_item:
+            code_item = QTableWidgetItem()
+            table.setItem(row, code_col, code_item)
+        code_item.setText(rate_code)
+        
+        rate_item = table.item(row, rate_col)
+        if not rate_item:
+            rate_item = QTableWidgetItem()
+            table.setItem(row, rate_col, rate_item)
+        rate_item.setText(gross_rate_str)
+        
+        active_win._persist_updates(code_col, [(row_id, rate_code)])
+        active_win._persist_updates(rate_col, [(row_id, gross_rate_str)])
+        
+        active_win._update_stats()
+        active_win._link_item_to_bill(table, row, row_id)
+        
+        pboq_path = active_win.pboq_file_selector.currentData()
+        if pboq_path:
+            import os
+            project_dir = os.path.dirname(os.path.dirname(pboq_path))
+            proj_db_dir = os.path.join(project_dir, "Project Database")
+            if os.path.exists(proj_db_dir):
+                dbs = [f for f in os.listdir(proj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+                if dbs:
+                    master_db_path = os.path.join(proj_db_dir, dbs[0])
+                    try:
+                        from database import DatabaseManager
+                        from models import Estimate, Task
+                        
+                        db = DatabaseManager(master_db_path)
+                        from orm_models import DBEstimate
+                        est_id = None
+                        with db.Session() as session:
+                            db_est = session.query(DBEstimate).filter(DBEstimate.rate_code == rate_code).first()
+                            if db_est:
+                                est_id = db_est.id
+                                
+                        if not est_id:
+                            est_obj = Estimate(
+                                project_name=rate_data.get("description", "Drafted Rate"),
+                                client_name="Atlantic Catering School Inc.",
+                                overhead_percent=active_win.tools_pane.get_overhead_value() if hasattr(active_win.tools_pane, 'get_overhead_value') else 5.0,
+                                profit_margin_percent=active_win.tools_pane.get_profit_value() if hasattr(active_win.tools_pane, 'get_profit_value') else 10.0,
+                                currency="GHS (₵)",
+                                unit=rate_data.get("unit", "each")
+                            )
+                            est_obj.rate_code = rate_code
+                            
+                            task_obj = Task("Composite Rate Build Up")
+                            for m in rate_data.get("materials", []):
+                                task_obj.add_material(m["name"], m["qty"], m["unit"], m["unit_cost"])
+                            for l in rate_data.get("labor", []):
+                                task_obj.add_labor(l["trade"], l["hours"], l["rate"], unit=l.get("unit", "hr"))
+                            for p in rate_data.get("plant", []):
+                                task_obj.add_plant(p["name"], p["hours"], p["rate"], unit=p.get("unit", "hr"))
+                            for eq in rate_data.get("equipment", []):
+                                task_obj.add_equipment(eq["name"], eq["hours"], eq["rate"], unit=eq.get("unit", "hr"))
+                            for ind in rate_data.get("indirect_costs", []):
+                                task_obj.add_indirect_cost(ind["description"], ind["amount"], unit=ind.get("unit", "each"))
+                                
+                            est_obj.add_task(task_obj)
+                            db.save_estimate(est_obj)
+                    except Exception as e:
+                        print(f"Error saving estimate recipe to project DB: {e}")
+                        
+        return True
+
+
     def _sync_project_settings(self, project_dir, data):
         """Synchronizes currency, overhead, and profit across all project files and memory views."""
         import re, os

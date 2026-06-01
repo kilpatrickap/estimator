@@ -1,8 +1,9 @@
 import os
 import re
+import time
 from PyQt6.QtWidgets import (QDockWidget, QWidget, QVBoxLayout, QHBoxLayout, QTextEdit, 
                              QPushButton, QLabel, QScrollArea, QFrame, QTextBrowser, 
-                             QGraphicsDropShadowEffect, QSizePolicy)
+                             QGraphicsDropShadowEffect, QSizePolicy, QMessageBox)
 from PyQt6.QtGui import QFont, QColor
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QThreadPool, QSize
 from ai_worker import AICopilotWorker
@@ -359,6 +360,63 @@ class MessageBubble(QFrame):
         self.adjust_browser_height()
 
 
+class ActionMessageBubble(MessageBubble):
+    """A specialized AI message bubble that includes an action button to apply auto-pricing."""
+    def __init__(self, text, rate_data, is_ai=True, zoom_level=11, parent=None):
+        super().__init__(text, is_ai=is_ai, zoom_level=zoom_level, parent=parent)
+        self.rate_data = rate_data
+        self.parent_dock = parent
+        
+        # Add button
+        self.apply_btn = QPushButton("✅ Apply Draft Rate", self)
+        self.apply_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #2e7d32;
+                color: white;
+                border-radius: 6px;
+                padding: 6px 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1b5e20;
+            }
+            QPushButton:disabled {
+                background-color: #a5d6a7;
+                color: #e8f5e9;
+            }
+        """)
+        self.apply_btn.clicked.connect(self.on_apply_clicked)
+        self.layout().addWidget(self.apply_btn)
+        
+    def on_apply_clicked(self):
+        rate_code = self.rate_data.get("matched_rate_code", "N/A")
+        net_rate = self.rate_data.get("net_rate", 0.0)
+        desc = self.rate_data.get("description", "N/A")
+        unit = self.rate_data.get("unit", "each")
+        
+        reply = QMessageBox.question(
+            self,
+            "Confirm Auto-Pricing",
+            f"Apply rate code {rate_code} (Net: {net_rate:.2f}/{unit}) for '{desc}' to the selected PBOQ item?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            if self.parent_dock and hasattr(self.parent_dock, 'main_window') and self.parent_dock.main_window:
+                try:
+                    success = self.parent_dock.main_window.apply_drafted_rate(self.rate_data)
+                    if success:
+                        self.apply_btn.setText("✓ Applied")
+                        self.apply_btn.setEnabled(False)
+                    else:
+                        QMessageBox.warning(self, "Error", "Failed to apply rate to the active BOQ selection. Please ensure a PBOQ sheet is open and a row is selected.")
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"An error occurred while applying the rate: {str(e)}")
+            else:
+                QMessageBox.warning(self, "Error", "Main Window not available to apply the rate.")
+
+
 class TypingIndicator(QFrame):
     """Pulsing loading bubble to show the agent is actively calculating or querying APIs."""
     def __init__(self, parent=None):
@@ -410,6 +468,9 @@ class AICopilotDock(QDockWidget):
         super().__init__("AI Estimating Copilot", parent)
         self.main_window = main_window
         self.zoom_level = 11
+        self.conversation_history = []
+        self.last_known_state = None
+        self.last_proactive_alert_time = 0.0
         
         self.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea)
         self.setFeatures(QDockWidget.DockWidgetFeature.DockWidgetClosable | 
@@ -442,6 +503,9 @@ class AICopilotDock(QDockWidget):
         self.typing_indicator = TypingIndicator(self)
         self.main_layout.addWidget(self.typing_indicator)
         self.typing_indicator.hide()
+        
+        # 4.5. Suggestions Bar
+        self._setup_suggestions_bar()
         
         # 5. Input Text Panel
         self._setup_input_panel()
@@ -646,8 +710,21 @@ class AICopilotDock(QDockWidget):
 
     def add_message_bubble(self, text, is_ai=True):
         """Creates a MessageBubble widget, formats the text context, and scrolls to bottom."""
-        # Insert bubble before the stretch placeholder
-        bubble = MessageBubble(text, is_ai=is_ai, zoom_level=self.zoom_level, parent=self)
+        recipe_match = re.search(r'<draft[-_]?rate[-_]?recipe\s+b64=["\']?([a-zA-Z0-9+/=]+)["\']?\s*/?>', text, re.IGNORECASE)
+        if recipe_match and is_ai:
+            import base64
+            import json
+            try:
+                json_str = base64.b64decode(recipe_match.group(1)).decode('utf-8')
+                rate_data = json.loads(json_str)
+                clean_bubble_text = text.replace(recipe_match.group(0), "")
+                bubble = ActionMessageBubble(clean_bubble_text, rate_data, is_ai=True, zoom_level=self.zoom_level, parent=self)
+            except Exception as e:
+                print(f"Error parsing base64 draft rate recipe: {e}")
+                bubble = MessageBubble(text, is_ai=is_ai, zoom_level=self.zoom_level, parent=self)
+        else:
+            bubble = MessageBubble(text, is_ai=is_ai, zoom_level=self.zoom_level, parent=self)
+            
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
         
         # Force interface layout recalculation and scroll down smoothly
@@ -672,30 +749,97 @@ class AICopilotDock(QDockWidget):
                 widget.update_font_size(self.zoom_level)
         self.scroll_to_bottom()
 
+    def _setup_suggestions_bar(self):
+        self.suggestions_scroll = QScrollArea(self)
+        self.suggestions_scroll.setWidgetResizable(True)
+        self.suggestions_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.suggestions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.suggestions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.suggestions_scroll.setFixedHeight(28)
+        self.suggestions_scroll.setStyleSheet("background: transparent; background-color: transparent;")
+        
+        self.suggestions_content = QWidget()
+        self.suggestions_content.setStyleSheet("background: transparent; background-color: transparent;")
+        self.suggestions_layout = QHBoxLayout(self.suggestions_content)
+        self.suggestions_layout.setContentsMargins(4, 2, 4, 2)
+        self.suggestions_layout.setSpacing(6)
+        
+        self.suggestions_scroll.setWidget(self.suggestions_content)
+        self.main_layout.addWidget(self.suggestions_scroll)
+
+    def update_suggestions(self):
+        # Clear old suggestions
+        while self.suggestions_layout.count() > 0:
+            item = self.suggestions_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+                
+        # Get new suggestions
+        prompts = ai_tools.get_context_suggestions(self.main_window)
+        for prompt in prompts:
+            display_text = prompt if len(prompt) < 35 else prompt[:32] + "..."
+            btn = QPushButton(display_text, self)
+            btn.setToolTip(prompt)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #e2e8f0;
+                    color: #334155;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 10px;
+                    padding: 3px 8px;
+                    font-size: 9px;
+                    font-family: "Segoe UI", sans-serif;
+                }
+                QPushButton:hover {
+                    background-color: #cbd5e1;
+                    color: #0f172a;
+                    border-color: #94a3b8;
+                }
+            """)
+            btn.clicked.connect(lambda checked, p=prompt: self.submit_suggested_query(p))
+            self.suggestions_layout.addWidget(btn)
+            
+        self.suggestions_layout.addStretch()
+
+    def submit_suggested_query(self, query):
+        self.input_edit.setPlainText(query)
+        self.submit_query()
+
     def clear_chat(self):
         """Removes all conversation bubbles from the scroll layout and re-adds the welcome card."""
+        self.conversation_history = []
         while self.chat_layout.count() > 1:
             item = self.chat_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
         welcome_text = (
-            "# 👋 Welcome to Estimator Pro AI Copilot\\n\\n"
+            "# 👋 Welcome to Estimator Pro AI Copilot\n\n"
             "I am your intelligent, context-aware desktop estimating assistant. "
-            "I have indexed your active SQL databases, cost libraries, and workspace files.\\n\\n"
-            "### 💡 How can I assist you today?\\n"
-            "Try asking me questions like:\\n"
-            "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\\n"
-            "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\\n"
-            "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\\n"
+            "I have indexed your active SQL databases, cost libraries, and workspace files.\n\n"
+            "### 💡 How can I assist you today?\n"
+            "Try asking me questions like:\n"
+            "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\n"
+            "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\n"
+            "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\n"
             "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
         )
-        welcome_text = welcome_text.replace("\\n", "\n")
         self.add_message_bubble(welcome_text, is_ai=True)
 
     def update_active_context(self):
-        """Polls the workspace structure and MDI window details to update the context banner."""
+        """Polls the workspace structure and MDI window details to update the context banner and suggestions."""
         try:
             summary = ai_tools.query_active_estimate_summary(self.main_window)
+            
+            # Identify active window details
+            active_win = None
+            if self.main_window:
+                try:
+                    active_win = self.main_window._get_active_estimate_window()
+                except:
+                    pass
+            active_class = getattr(active_win, '__class__', None).__name__ if active_win else None
+            
             if "status" in summary:
                 self.context_title.setText("🔌 <b>Context Status</b>: Online")
                 self.context_details.setText("No active project editor selected. Using standard database libraries.")
@@ -713,6 +857,42 @@ class AICopilotDock(QDockWidget):
                     # Rate Build-up dialogue active
                     self.context_title.setText(f"🔌 <b>Context</b>: {proj_name}")
                     self.context_details.setText(f"Subtotal: {currency} {summary.get('subtotal', 0.0):,.2f} | Grand Total: {currency} {total_val:,.2f}")
+
+            # ----------------------------------------------------
+            # Feature 3: Proactive Warnings on Context Change
+            # ----------------------------------------------------
+            current_state = {
+                "class": active_class,
+                "rate_code": getattr(active_win.estimate, 'rate_code', None) if (active_win and hasattr(active_win, 'estimate')) else None,
+                "project_name": summary.get("project_name") if "status" not in summary else None,
+                "total_boq_items": summary.get("total_boq_items") if "status" not in summary else 0,
+                "plugged_items": summary.get("plugged_items") if "status" not in summary else 0,
+            }
+
+            # Check if this is a significant transition from last known state
+            if self.last_known_state is not None:
+                changed_class = current_state["class"] != self.last_known_state["class"]
+                changed_rate = current_state["rate_code"] != self.last_known_state["rate_code"]
+                changed_proj = current_state["project_name"] != self.last_known_state["project_name"]
+                
+                if (changed_class or changed_rate or changed_proj) and (time.time() - self.last_proactive_alert_time > 30):
+                    # Cooldown satisfied, trigger alert
+                    if current_state["class"] == 'PBOQDialog':
+                        plugged = current_state["plugged_items"]
+                        msg = f"💡 **Proactive Tip**: Active project '{current_state['project_name']}' contains {plugged} plugged rates. We recommend verifying these before final sign-off."
+                        self.add_message_bubble(msg, is_ai=True)
+                        self.last_proactive_alert_time = time.time()
+                    elif current_state["class"] == 'RateBuildUpDialog' and current_state["rate_code"]:
+                        msg = f"💡 **Proactive Tip**: The Rate Build-up for **{current_state['rate_code']}** has active recipe dependencies. Modifying labor or plant quantities directly adjusts overall subtotal cost and profit margin."
+                        self.add_message_bubble(msg, is_ai=True)
+                        self.last_proactive_alert_time = time.time()
+
+            self.last_known_state = current_state
+            # ----------------------------------------------------
+
+            # Update Smart Suggestions
+            self.update_suggestions()
+
         except Exception:
             self.context_title.setText("🔌 <b>Context Status</b>: Suspended")
             self.context_details.setText("Estimator workspace loading state...")
@@ -725,6 +905,11 @@ class AICopilotDock(QDockWidget):
         self.input_edit.clear()
         self.add_message_bubble(query, is_ai=False)
         
+        # Track in conversation history
+        self.conversation_history.append({"role": "user", "content": query})
+        if len(self.conversation_history) > 16:
+            self.conversation_history = self.conversation_history[-16:]
+            
         # Spin up the background thread worker safely
         self.btn_send.setEnabled(False)
         self.typing_indicator.start_animation()
@@ -732,7 +917,7 @@ class AICopilotDock(QDockWidget):
         if not hasattr(self, '_active_workers'):
             self._active_workers = set()
             
-        worker = AICopilotWorker(query, main_window=self.main_window)
+        worker = AICopilotWorker(query, main_window=self.main_window, conversation_history=self.conversation_history)
         self._active_workers.add(worker)
         
         def cleanup():
@@ -749,8 +934,15 @@ class AICopilotDock(QDockWidget):
         self.btn_send.setEnabled(True)
         self.typing_indicator.stop_animation()
         self.add_message_bubble(text, is_ai=True)
+        
+        # Strip <think>...</think> from assistant response for history tracking
+        clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
+        self.conversation_history.append({"role": "assistant", "content": clean_text})
+        if len(self.conversation_history) > 16:
+            self.conversation_history = self.conversation_history[-16:]
 
     def on_worker_error(self, error_msg):
         self.btn_send.setEnabled(True)
         self.typing_indicator.stop_animation()
         self.add_message_bubble(f"❌ **Error during execution:**\n{error_msg}", is_ai=True)
+

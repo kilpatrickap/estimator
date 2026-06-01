@@ -1654,3 +1654,582 @@ def get_active_project_priced_items(project_dir=None):
     return priced_items_list
 
 
+def get_context_suggestions(main_window=None):
+    """
+    Dynamically generates 3-4 relevant suggested prompts based on the current
+    active window context or loaded project state.
+    """
+    suggestions = []
+    
+    # Check if there is an active window in the PyQt6 workspace
+    active_win = None
+    if main_window:
+        try:
+            active_win = main_window._get_active_estimate_window()
+        except:
+            pass
+            
+    active_class = getattr(active_win, '__class__', None).__name__ if active_win else None
+    
+    if active_win and active_class == 'PBOQDialog':
+        suggestions = [
+            "Analyze project outliers",
+            "Show plugged rates needing review",
+            "Generate subcontractor markup comparison",
+            "Check for concrete slab under-measurement"
+        ]
+    elif active_win and hasattr(active_win, 'estimate'):
+        # Rate Build-up Editor
+        est = active_win.estimate
+        rate_code = getattr(est, 'rate_code', '')
+        if rate_code and rate_code != 'N/A':
+            suggestions = [
+                f"Explain recipe breakdown for {rate_code}",
+                f"Check alternative rates for {rate_code}",
+                "Suggest subcontractor quotes for this rate",
+                "Show active estimate KPIs"
+            ]
+        else:
+            suggestions = [
+                "Explain composite rate buildup",
+                "Optimize labor-plant ratios",
+                "Show active estimate KPIs",
+                "Search historical rates for Concrete"
+            ]
+    else:
+        # Fallback to general estimation queries based on loaded project
+        try:
+            summary = query_active_estimate_summary(main_window)
+            if summary and "status" not in summary:
+                proj_name = summary.get("project_name", "")
+                suggestions = [
+                    f"Show active estimate KPIs for {proj_name}",
+                    "Analyze project outliers",
+                    "Search historical rates for Concrete",
+                    "Verify under-measurement warnings"
+                ]
+            else:
+                suggestions = [
+                    "Show active estimate KPIs",
+                    "Analyze project outliers",
+                    "Search historical rates for Concrete",
+                    "Show workspace file structure"
+                ]
+        except:
+            suggestions = [
+                "Show active estimate KPIs",
+                "Analyze project outliers",
+                "Search historical rates for Concrete",
+                "Show workspace file structure"
+            ]
+            
+    return suggestions[:4]
+
+
+def generate_report(project_dir=None, report_type="executive_summary"):
+    """
+    AI-triggered PDF report generation using report_generator.py.
+    """
+    if project_dir is None:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+            
+    if not project_dir or not os.path.exists(project_dir):
+        return {"status": "error", "message": "No active project directory found or it does not exist."}
+        
+    project_dir = project_dir.replace('\\', '/')
+    if os.path.basename(project_dir) == "Project Database":
+        project_dir = os.path.dirname(project_dir)
+        
+    try:
+        from report_generator import ExecutiveAnalyticsReportGenerator
+        output_pdf_path = os.path.join(project_dir, "Executive_Project_Intelligence_Report.pdf").replace('\\', '/')
+        generator = ExecutiveAnalyticsReportGenerator(project_dir)
+        success = generator.generate_report(output_pdf_path)
+        if success:
+            return {"status": "success", "file_path": output_pdf_path}
+        else:
+            return {"status": "error", "message": "Failed to compile the PDF report."}
+    except Exception as e:
+        return {"status": "error", "message": f"Error during report generation: {str(e)}"}
+
+
+def get_subcontractor_quotes(project_dir=None):
+    """
+    Scan all .db files in project_dir/Priced BOQs/.
+    Run schema-adaptive queries joining subcontractor_quotes and pboq_items on row_idx=rowid.
+    Group by (package, subcontractor) and return bid totals and item counts.
+    """
+    if project_dir is None:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+            
+    if not project_dir or not os.path.exists(project_dir):
+        return []
+        
+    project_dir = project_dir.replace('\\', '/')
+    if os.path.basename(project_dir) == "Project Database":
+        project_dir = os.path.dirname(project_dir)
+        
+    pboq_dir = os.path.join(project_dir, "Priced BOQs")
+    if not os.path.exists(pboq_dir):
+        return []
+        
+    quotes = []
+    
+    try:
+        db_files = [f for f in os.listdir(pboq_dir) if f.lower().endswith('.db')]
+        for db_file in db_files:
+            db_path = os.path.join(pboq_dir, db_file)
+            conn = sqlite3.connect(db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check if subcontractor_quotes table exists
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='subcontractor_quotes'")
+            if not cursor.fetchone():
+                conn.close()
+                continue
+                
+            query = """
+                SELECT 
+                    q.package_name AS package,
+                    q.subcontractor_name AS subcontractor,
+                    COUNT(q.row_idx) AS item_count,
+                    SUM(COALESCE(p.quantity, 0) * COALESCE(q.rate, 0)) AS total_quoted
+                FROM subcontractor_quotes q
+                LEFT JOIN pboq_items p ON p.rowid = q.row_idx
+                GROUP BY q.package_name, q.subcontractor_name
+            """
+            try:
+                cursor.execute(query)
+                rows = cursor.fetchall()
+                for row in rows:
+                    quotes.append({
+                        "package": row["package"],
+                        "subcontractor": row["subcontractor"],
+                        "items_count": row["item_count"],
+                        "total_quoted": float(row["total_quoted"]) if row["total_quoted"] is not None else 0.0,
+                        "db_file": db_file
+                    })
+            except Exception:
+                try:
+                    fallback_query = """
+                        SELECT 
+                            package_name AS package,
+                            subcontractor_name AS subcontractor,
+                            COUNT(row_idx) AS item_count,
+                            SUM(COALESCE(rate, 0)) AS total_quoted
+                        FROM subcontractor_quotes
+                        GROUP BY package_name, subcontractor_name
+                    """
+                    cursor.execute(fallback_query)
+                    rows = cursor.fetchall()
+                    for row in rows:
+                        quotes.append({
+                            "package": row["package"],
+                            "subcontractor": row["subcontractor"],
+                            "items_count": row["item_count"],
+                            "total_quoted": float(row["total_quoted"]) if row["total_quoted"] is not None else 0.0,
+                            "db_file": db_file,
+                            "is_fallback": True
+                        })
+                except Exception:
+                    pass
+            finally:
+                conn.close()
+    except Exception:
+        pass
+        
+    return quotes
+
+
+def run_what_if_scenario(project_dir=None, resource_type="materials", resource_name_pattern="", adjustment_percent=0.0):
+    """
+    Runs in-memory what-if scenarios modeling resource price adjustments
+    and calculates cascading subtotal, markup, and grand total changes.
+    """
+    if project_dir is None:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+            
+    if not project_dir or not os.path.exists(project_dir):
+        return {"error": "No active project directory found."}
+        
+    project_dir = project_dir.replace('\\', '/')
+    if os.path.basename(project_dir) == "Project Database":
+        project_dir = os.path.dirname(project_dir)
+        
+    proj_db_dir = os.path.join(project_dir, "Project Database")
+    master_db_path = None
+    if os.path.exists(proj_db_dir):
+        dbs = [f for f in os.listdir(proj_db_dir) if f.lower().endswith('.db') and "rates" not in f.lower()]
+        if dbs:
+            master_db_path = os.path.join(proj_db_dir, dbs[0])
+            
+    if not master_db_path or not os.path.exists(master_db_path):
+        return {"error": "Master database not found."}
+        
+    # Parse adjustment
+    adj = 0.0
+    if isinstance(adjustment_percent, str):
+        cleaned = adjustment_percent.replace('%', '').strip()
+        if cleaned.startswith('+'):
+            cleaned = cleaned[1:]
+        try:
+            adj = float(cleaned)
+            if '%' in adjustment_percent:
+                adj /= 100.0
+        except ValueError:
+            pass
+    else:
+        adj = float(adjustment_percent)
+        
+    multiplier = 1.0 + adj
+    
+    conn = sqlite3.connect(master_db_path)
+    cursor = conn.cursor()
+    
+    # Get overhead and profit margin
+    overhead_percent = 0.0
+    profit_percent = 0.0
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimates'")
+    if cursor.fetchone():
+        cursor.execute("SELECT overhead_percent, profit_margin_percent FROM estimates LIMIT 1")
+        row = cursor.fetchone()
+        if row:
+            overhead_percent = row[0] or 0.0
+            profit_percent = row[1] or 0.0
+            
+    # Task resources
+    cursor.execute("SELECT id, description FROM tasks")
+    tasks = [{"id": r[0], "description": r[1]} for r in cursor.fetchall()]
+    
+    matched_items = []
+    before_net_total = 0.0
+    after_net_total = 0.0
+    
+    resource_type_lower = resource_type.lower()
+    pattern_lower = resource_name_pattern.lower()
+    
+    for task in tasks:
+        task_id = task["id"]
+        
+        # 1. Materials
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_materials'")
+        if cursor.fetchone():
+            cursor.execute("SELECT name, quantity, price FROM estimate_materials WHERE task_id = ?", (task_id,))
+            for name, qty, price in cursor.fetchall():
+                qty = qty or 0.0
+                price = price or 0.0
+                before_val = qty * price
+                before_net_total += before_val
+                
+                is_match = (resource_type_lower in ["materials", "material"]) and (pattern_lower in name.lower())
+                if is_match:
+                    after_price = price * multiplier
+                    after_val = qty * after_price
+                    matched_items.append({
+                        "name": name,
+                        "type": "material",
+                        "quantity": qty,
+                        "before_price": price,
+                        "after_price": after_price,
+                        "task": task["description"]
+                    })
+                else:
+                    after_val = before_val
+                after_net_total += after_val
+                
+        # 2. Labor
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_labor'")
+        if cursor.fetchone():
+            cursor.execute("SELECT name_trade, hours, rate FROM estimate_labor WHERE task_id = ?", (task_id,))
+            for trade, hours, rate in cursor.fetchall():
+                hours = hours or 0.0
+                rate = rate or 0.0
+                before_val = hours * rate
+                before_net_total += before_val
+                
+                is_match = (resource_type_lower in ["labor", "labour"]) and (pattern_lower in trade.lower())
+                if is_match:
+                    after_rate = rate * multiplier
+                    after_val = hours * after_rate
+                    matched_items.append({
+                        "name": trade,
+                        "type": "labor",
+                        "quantity": hours,
+                        "before_price": rate,
+                        "after_price": after_rate,
+                        "task": task["description"]
+                    })
+                else:
+                    after_val = before_val
+                after_net_total += after_val
+                
+        # 3. Plant
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_plant'")
+        if cursor.fetchone():
+            cursor.execute("SELECT name_trade, hours, rate FROM estimate_plant WHERE task_id = ?", (task_id,))
+            for name, hours, rate in cursor.fetchall():
+                hours = hours or 0.0
+                rate = rate or 0.0
+                before_val = hours * rate
+                before_net_total += before_val
+                
+                is_match = (resource_type_lower in ["plant"]) and (pattern_lower in name.lower())
+                if is_match:
+                    after_rate = rate * multiplier
+                    after_val = hours * after_rate
+                    matched_items.append({
+                        "name": name,
+                        "type": "plant",
+                        "quantity": hours,
+                        "before_price": rate,
+                        "after_price": after_rate,
+                        "task": task["description"]
+                    })
+                else:
+                    after_val = before_val
+                after_net_total += after_val
+                
+        # 4. Equipment
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_equipment'")
+        if cursor.fetchone():
+            cursor.execute("SELECT name_trade, hours, rate FROM estimate_equipment WHERE task_id = ?", (task_id,))
+            for name, hours, rate in cursor.fetchall():
+                hours = hours or 0.0
+                rate = rate or 0.0
+                before_val = hours * rate
+                before_net_total += before_val
+                
+                is_match = (resource_type_lower in ["equipment"]) and (pattern_lower in name.lower())
+                if is_match:
+                    after_rate = rate * multiplier
+                    after_val = hours * after_rate
+                    matched_items.append({
+                        "name": name,
+                        "type": "equipment",
+                        "quantity": hours,
+                        "before_price": rate,
+                        "after_price": after_rate,
+                        "task": task["description"]
+                    })
+                else:
+                    after_val = before_val
+                after_net_total += after_val
+
+        # 5. Indirect Costs
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='estimate_indirect_costs'")
+        if cursor.fetchone():
+            cursor.execute("SELECT description, amount FROM estimate_indirect_costs WHERE task_id = ?", (task_id,))
+            for desc, amount in cursor.fetchall():
+                amount = amount or 0.0
+                before_val = amount
+                before_net_total += before_val
+                
+                is_match = (resource_type_lower in ["indirect", "indirect_costs", "indirect cost"]) and (pattern_lower in desc.lower())
+                if is_match:
+                    after_amount = amount * multiplier
+                    after_val = after_amount
+                    matched_items.append({
+                        "name": desc,
+                        "type": "indirect",
+                        "quantity": 1,
+                        "before_price": amount,
+                        "after_price": after_amount,
+                        "task": task["description"]
+                    })
+                else:
+                    after_val = before_val
+                after_net_total += after_val
+                
+    conn.close()
+    
+    # Recalculate cascading totals: task subtotals -> estimate net -> markup -> grand total
+    before_overhead = before_net_total * (overhead_percent / 100.0)
+    before_profit = (before_net_total + before_overhead) * (profit_percent / 100.0)
+    before_grand_total = before_net_total + before_overhead + before_profit
+    
+    after_overhead = after_net_total * (overhead_percent / 100.0)
+    after_profit = (after_net_total + after_overhead) * (profit_percent / 100.0)
+    after_grand_total = after_net_total + after_overhead + after_profit
+    
+    delta_net = after_net_total - before_net_total
+    delta_grand = after_grand_total - before_grand_total
+    delta_percent = (delta_grand / before_grand_total * 100.0) if before_grand_total != 0.0 else 0.0
+    
+    return {
+        "matched_items": matched_items,
+        "before": {
+            "net_total": before_net_total,
+            "overhead": before_overhead,
+            "profit": before_profit,
+            "grand_total": before_grand_total
+        },
+        "after": {
+            "net_total": after_net_total,
+            "overhead": after_overhead,
+            "profit": after_profit,
+            "grand_total": after_grand_total
+        },
+        "delta": {
+            "net": delta_net,
+            "grand": delta_grand,
+            "percent": delta_percent
+        }
+    }
+
+
+def recommend_composite_buildup(item_description, unit="each", project_dir=None):
+    """
+    Searches historical library and project databases for a composite rate buildup
+    similar to the requested item description.
+    """
+    import re
+    if project_dir is None:
+        try:
+            costs_db = DatabaseManager("construction_costs.db")
+            project_dir = costs_db.get_setting('last_project_dir', '')
+        except Exception:
+            pass
+            
+    if project_dir:
+        project_dir = project_dir.replace('\\', '/')
+        if os.path.basename(project_dir) == "Project Database":
+            project_dir = os.path.dirname(project_dir)
+            
+    db_paths = []
+    rates_db_path = "construction_rates.db"
+    if os.path.exists(rates_db_path):
+        db_paths.append(("Historical Library", rates_db_path))
+        
+    if project_dir and os.path.exists(project_dir):
+        for sub_folder in ["Imported Library", "Project Database", "Priced BOQs", "SOR"]:
+            folder_path = os.path.join(project_dir, sub_folder)
+            if os.path.exists(folder_path):
+                for f in os.listdir(folder_path):
+                    if f.endswith('.db'):
+                        db_paths.append((f, os.path.join(folder_path, f)))
+                        
+    best_match = None
+    best_score = -1
+    best_db_path = None
+    
+    target_words = set(w.lower() for w in re.split(r'\W+', item_description) if len(w) > 2)
+    if not target_words:
+        target_words = {item_description.lower()}
+        
+    for db_name, db_path in db_paths:
+        try:
+            db = DatabaseManager(db_path)
+            rates = db.get_rates_data()
+            for r in rates:
+                desc = str(r.get('project_name', '') or '')
+                code = str(r.get('rate_code', '') or '')
+                
+                desc_words = set(w.lower() for w in re.split(r'\W+', desc) if len(w) > 2)
+                overlap = len(target_words.intersection(desc_words))
+                
+                score = overlap
+                r_unit = r.get('unit', '')
+                if r_unit and unit and r_unit.lower().strip() == unit.lower().strip():
+                    score += 0.5
+                    
+                if score > best_score and score > 0:
+                    best_score = score
+                    best_match = r
+                    best_db_path = db_path
+        except Exception:
+            pass
+            
+    if best_match and best_db_path:
+        try:
+            db = DatabaseManager(best_db_path)
+            est = db.load_estimate_details(best_match['id'])
+            if est:
+                recipe = {
+                    "matched_rate_code": est.rate_code,
+                    "description": est.project_name,
+                    "unit": est.unit,
+                    "net_rate": est.net_total,
+                    "gross_rate": est.grand_total,
+                    "confidence": "high" if best_score >= 3 else ("medium" if best_score >= 1.5 else "low"),
+                    "materials": [],
+                    "labor": [],
+                    "plant": [],
+                    "equipment": [],
+                    "indirect_costs": []
+                }
+                
+                for task in est.tasks:
+                    for m in task.materials:
+                        recipe["materials"].append({
+                            "name": m["name"],
+                            "qty": m["qty"],
+                            "unit": m["unit"],
+                            "unit_cost": m["unit_cost"],
+                            "currency": m.get("currency", "USD")
+                        })
+                    for l in task.labor:
+                        recipe["labor"].append({
+                            "trade": l["trade"],
+                            "hours": l["hours"],
+                            "unit": l.get("unit", "hr"),
+                            "rate": l["rate"],
+                            "currency": l.get("currency", "USD")
+                        })
+                    for p in task.plant:
+                        recipe["plant"].append({
+                            "name": p["name"],
+                            "hours": p["hours"],
+                            "unit": p.get("unit", "hr"),
+                            "rate": p["rate"],
+                            "currency": p.get("currency", "USD")
+                        })
+                    for eq in task.equipment:
+                        recipe["equipment"].append({
+                            "name": eq["name"],
+                            "hours": eq["hours"],
+                            "unit": eq.get("unit", "hr"),
+                            "rate": eq["rate"],
+                            "currency": eq.get("currency", "USD")
+                        })
+                    for ind in task.indirect_costs:
+                        recipe["indirect_costs"].append({
+                            "description": ind["description"],
+                            "amount": ind["amount"],
+                            "unit": ind.get("unit", "each"),
+                            "currency": ind.get("currency", "USD")
+                        })
+                        
+                return recipe
+        except Exception:
+            pass
+            
+    suggestions = []
+    try:
+        rates_db = DatabaseManager("construction_rates.db")
+        rates = rates_db.get_rates_data()
+        for r in rates[:3]:
+            suggestions.append(f"{r.get('rate_code')} - {r.get('project_name')} ({r.get('unit')})")
+    except Exception:
+        pass
+        
+    return {
+        "status": "no_match",
+        "suggestions": suggestions or ["CONC1A - Reinforced concrete slab 200mm (m3)", "EXC1A - Excavation & Earthworks (m3)"]
+    }
+
+
+
+
