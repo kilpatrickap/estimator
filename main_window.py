@@ -1239,8 +1239,8 @@ class MainWindow(QMainWindow):
                             est_obj = Estimate(
                                 project_name=rate_data.get("description", "Drafted Rate"),
                                 client_name="Atlantic Catering School Inc.",
-                                overhead_percent=active_win.tools_pane.get_overhead_value() if hasattr(active_win.tools_pane, 'get_overhead_value') else 5.0,
-                                profit_margin_percent=active_win.tools_pane.get_profit_value() if hasattr(active_win.tools_pane, 'get_profit_value') else 10.0,
+                                overhead=active_win.tools_pane.get_overhead_value() if hasattr(active_win.tools_pane, 'get_overhead_value') else 5.0,
+                                profit=active_win.tools_pane.get_profit_value() if hasattr(active_win.tools_pane, 'get_profit_value') else 10.0,
                                 currency="GHS (₵)",
                                 unit=rate_data.get("unit", "each")
                             )
