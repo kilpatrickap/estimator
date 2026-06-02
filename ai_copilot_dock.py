@@ -359,6 +359,12 @@ class MessageBubble(QFrame):
         """)
         self.adjust_browser_height()
 
+    def update_text(self, text):
+        self.html_content = markdown_to_html(text)
+        self.text_browser.setHtml(self.html_content)
+        self.adjust_browser_height()
+
+
 
 class ActionMessageBubble(MessageBubble):
     """A specialized AI message bubble that includes an action button to apply auto-pricing."""
@@ -910,6 +916,10 @@ class AICopilotDock(QDockWidget):
         if len(self.conversation_history) > 16:
             self.conversation_history = self.conversation_history[-16:]
             
+        # Reset streaming variables
+        self.current_ai_bubble = None
+        self.current_ai_text = ""
+        
         # Spin up the background thread worker safely
         self.btn_send.setEnabled(False)
         self.typing_indicator.start_animation()
@@ -923,6 +933,7 @@ class AICopilotDock(QDockWidget):
         def cleanup():
             self._active_workers.discard(worker)
             
+        worker.signals.partial_message.connect(self.on_worker_partial_message)
         worker.signals.finished.connect(self.on_worker_finished)
         worker.signals.finished.connect(cleanup)
         worker.signals.error.connect(self.on_worker_error)
@@ -930,10 +941,55 @@ class AICopilotDock(QDockWidget):
         
         QThreadPool.globalInstance().start(worker)
 
+    def on_worker_partial_message(self, chunk):
+        # Stop typing indicator if first chunk received
+        if self.typing_indicator.isVisible():
+            self.typing_indicator.stop_animation()
+            
+        if not hasattr(self, 'current_ai_bubble') or self.current_ai_bubble is None:
+            self.current_ai_text = chunk
+            self.current_ai_bubble = MessageBubble(self.current_ai_text, is_ai=True, zoom_level=self.zoom_level, parent=self)
+            self.chat_layout.insertWidget(self.chat_layout.count() - 1, self.current_ai_bubble)
+        else:
+            self.current_ai_text += chunk
+            self.current_ai_bubble.update_text(self.current_ai_text)
+            
+        # Scroll to bottom smoothly
+        self.scroll_to_bottom()
+
     def on_worker_finished(self, text):
         self.btn_send.setEnabled(True)
         self.typing_indicator.stop_animation()
-        self.add_message_bubble(text, is_ai=True)
+        
+        # If we streamed and have self.current_ai_bubble, we update it and clear self.current_ai_bubble.
+        # Otherwise, we create a new bubble.
+        if hasattr(self, 'current_ai_bubble') and self.current_ai_bubble is not None:
+            # Check if final text has draft_rate_recipe
+            recipe_match = re.search(r'<draft[-_]?rate[-_]?recipe\s+b64=["\']?([a-zA-Z0-9+/=]+)["\']?\s*/?>', text, re.IGNORECASE)
+            if recipe_match:
+                # Remove the old bubble and replace with ActionMessageBubble
+                idx = self.chat_layout.indexOf(self.current_ai_bubble)
+                self.chat_layout.removeWidget(self.current_ai_bubble)
+                self.current_ai_bubble.deleteLater()
+                
+                import base64
+                import json
+                try:
+                    json_str = base64.b64decode(recipe_match.group(1)).decode('utf-8')
+                    rate_data = json.loads(json_str)
+                    clean_bubble_text = text.replace(recipe_match.group(0), "")
+                    bubble = ActionMessageBubble(clean_bubble_text, rate_data, is_ai=True, zoom_level=self.zoom_level, parent=self)
+                except Exception as e:
+                    print(f"Error parsing base64 draft rate recipe: {e}")
+                    bubble = MessageBubble(text, is_ai=True, zoom_level=self.zoom_level, parent=self)
+                
+                self.chat_layout.insertWidget(idx, bubble)
+            else:
+                self.current_ai_bubble.update_text(text)
+            self.current_ai_bubble = None
+            self.current_ai_text = ""
+        else:
+            self.add_message_bubble(text, is_ai=True)
         
         # Strip <think>...</think> from assistant response for history tracking
         clean_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL).strip()
@@ -944,5 +1000,9 @@ class AICopilotDock(QDockWidget):
     def on_worker_error(self, error_msg):
         self.btn_send.setEnabled(True)
         self.typing_indicator.stop_animation()
+        if hasattr(self, 'current_ai_bubble') and self.current_ai_bubble is not None:
+            self.current_ai_bubble.deleteLater()
+            self.current_ai_bubble = None
+            self.current_ai_text = ""
         self.add_message_bubble(f"❌ **Error during execution:**\n{error_msg}", is_ai=True)
 

@@ -102,10 +102,10 @@ class AICopilotWorker(QRunnable):
                 except Exception:
                     pass
 
-            # 2. Gather full local context from project tools
-            workspace_files = ai_tools.get_workspace_structure()
+            # 2. Gather local context from project tools (lazy: skip expensive calls until needed)
             active_summary = ai_tools.query_active_estimate_summary(self.main_window)
-            outliers_data = ai_tools.get_outlier_items(pboq_path)
+            # Outlier scanning deferred — only loaded if query references outliers/anomalies
+            outliers_data = None
 
             # Resolve target local LLM model dynamically
             model_name = "qwen3.5:9b"
@@ -119,7 +119,7 @@ class AICopilotWorker(QRunnable):
 
             try:
                 # 3. Try to call the local LLM thinking model via Ollama
-                response_text = self._call_local_ollama(active_summary, workspace_files, outliers_data)
+                response_text = self._call_local_ollama(active_summary, outliers_data, pboq_path)
                 self.signals.finished.emit(response_text)
             except Exception as ollama_err:
                 # 4. Handle connection or model loading error strictly: notify the user and offer setup instructions
@@ -528,11 +528,12 @@ class AICopilotWorker(QRunnable):
                 pass
         return "\n".join(schema_info)
 
-    def _call_local_ollama(self, active_summary, workspace_files, outliers_data):
+    def _call_local_ollama(self, active_summary, outliers_data, pboq_path=None):
         """
         Queries the local Ollama instance dynamically using the configured local LLM model,
         supporting recursive execution of SQLite queries and JSON file reading.
         """
+        query_lower = self.user_query.lower()
         # A. Auto-detect and verify specific model via tags API
         model_name = "qwen3.5:9b"
         try:
@@ -581,8 +582,11 @@ class AICopilotWorker(QRunnable):
         except Exception:
             pass
 
-        # Generate database schemas to give model precise, real-time knowledge of all tables and columns
-        schema_context = self._generate_schema_context(available_files)
+        # Generate database schemas ONLY if the query likely needs SQL access (skip for greetings/simple Q&A)
+        schema_keywords = ["database", "table", "query", "sql", "schema", "column", "rate", "material", "labor",
+                           "equipment", "plant", "cost", "price", "estimate", "boq", "pboq", "indirect", "task"]
+        needs_schema = any(k in query_lower for k in schema_keywords)
+        schema_context = self._generate_schema_context(available_files) if needs_schema else ""
 
         # Build active project context description dynamically
         active_context = ""
@@ -656,7 +660,10 @@ class AICopilotWorker(QRunnable):
         query_lower = self.user_query.lower()
 
         
-        # 1. PBOQ Price Outliers & Anomalies Context
+        # 1. PBOQ Price Outliers & Anomalies Context (LAZY: only load if query references them)
+        if any(k in query_lower for k in ["outlier", "anomal", "deviation", "flag", "plug", "review", "variance"]):
+            if outliers_data is None:
+                outliers_data = ai_tools.get_outlier_items(pboq_path)
         if outliers_data:
             devs = outliers_data.get("outlier_deviations", [])
             plugs = outliers_data.get("manual_plug_rates", [])
@@ -906,11 +913,12 @@ class AICopilotWorker(QRunnable):
             except Exception:
                 pass
 
-        # 6. Proactive Database & Historical Rate Search Context
+        # 6. Proactive Database & Historical Rate Search Context (GUARDED: skip for greetings/short queries)
+        greeting_words = {"hello", "hi", "hey", "thanks", "thank", "bye", "okay", "ok", "yes", "no", "sure", "help", "what", "how", "why", "who", "when"}
         search_terms = []
         stop_words = {"show", "search", "find", "query", "historical", "rates", "rate", "for", "the", "a", "an", "is", "in", "active", "project", "database", "library", "libraries", "costs", "cost"}
         for word in re.split(r'[^a-zA-Z0-9\-]', query_lower):
-            if len(word) >= 3 and word not in stop_words and not word.isdigit():
+            if len(word) >= 3 and word not in stop_words and word not in greeting_words and not word.isdigit():
                 search_terms.append(word)
                 
         if search_terms:
@@ -957,100 +965,139 @@ class AICopilotWorker(QRunnable):
                 pass
 
         system_prompt = (
-            "================================================================================\n"
-            "ROLE & IDENTITY DECLARATION:\n"
-            f"You are the \"AI Estimating Copilot for Estimator Pro,\" powered by the local '{model_name}' model.\n"
-            "You are a world-class professional Quantity Surveyor and Construction Estimating Expert.\n"
-            "If the user asks about your model, creator, or architecture, always proudly state that you are the Estimator Pro AI Copilot running locally.\n"
-            "You operate strictly within the domain of construction estimating, costing, bills of quantities (BOQ), materials, labor, plant/equipment rates, and project markups.\n\n"
-            "=== ACTIVE PROJECT REAL-TIME QS DATA ===\n"
+            f"You are the AI Estimating Copilot for Estimator Pro (local '{model_name}' model). "
+            "You are a world-class Quantity Surveyor and Construction Estimating Expert. "
+            "You operate strictly within construction estimating, costing, BOQ, materials, labor, plant/equipment rates, and markups.\n\n"
             f"{extra_context}"
-            "========================================\n\n"
-            "=== MANDATORY DATA USAGE RULE (HIGHEST PRIORITY) ===\n"
-            "If the 'REAL-TIME SEARCH RESULTS', 'ACTIVE PROJECT PRICED BOQ ITEMS', 'COMPOSITE RATE BUILDUP RECIPE', or 'ACTIVE PROJECT PRICE OUTLIERS' sections above contain data that answers or is relevant to the user's question, "
-            "you MUST use that pre-fetched data directly in your response. Do NOT issue additional <query_db> calls, do NOT write SQL, and do NOT hallucinate or invent prices. "
-            "Present the pre-fetched data in a clean, professional markdown table with appropriate columns (e.g., Rate Code | Description | Unit | Currency | Net Rate | Grand Total). "
-            "If no pre-fetched data is present for the user's query, THEN and ONLY THEN should you use <query_db> to fetch data.\n"
-            "========================================\n\n"
-            "=== CRITICAL CONSTRAINTS: YOU ARE NOT A CODING ASSISTANT ===\n"
-            "- **YOU ARE NOT A CODING OR DATABASE TUTOR**: You must NEVER teach programming, NEVER write SQL debugging guides, and NEVER explain SQLite errors or database design concepts to the user. If they ask a question, answer it in terms of construction rates and estimating.\n"
-            "- **HIDE THE TECHNICAL UNDERPINNINGS**: The user is a professional estimator/builder, not a software engineer. They must NEVER see database terms, table names (e.g., 'pboq_items'), SQL queries, or column lists in your response. Always present data in clean, standard, domain-friendly terms (e.g., 'priced BOQ sheet', 'materials library', 'unit rate', 'subtotal').\n"
-            "- **NEVER WRITE SQL CODE BLOCKS**: Do NOT write standard markdown SQL code blocks (e.g. ```sql ... ```) inside your user-facing responses. If you need to query database tables, use the <query_db> tag privately.\n"
-            "- **NO TECH JARGON**: If a database query fails or returns no rows, NEVER discuss the SQL error or schema mismatch. Simply say, in professional estimating terms, that the requested resource or setting was not found or has not been configured in the loaded project.\n"
-            "- **SELF-CORRECTION ON ERROR**: If a <query_result> returns an SQL error with column hints (e.g., 'table X has columns: a, b, c'), you MUST silently retry with the correct column names. NEVER show or describe the error to the user under any circumstances.\n"
-            "================================================================================\n\n"
-            "=== CRITICAL DIRECT ANSWER GUIDELINE ===\n"
-            "If the user asks a simple or direct question about the loaded project (such as the project currency, project name, client name, total BOQ items, priced items, grand total bid value, overhead markup, profit margin, or other metadata) that is already present in the '--- ACTIVE LOADED PROJECT ---' block below, you MUST answer the question directly and concisely in a single sentence (e.g., 'The base currency of the project is USD ($).') based on that block. Do NOT write any SQLite database queries, do NOT write SQL code blocks, do NOT use any <query_db> tags, and do NOT print any tables, columns, schema metadata, observations, or key observations.\n"
-            "========================================\n\n"
+            "### MANDATORY DATA USAGE RULE\n"
+            "1. If pre-fetched data (SEARCH RESULTS, BOQ ITEMS, RATE RECIPES, OUTLIERS) answers the query, present it directly as a markdown table. Do NOT issue <query_db> calls.\n"
+            "2. For simple project metadata questions (currency, name, total, overhead, profit) answered by the ACTIVE PROJECT block, respond in one sentence. No SQL.\n"
+            "3. NEVER show SQL, table names, column names, schema, or database errors to the user. Use domain terms only (e.g., 'priced BOQ sheet', 'unit rate').\n\n"
+            "### SELF-CORRECTION ON ERROR\n"
+            "4. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
+            "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n\n"
             f"{active_context}"
-            "Here is the database schema context of the project:\n"
-            f"{schema_context}\n\n"
-            "CRITICAL SQLite METADATA INSTRUCTIONS:\n"
-            "- Since the database is SQLite, you CANNOT use 'INFORMATION_SCHEMA' or 'DESCRIBE'.\n"
-            "- To get column names and types in SQLite, run: PRAGMA table_info(tableName);\n"
-            "- To list tables, run: SELECT name FROM sqlite_master WHERE type='table';\n\n"
-            "INSTRUCTIONS FOR DB QUERYING & FILE ACCESS:\n"
-            "- To query an SQLite database, write exactly:\n"
-            "<query_db db=\"DATABASENAME\">SQL_QUERY</query_db>\n"
-            "For example: <query_db db=\"construction_costs.db\">SELECT * FROM materials LIMIT 5;</query_db>\n\n"
-            "- To read a JSON file, write exactly:\n"
-            "<read_json file=\"FILENAME\"></read_json>\n"
-            "For example: <read_json file=\"settings.json\"></read_json>\n\n"
-            "- To fetch the Unified Project Knowledge Graph (which groups priced items by WBS, maps recipes/buildup chains, and detects concrete slab under-measurement warnings), write exactly:\n"
-            "<get_knowledge_graph />\n\n"
-            "- To ingest all project settings, resources summary lists, Schedule of Rates (SOR) items, priced BOQs metadata, and dynamic margin/outlier analytics, write exactly:\n"
-            "<ingest_project_domains />\n\n"
-            "- To generate the PDF Executive Analytics Report for the project, write exactly:\n"
-            "<generate_report type=\"executive_summary\" />\n\n"
-            "- To run an in-memory ephemeral what-if pricing scenario, write exactly:\n"
-            "<what_if resource=\"RESOURCE_TYPE\" name=\"RESOURCE_NAME\" adjustment=\"ADJUSTMENT_PERCENT\" />\n"
-            "For example: <what_if resource=\"materials\" name=\"concrete\" adjustment=\"+12%\" />\n\n"
-            "- To draft or recommend a composite rate buildup for an unpriced item, write exactly:\n"
-            "<draft_rate description=\"ITEM_DESCRIPTION\" unit=\"ITEM_UNIT\" />\n"
-            "For example: <draft_rate description=\"Reinforced concrete slab 200mm\" unit=\"m3\" />\n\n"
-            "If you output a tag, STOP generating immediately. The system will execute the query/read/graph ingestion, append the results, and invoke you again to formulate your final response.\n"
-            "Use these tools immediately to fetch actual database results, structural knowledge graph details, PDF reports, what-if analyses, or rate buildup recommendations if the user asks any question about library prices, estimate details, WBS sections, rate recipes, under-measurement warnings, database tables, files, reports, scenarios, or unpriced items. Do not suggest or write placeholders; run the query or tool to find the actual real-time answers.\n\n"
-            "=== ADDITIONAL CRITICAL CONSTRAINTS ===\n"
-            "- NEVER print, summarize, copy, list, or describe the database schema, table structures, or column listings in your final response unless the user explicitly asked you to show database schema/structure.\n"
-            "- Simple questions must be answered with a simple, direct, friendly sentence. Keep the database technical details completely invisible to the user by default.\n"
-            "- Focus only on extracting the requested information and answering the user directly.\n"
-            "- You MUST always produce a substantive, non-empty response. Never return only whitespace or thinking tags."
+        )
+
+        # Conditionally add schema context and tool instructions only when needed
+        if schema_context:
+            system_prompt += (
+                f"Database schema:\n{schema_context}\n\n"
+                "SQLite notes: Use PRAGMA table_info(tableName) for columns, SELECT name FROM sqlite_master WHERE type='table' for tables.\n\n"
+            )
+
+        system_prompt += (
+            "TOOLS (output tag then STOP, system executes and returns result):\n"
+            "- <query_db db=\"DBNAME\">SQL</query_db>  Query SQLite database\n"
+            "- <read_json file=\"NAME\"></read_json>  Read JSON file\n"
+            "- <get_knowledge_graph />  WBS hierarchy, recipe chains, QS warnings\n"
+            "- <ingest_project_domains />  Project settings, SOR, resources, analytics\n"
+            "- <generate_report type=\"executive_summary\" />  Generate PDF report\n"
+            "- <what_if resource=\"TYPE\" name=\"NAME\" adjustment=\"±N%\" />  What-if scenario\n"
+            "- <draft_rate description=\"DESC\" unit=\"UNIT\" />  Recommend rate buildup\n"
         )
 
         messages = [{"role": "system", "content": system_prompt}]
-        for turn in self.conversation_history:
+
+        # OPTIMIZATION: Trim conversation history to last 6 turns with 500-char truncation
+        trimmed_history = self.conversation_history[-6:] if len(self.conversation_history) > 6 else self.conversation_history
+        for turn in trimmed_history:
             role = turn.get("role")
             content = turn.get("content", "")
             if role == "assistant":
                 content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+            # Truncate very long messages to keep context window lean
+            if len(content) > 500:
+                content = content[:500] + "..."
             messages.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": self.user_query})
+
+        # OPTIMIZATION: Suppress thinking mode for simple queries (/no_think) on Qwen models
+        simple_patterns = ["hello", "hi ", "hey", "thanks", "what is the", "what's the",
+                           "show me the", "currency", "project name", "overhead", "profit",
+                           "grand total", "how many"]
+        is_simple = len(self.user_query.split()) <= 8 or any(p in query_lower for p in simple_patterns)
+        is_qwen = "qwen" in model_name.lower()
+        user_msg = self.user_query + " /no_think" if (is_simple and is_qwen) else self.user_query
+        messages.append({"role": "user", "content": user_msg})
 
 
         url = "http://localhost:11434/v1/chat/completions"
         headers = {"Content-Type": "application/json"}
 
         for iteration in range(5):
+            # Stream only on the final iteration (no tool calls detected) — intermediate tool calls use non-streaming
+            is_potentially_final = (iteration > 0) or is_simple
             data = {
                 "model": model_name,
                 "messages": messages,
                 "temperature": 0.2,
-                "stream": False
+                "stream": is_potentially_final,
+                "options": {
+                    "num_ctx": 4096,
+                    "num_predict": 1024,
+                    "num_batch": 512,
+                    "num_gpu": 99,
+                }
             }
 
             req = urllib.request.Request(url, data=json.dumps(data).encode("utf-8"), headers=headers, method="POST")
             try:
                 with urllib.request.urlopen(req, timeout=300) as response:
-                    res_data = json.loads(response.read().decode("utf-8"))
-                    content = res_data["choices"][0]["message"]["content"]
+                    if is_potentially_final:
+                        # Streaming: read NDJSON chunks and emit partial_message signals
+                        content = ""
+                        try:
+                            if hasattr(response, 'data') or not hasattr(response, '__iter__'):
+                                lines_source = response.read().splitlines()
+                            else:
+                                lines_source = response
+                        except Exception:
+                            lines_source = response.read().splitlines()
+
+                        for raw_line in lines_source:
+                            if isinstance(raw_line, bytes):
+                                line = raw_line.decode("utf-8").strip()
+                            else:
+                                line = raw_line.strip()
+                            if not line:
+                                continue
+                            # OpenAI-compatible SSE format: "data: {...}"
+                            if line.startswith("data: "):
+                                line = line[6:]
+                            if line == "[DONE]":
+                                break
+                            try:
+                                chunk_data = json.loads(line)
+                                choices = chunk_data.get("choices", [])
+                                if choices:
+                                    if "message" in choices[0]:
+                                        chunk_text = choices[0]["message"].get("content", "")
+                                    else:
+                                        delta = choices[0].get("delta", {})
+                                        chunk_text = delta.get("content", "")
+                                    if chunk_text:
+                                        content += chunk_text
+                                        
+                                        # Get content without thinking tags to check for tool calls
+                                        clean_content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
+                                        is_tool_call = clean_content.startswith("<")
+                                        
+                                        if not is_tool_call:
+                                            self.signals.partial_message.emit(chunk_text)
+                            except (json.JSONDecodeError, KeyError, IndexError):
+                                continue
+                    else:
+                        # Non-streaming: read full response
+                        res_data = json.loads(response.read().decode("utf-8"))
+                        content = res_data["choices"][0]["message"]["content"]
             except Exception as e:
                 raise Exception(f"Local LLM API error: {str(e)}")
 
             # Check for <query_db>, <read_json>, <get_knowledge_graph>, or <ingest_project_domains> tags
-            db_match = re.search(r'<query[-_]?db\s+db=["\']?([^"\'\s>]+)["\']?>(.*?)(?:</query[-_]?db>|$)', content, re.DOTALL | re.IGNORECASE)
-            json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'\s>]+)["\']?>(.*?)(?:</read[-_]?json>|$)', content, re.DOTALL | re.IGNORECASE)
+            db_match = re.search(r'<query[-_]?db\s+db=["\']?([^"\'>]+)["\']?>(.*?)(?:</query[-_]?db>|$)', content, re.DOTALL | re.IGNORECASE)
+            json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'>]+)["\']?>(.*?)(?:</read[-_]?json>|$)', content, re.DOTALL | re.IGNORECASE)
             if not json_match:
-                json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+                json_match = re.search(r'<read[-_]?json\s+file=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
                 
             graph_match = re.search(r'<get_knowledge_graph\s*/?>', content, re.IGNORECASE)
             if not graph_match:
@@ -1060,13 +1107,13 @@ class AICopilotWorker(QRunnable):
             if not domains_match:
                 domains_match = re.search(r'<ingest_project_domains\s*>(.*?)(?:</ingest_project_domains>|$)', content, re.DOTALL | re.IGNORECASE)
 
-            report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
             if not report_match:
-                report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'\s>]+)["\']?\s*>(.*?)(?:</generate[-_]?report>|$)', content, re.DOTALL | re.IGNORECASE)
+                report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'>]+)["\']?\s*>(.*?)(?:</generate[-_]?report>|$)', content, re.DOTALL | re.IGNORECASE)
                 
-            what_if_match = re.search(r'<what[-_]?if\s+resource=["\']?([^"\'\s>]+)["\']?\s+name=["\']?([^"\'>]+)["\']?\s+adjustment=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            what_if_match = re.search(r'<what[-_]?if\s+resource=["\']?([^"\'>]+)["\']?\s+name=["\']?([^"\'>]+)["\']?\s+adjustment=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
             
-            draft_rate_match = re.search(r'<draft[-_]?rate\s+description=["\']?([^"\'>]+)["\']?\s+unit=["\']?([^"\'\s>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            draft_rate_match = re.search(r'<draft[-_]?rate\s+description=["\']?([^"\'>]+)["\']?\s+unit=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
 
             # Heuristic: If no explicit tag matches, but the model output contains a SQL code block, treat it as an implicit database query!
             if not db_match and not json_match and not graph_match and not domains_match and not report_match and not what_if_match and not draft_rate_match:
