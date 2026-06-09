@@ -8,6 +8,7 @@ from PyQt6.QtCore import QRunnable, QObject, pyqtSignal
 import ai_tools
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_AI_MODEL = "qwen3.5:9b"
 
 class AICopilotSignals(QObject):
     """
@@ -108,11 +109,11 @@ class AICopilotWorker(QRunnable):
             outliers_data = None
 
             # Resolve target local LLM model dynamically
-            model_name = "qwen3.5:9b"
+            model_name = DEFAULT_AI_MODEL
             try:
                 from database import DatabaseManager
                 costs_db = DatabaseManager("construction_costs.db")
-                model_name = costs_db.get_setting("ai_model_name", "qwen3.5:9b")
+                model_name = costs_db.get_setting("ai_model_name", DEFAULT_AI_MODEL)
             except Exception:
                 pass
 
@@ -535,11 +536,11 @@ class AICopilotWorker(QRunnable):
         """
         query_lower = self.user_query.lower()
         # A. Auto-detect and verify specific model via tags API
-        model_name = "qwen3.5:9b"
+        model_name = DEFAULT_AI_MODEL
         try:
             from database import DatabaseManager
             costs_db = DatabaseManager("construction_costs.db")
-            model_name = costs_db.get_setting("ai_model_name", "qwen3.5:9b")
+            model_name = costs_db.get_setting("ai_model_name", DEFAULT_AI_MODEL)
         except Exception:
             pass
 
