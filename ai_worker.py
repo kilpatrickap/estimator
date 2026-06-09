@@ -8,7 +8,7 @@ from PyQt6.QtCore import QRunnable, QObject, pyqtSignal
 import ai_tools
 
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_AI_MODEL = "qwen3.5:9b"
+DEFAULT_AI_MODEL = "lfm2.5:8b"
 
 class AICopilotSignals(QObject):
     """
