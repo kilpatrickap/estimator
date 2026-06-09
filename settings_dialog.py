@@ -246,6 +246,28 @@ class SettingsDialog(QDialog):
         self.categories_btn.clicked.connect(self.open_categories_dialog)
         app_form.addRow("Categories and Codes:", self.categories_btn)
         
+        # AI Reasoner Model (Ollama)
+        installed_models = self.get_installed_ollama_models()
+        self.ai_model_combo = QComboBox()
+        self.ai_model_combo.addItem("None")
+        if installed_models:
+            seen = set(["None"])
+            for m in installed_models:
+                if m not in seen:
+                    self.ai_model_combo.addItem(m)
+                    seen.add(m)
+        
+        saved_model = self.db_manager.get_setting("ai_model_name", "")
+        if saved_model and saved_model != "None":
+            items = [self.ai_model_combo.itemText(i) for i in range(self.ai_model_combo.count())]
+            if saved_model not in items:
+                self.ai_model_combo.addItem(saved_model)
+            self.ai_model_combo.setCurrentText(saved_model)
+        else:
+            self.ai_model_combo.setCurrentText("None")
+            
+        app_form.addRow("AI Reasoner Model:", self.ai_model_combo)
+        
         app_layout.addLayout(app_form)
         app_layout.addStretch()
         columns_layout.addWidget(app_group)
@@ -420,6 +442,18 @@ class SettingsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         main_layout.addWidget(self.button_box)
 
+    def get_installed_ollama_models(self):
+        import urllib.request
+        import json
+        try:
+            req = urllib.request.Request("http://localhost:11434/api/tags", method="GET")
+            with urllib.request.urlopen(req, timeout=1.5) as response:
+                tags_data = json.loads(response.read().decode("utf-8"))
+                models = tags_data.get("models", [])
+                return [m.get("name", "") for m in models if m.get("name")]
+        except Exception:
+            return []
+
     def browse_logo(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Select Logo", "", "Images (*.png *.jpg *.jpeg)")
         if file_path:
@@ -578,9 +612,12 @@ class SettingsDialog(QDialog):
             self.db_manager.set_setting('company_name', self.company_name.text())
             self.db_manager.set_setting('company_logo', self.logo_path.text())
             
+            selected_model = self.ai_model_combo.currentText()
+            if selected_model == "None":
+                selected_model = ""
+            self.db_manager.set_setting('ai_model_name', selected_model)
 
             QMessageBox.information(self, "Success", "Settings saved successfully.")
             self.accept()
         except ValueError:
             QMessageBox.warning(self, "Error", "Invalid numeric values for settings.")
-
