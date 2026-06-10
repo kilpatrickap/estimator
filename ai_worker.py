@@ -32,6 +32,131 @@ class AICopilotWorker(QRunnable):
         self.signals = AICopilotSignals()
         self.recipe_tag = ""
 
+    def _classify_intent(self, query_lower):
+        """
+        Classifies the user query into one or more intent categories to determine
+        which proactive context blocks to inject. Returns a set of intent strings.
+        This replaces the fragile per-keyword gating with broader semantic matching.
+        """
+        intents = set()
+
+        # Greeting / small-talk detection (skip heavy context injection)
+        greeting_patterns = ["hello", "hi ", "hey ", "thanks", "thank you", "bye", "okay", "ok ", "yes", "no ", "sure"]
+        if any(query_lower.startswith(g) or query_lower == g.strip() for g in greeting_patterns):
+            intents.add("greeting")
+            return intents
+
+        # Analysis / overview intent — broad patterns that users naturally use
+        analysis_patterns = ["analy", "review", "assess", "evaluat", "examin", "audit",
+                             "summary", "summarize", "summarise", "overview", "status",
+                             "health", "tell me about", "how is", "how's", "look at",
+                             "what about", "check ", "inspect", "diagnos", "the project",
+                             "this project", "active project", "current project", "my project"]
+        if any(p in query_lower for p in analysis_patterns):
+            intents.add("analysis")
+
+        # Outlier / anomaly intent
+        outlier_patterns = ["outlier", "anomal", "deviation", "flag", "plug", "variance",
+                            "unusual", "suspicious", "wrong", "issue", "problem", "concern"]
+        if any(p in query_lower for p in outlier_patterns):
+            intents.add("outlier")
+
+        # Search / lookup intent
+        search_patterns = ["search", "find", "show", "list", "get ", "what ", "rate",
+                           "price", "cost", "material", "labor", "labour", "equipment",
+                           "plant", "concrete", "steel", "masonry", "plaster", "timber",
+                           "painting", "electrical", "plumbing", "excavat", "formwork"]
+        if any(p in query_lower for p in search_patterns):
+            intents.add("search")
+
+        # BOQ / items intent
+        boq_patterns = ["boq", "pboq", "bill", "item", "priced", "unpriced", "outstanding",
+                        "sheet", "quantity", "quantities"]
+        if any(p in query_lower for p in boq_patterns):
+            intents.add("boq")
+
+        # WBS / structure intent
+        wbs_patterns = ["wbs", "hierarchy", "section", "structure", "breakdown",
+                        "dependency", "under-measurement"]
+        if any(p in query_lower for p in wbs_patterns):
+            intents.add("wbs")
+
+        # Domain / settings intent
+        domain_patterns = ["sor", "schedule of rates", "ingest", "settings", "exchange",
+                           "currency", "overhead", "profit", "margin", "markup"]
+        if any(p in query_lower for p in domain_patterns):
+            intents.add("domains")
+
+        # Subcontractor intent
+        sub_patterns = ["sub", "subcontractor", "quote", "rfq", "tender"]
+        if any(p in query_lower for p in sub_patterns):
+            intents.add("subcontractor")
+
+        # Action intent
+        action_patterns = ["generate", "create", "draft", "build", "compile", "export",
+                           "report", "pdf", "auto-price", "recommend"]
+        if any(p in query_lower for p in action_patterns):
+            intents.add("action")
+
+        # Examples / help intent
+        example_patterns = ["example", "what can you", "what do you", "help me",
+                            "how to use", "what should i ask", "give me"]
+        if any(p in query_lower for p in example_patterns):
+            intents.add("examples")
+
+        # If no specific intent detected, default to analysis (broad catch-all)
+        if not intents:
+            intents.add("analysis")
+
+        return intents
+
+    def _generate_project_snapshot_fallback(self, active_summary):
+        """
+        Generates a useful project KPI summary response from the active_summary data.
+        Used as an intelligent fallback when the LLM fails to produce output.
+        """
+        if not active_summary or "status" in active_summary:
+            return None
+
+        currency = str(active_summary.get('currency', 'GHS')).split(' ')[0]
+        proj_name = active_summary.get('project_name', 'Active Project')
+        lines = [f"### 📊 Project Summary: {proj_name}\n"]
+
+        if 'total_boq_items' in active_summary:
+            total = active_summary.get('total_boq_items', 0)
+            priced = active_summary.get('priced_items', 0)
+            outstanding = active_summary.get('outstanding_items', 0)
+            plugged = active_summary.get('plugged_items', 0)
+            lines.append(f"| Metric | Value |")
+            lines.append(f"| --- | --- |")
+            lines.append(f"| Total BOQ Items | {total} |")
+            lines.append(f"| Priced Items | {priced} |")
+            lines.append(f"| Outstanding Items | {outstanding} |")
+            lines.append(f"| Plugged Rates | {plugged} |")
+            lines.append(f"| Net Subtotal | {currency} {active_summary.get('subtotal', 0):,.2f} |")
+            lines.append(f"| Overhead ({active_summary.get('overhead_percent', 0):.1f}%) | {currency} {active_summary.get('overhead_amount', 0):,.2f} |")
+            lines.append(f"| Profit ({active_summary.get('profit_margin_percent', 0):.1f}%) | {currency} {active_summary.get('profit_amount', 0):,.2f} |")
+            lines.append(f"| **Grand Total** | **{currency} {active_summary.get('grand_total', 0):,.2f}** |")
+        else:
+            lines.append(f"| Metric | Value |")
+            lines.append(f"| --- | --- |")
+            lines.append(f"| Rate Code | {active_summary.get('rate_code', 'N/A')} |")
+            lines.append(f"| Category | {active_summary.get('category', 'N/A')} |")
+            lines.append(f"| Net Subtotal | {currency} {active_summary.get('subtotal', 0):,.2f} |")
+            lines.append(f"| Grand Total | {currency} {active_summary.get('grand_total', 0):,.2f} |")
+
+        if active_summary.get('plugged_items', 0) > 0:
+            lines.append(f"\n> [!WARNING]\n> This project has **{active_summary['plugged_items']} plugged rates** that should be reviewed before final submission.")
+        if active_summary.get('outstanding_items', 0) > 0:
+            lines.append(f"\n> [!NOTE]\n> There are **{active_summary['outstanding_items']} unpriced items** remaining in the BOQ.")
+
+        lines.append("\n### 💡 Suggested Next Steps")
+        lines.append("- Ask me to **\"Analyze project outliers\"** to find pricing anomalies")
+        lines.append("- Ask me to **\"Show active estimate KPIs\"** for a detailed breakdown")
+        lines.append("- Ask me to **\"Search historical rates for [material]\"** to compare pricing")
+
+        return "\n".join(lines)
+
 
     def run(self):
         try:
@@ -660,9 +785,11 @@ class AICopilotWorker(QRunnable):
         extra_context = focused_str
         query_lower = self.user_query.lower()
 
-        
-        # 1. PBOQ Price Outliers & Anomalies Context (LAZY: only load if query references them)
-        if any(k in query_lower for k in ["outlier", "anomal", "deviation", "flag", "plug", "review", "variance"]):
+        # SMART INTENT CLASSIFICATION: Determine what context to inject based on query intent
+        intents = self._classify_intent(query_lower)
+
+        # 1. PBOQ Price Outliers & Anomalies Context (triggered by 'outlier' or 'analysis' intent)
+        if "outlier" in intents or "analysis" in intents:
             if outliers_data is None:
                 outliers_data = ai_tools.get_outlier_items(pboq_path)
         if outliers_data:
@@ -820,7 +947,7 @@ class AICopilotWorker(QRunnable):
                 pass
 
         # 3. WBS & Under-Measurement QS Warnings Context
-        if any(k in query_lower for k in ["wbs", "hierarchy", "section", "under-measurement", "dependency", "slab", "concrete"]):
+        if "wbs" in intents or any(k in query_lower for k in ["wbs", "hierarchy", "section", "under-measurement", "dependency", "slab", "concrete"]):
             try:
                 graph_data = ai_tools.build_unified_knowledge_graph()
                 wbs = graph_data.get("wbs_hierarchy", {})
@@ -845,7 +972,7 @@ class AICopilotWorker(QRunnable):
                 pass
 
         # 4. Ingest / SOR Domains Context
-        if any(k in query_lower for k in ["sor", "schedule of rates", "ingest", "settings", "exchange"]):
+        if "domains" in intents or any(k in query_lower for k in ["sor", "schedule of rates", "ingest", "settings", "exchange"]):
             try:
                 domains_data = ai_tools.ingest_project_domains()
                 settings = domains_data.get("project_settings", {})
@@ -864,7 +991,7 @@ class AICopilotWorker(QRunnable):
                 pass
 
         # 5. Priced BOQ Items Context
-        if any(k in query_lower for k in ["list", "show", "priced", "boq", "item"]):
+        if "boq" in intents or "analysis" in intents or any(k in query_lower for k in ["list", "show", "priced", "boq", "item"]):
             try:
                 priced_items = ai_tools.get_active_project_priced_items(project_dir)
                 if priced_items:
@@ -889,7 +1016,7 @@ class AICopilotWorker(QRunnable):
                 pass
 
         # 7. Subcontractor Quotes Context
-        if any(k in query_lower for k in ["sub", "subcontractor", "quote", "rfq", "tender"]):
+        if "subcontractor" in intents or any(k in query_lower for k in ["sub", "subcontractor", "quote", "rfq", "tender"]):
             try:
                 sub_quotes = ai_tools.get_subcontractor_quotes(project_dir)
                 if sub_quotes:
@@ -973,10 +1100,24 @@ class AICopilotWorker(QRunnable):
             "### MANDATORY DATA USAGE RULE\n"
             "1. If pre-fetched data (SEARCH RESULTS, BOQ ITEMS, RATE RECIPES, OUTLIERS) answers the query, present it directly as a markdown table. Do NOT issue <query_db> calls.\n"
             "2. For simple project metadata questions (currency, name, total, overhead, profit) answered by the ACTIVE PROJECT block, respond in one sentence. No SQL.\n"
-            "3. NEVER show SQL, table names, column names, schema, or database errors to the user. Use domain terms only (e.g., 'priced BOQ sheet', 'unit rate').\n\n"
+            "3. NEVER show SQL, table names, column names, schema, or database errors to the user. Use domain terms only (e.g., 'priced BOQ sheet', 'unit rate').\n"
+            "3b. NEVER use HTML tags like <br>, <b>, <p>, or <table> in your output. Use ONLY standard markdown: **bold**, newlines, bullet points (- or *), numbered lists, and markdown tables (| col | col |).\n\n"
             "### SELF-CORRECTION ON ERROR\n"
             "4. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
             "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n\n"
+            "### HANDLING VAGUE OR GENERAL QUERIES\n"
+            "6. If the user asks a general question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'tell me about this', or any broad request:\n"
+            "   a. Summarize the active project: name, total items, priced vs outstanding items, grand total, currency\n"
+            "   b. Highlight any pricing anomalies, plugged rates, or outliers if data is available in the context above\n"
+            "   c. Provide 2-3 actionable recommendations (e.g., 'Review the 5 plugged rates', 'Consider adjusting the concrete rate')\n"
+            "   d. NEVER respond with 'I couldn't formulate an answer' if ANY project data is available in the ACTIVE PROJECT block or pre-fetched data above.\n\n"
+            "### HANDLING EXAMPLE REQUESTS\n"
+            "7. If the user asks for examples, help, or 'what can you do', provide 6-8 specific example questions they can ask, grouped by category:\n"
+            "   - Project Analysis: 'Show active estimate KPIs', 'Analyze project outliers'\n"
+            "   - Rate Lookup: 'Search historical rates for Concrete', 'Show me all labor rates'\n"
+            "   - What-If: 'What if concrete prices increase by 10%?'\n"
+            "   - Reports: 'Generate an executive summary report'\n"
+            "   - Subcontractors: 'Show subcontractor quotes', 'Compare sub quotes'\n\n"
             f"{active_context}"
         )
 
@@ -1000,7 +1141,8 @@ class AICopilotWorker(QRunnable):
 
         messages = [{"role": "system", "content": system_prompt}]
 
-        # OPTIMIZATION: Trim conversation history to last 6 turns with 500-char truncation
+        # OPTIMIZATION: Trim conversation history to last 6 turns with 1200-char truncation
+        # (Increased from 500 to preserve multi-turn context for follow-up questions)
         trimmed_history = self.conversation_history[-6:] if len(self.conversation_history) > 6 else self.conversation_history
         for turn in trimmed_history:
             role = turn.get("role")
@@ -1008,8 +1150,8 @@ class AICopilotWorker(QRunnable):
             if role == "assistant":
                 content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
             # Truncate very long messages to keep context window lean
-            if len(content) > 500:
-                content = content[:500] + "..."
+            if len(content) > 1200:
+                content = content[:1200] + "..."
             messages.append({"role": role, "content": content})
 
         # OPTIMIZATION: Suppress thinking mode for simple queries (/no_think) on Qwen models
@@ -1034,8 +1176,8 @@ class AICopilotWorker(QRunnable):
                 "temperature": 0.2,
                 "stream": is_potentially_final,
                 "options": {
-                    "num_ctx": 4096,
-                    "num_predict": 1024,
+                    "num_ctx": 8192,
+                    "num_predict": 2048,
                     "num_batch": 512,
                     "num_gpu": 99,
                 }
@@ -1304,6 +1446,10 @@ class AICopilotWorker(QRunnable):
                                 "I found the following results from your project libraries:\n\n"
                                 + self._format_proactive_context_as_response(extra_context)
                             )
+                        # Try to produce a useful project summary from active_summary
+                        snapshot = self._generate_project_snapshot_fallback(active_summary)
+                        if snapshot:
+                            return snapshot
                         return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
                     
                     actual_ret = f"> [!THINK]\n> {thinking}\n\n{actual_content}"
@@ -1318,6 +1464,10 @@ class AICopilotWorker(QRunnable):
                             "I found the following results from your project libraries:\n\n"
                             + self._format_proactive_context_as_response(extra_context)
                         )
+                    # Try to produce a useful project summary from active_summary
+                    snapshot = self._generate_project_snapshot_fallback(active_summary)
+                    if snapshot:
+                        return snapshot
                     return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
                 
                 actual_ret = content
@@ -1332,6 +1482,10 @@ class AICopilotWorker(QRunnable):
                     "I found the following results from your project libraries:\n\n"
                     + self._format_proactive_context_as_response(extra_context)
                 )
+            # Try to produce a useful project summary from active_summary
+            snapshot = self._generate_project_snapshot_fallback(active_summary)
+            if snapshot:
+                return snapshot
             return "I processed your query but couldn't formulate a complete answer. Please try rephrasing your question, or ask something more specific about the active project."
         actual_ret = content
         if self.recipe_tag:
