@@ -742,6 +742,14 @@ class AICopilotWorker(QRunnable):
         schema_keywords = ["database", "table", "query", "sql", "schema", "column", "rate", "material", "labor",
                            "equipment", "plant", "cost", "price", "estimate", "boq", "pboq", "indirect", "task"]
         needs_schema = any(k in query_lower for k in schema_keywords)
+        
+        # Suppress schema for high-level tool intents (what-if, reports, draft rates) to prevent LLM confusion
+        is_what_if = "what if" in query_lower or "what-if" in query_lower or "scenario" in query_lower
+        is_report = "report" in query_lower or "pdf" in query_lower or "executive summary" in query_lower
+        is_draft = "draft" in query_lower or "rate buildup" in query_lower or "buildup" in query_lower
+        if is_what_if or is_report or is_draft:
+            needs_schema = False
+
         schema_context = self._generate_schema_context(available_files) if needs_schema else ""
 
         # Build active project context description dynamically
@@ -1274,19 +1282,35 @@ class AICopilotWorker(QRunnable):
             "### SELF-CORRECTION ON ERROR\n"
             "4. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
             "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n\n"
-            "### HANDLING VAGUE OR GENERAL QUERIES\n"
-            "6. If the user asks a general question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'tell me about this', or any broad request:\n"
-            "   a. Summarize the active project: name, total items, priced vs outstanding items, grand total, currency\n"
-            "   b. Highlight any pricing anomalies, plugged rates, or outliers if data is available in the context above\n"
-            "   c. Provide 2-3 actionable recommendations (e.g., 'Review the 5 plugged rates', 'Consider adjusting the concrete rate')\n"
-            "   d. NEVER respond with 'I couldn't formulate an answer' if ANY project data is available in the ACTIVE PROJECT block or pre-fetched data above.\n\n"
+            "### HANDLING VAGUE, GENERAL, OR KPI QUERIES\n"
+            "6. If the user asks a general or KPI question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'show active estimate kpis', 'show project kpis', 'tell me about this', or any broad request:\n"
+            "   a. Summarize the active project in a clean markdown table of KPIs (listing Name, Total BOQ Items, Priced Items, Outstanding Items, Plugged Rates, Subtotal, Overhead, Profit, and Grand Total) using the ACTIVE LOADED PROJECT block data.\n"
+            "   b. Highlight any pricing anomalies, plugged rates, or outliers if data is available in the context above.\n"
+            "   c. Provide 2-3 actionable recommendations (e.g., 'Review the plugged rates', 'Consider adjusting the concrete rate').\n"
+            "   d. NEVER ask the user to clarify database tables/schemas or respond with 'I couldn't formulate an answer' if ANY project data is available in the ACTIVE PROJECT block or pre-fetched data above.\n\n"
             "### HANDLING EXAMPLE REQUESTS\n"
             "7. If the user asks for examples, help, or 'what can you do', provide 6-8 specific example questions they can ask, grouped by category:\n"
             "   - Project Analysis: 'Show active estimate KPIs', 'Analyze project outliers'\n"
             "   - Rate Lookup: 'Search historical rates for Concrete', 'Show me all labor rates'\n"
-            "   - What-If: 'What if concrete prices increase by 10%?'\n"
             "   - Reports: 'Generate an executive summary report'\n"
             "   - Subcontractors: 'Show subcontractor quotes', 'Compare sub quotes'\n\n"
+            "### HANDLING WHAT-IF SCENARIOS\n"
+            "8. If the user asks a what-if question (e.g., 'What if concrete prices increase by 10%?', 'what if labor rates decrease by 5%?', or any scenario query):\n"
+            "   a. You MUST output a single `<what_if>` tool call.\n"
+            "   b. Identify the resource type ('material', 'labor', 'equipment', 'plant'), name (e.g., 'concrete', 'steel', 'mason'), and adjustment (e.g., '+10%', '-5%').\n"
+            "   c. Example: `<what_if resource=\"material\" name=\"concrete\" adjustment=\"+10%\" />`\n"
+            "   d. Do NOT write any conversational text before outputting the tag. Just output the tag and STOP.\n"
+            "   e. Once the tool executes and returns the `<what_if_result>` data block, you MUST summarize the changes in a comparative markdown table showing: Net Subtotal, Overhead, Profit, and Grand Total with columns: Cost Category, Before Adjustment, After Adjustment, Delta, and % Change. Also list the matched items that were adjusted in a separate markdown table underneath.\n\n"
+            "### HANDLING DRAFT RATE REQUESTS\n"
+            "9. If the user asks to draft a rate, create a rate buildup, or recommend a rate for an item (e.g., 'draft a rate for 1:2:4 concrete'):\n"
+            "   a. You MUST output a single `<draft_rate>` tool call.\n"
+            "   b. Specify description (e.g., '1:2:4 concrete') and unit (e.g., 'm3', 'm2').\n"
+            "   c. Example: `<draft_rate description=\"1:2:4 concrete\" unit=\"m3\" />`\n"
+            "   d. Do NOT write any conversational text before outputting the tag. Just output the tag and STOP.\n\n"
+            "### HANDLING REPORT GENERATION REQUESTS\n"
+            "10. If the user asks to generate a report, export a report, or create a PDF report:\n"
+            "   a. You MUST output a single `<generate_report type=\"executive_summary\" />` tool call.\n"
+            "   b. Do NOT write any conversational text before outputting the tag. Just output the tag and STOP.\n\n"
             f"{active_context}"
         )
 
@@ -1383,10 +1407,15 @@ class AICopilotWorker(QRunnable):
                                 choices = chunk_data.get("choices", [])
                                 if choices:
                                     if "message" in choices[0]:
-                                        chunk_text = choices[0]["message"].get("content", "")
+                                        msg = choices[0]["message"]
+                                        chunk_text = msg.get("content", "")
+                                        if not chunk_text:
+                                            chunk_text = msg.get("reasoning", "") or msg.get("reasoning_content", "")
                                     else:
                                         delta = choices[0].get("delta", {})
                                         chunk_text = delta.get("content", "")
+                                        if not chunk_text:
+                                            chunk_text = delta.get("reasoning", "") or delta.get("reasoning_content", "")
                                     if chunk_text:
                                         content += chunk_text
                                         
@@ -1401,7 +1430,10 @@ class AICopilotWorker(QRunnable):
                     else:
                         # Non-streaming: read full response
                         res_data = json.loads(response.read().decode("utf-8"))
-                        content = res_data["choices"][0]["message"]["content"]
+                        msg = res_data["choices"][0]["message"]
+                        content = msg.get("content", "")
+                        if not content:
+                            content = msg.get("reasoning", "") or msg.get("reasoning_content", "")
             except Exception as e:
                 raise Exception(f"Local LLM API error: {str(e)}")
 
