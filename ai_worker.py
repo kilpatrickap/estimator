@@ -51,7 +51,8 @@ class AICopilotWorker(QRunnable):
                              "summary", "summarize", "summarise", "overview", "status",
                              "health", "tell me about", "how is", "how's", "look at",
                              "what about", "check ", "inspect", "diagnos", "the project",
-                             "this project", "active project", "current project", "my project"]
+                             "this project", "active project", "current project", "my project",
+                             "kpi", "estimate"]
         if any(p in query_lower for p in analysis_patterns):
             intents.add("analysis")
 
@@ -83,7 +84,7 @@ class AICopilotWorker(QRunnable):
 
         # Domain / settings intent
         domain_patterns = ["sor", "schedule of rates", "ingest", "settings", "exchange",
-                           "currency", "overhead", "profit", "margin", "markup"]
+                           "currency", "overhead", "profit", "margin", "markup", "kpi", "estimate"]
         if any(p in query_lower for p in domain_patterns):
             intents.add("domains")
 
@@ -1422,9 +1423,37 @@ class AICopilotWorker(QRunnable):
             if not report_match:
                 report_match = re.search(r'<generate[-_]?report\s+type=["\']?([^"\'>]+)["\']?\s*>(.*?)(?:</generate[-_]?report>|$)', content, re.DOTALL | re.IGNORECASE)
                 
-            what_if_match = re.search(r'<what[-_]?if\s+resource=["\']?([^"\'>]+)["\']?\s+name=["\']?([^"\'>]+)["\']?\s+adjustment=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
-            
-            draft_rate_match = re.search(r'<draft[-_]?rate\s+description=["\']?([^"\'>]+)["\']?\s+unit=["\']?([^"\'>]+)["\']?\s*/?>', content, re.IGNORECASE)
+            # Order-independent parsing for what_if tag
+            what_if_match = None
+            what_if_tag = re.search(r'<what[-_]?if\s+([^>]+)/?>', content, re.IGNORECASE)
+            if what_if_tag:
+                attrs = what_if_tag.group(1)
+                res_match = re.search(r'resource=["\']([^"\']+)["\']', attrs, re.IGNORECASE) or re.search(r'resource=([^\s>]+)', attrs, re.IGNORECASE)
+                name_match = re.search(r'name=["\']([^"\']+)["\']', attrs, re.IGNORECASE) or re.search(r'name=([^\s>]+)', attrs, re.IGNORECASE)
+                adj_match = re.search(r'adjustment=["\']([^"\']+)["\']', attrs, re.IGNORECASE) or re.search(r'adjustment=([^\s>]+)', attrs, re.IGNORECASE)
+                if res_match and name_match and adj_match:
+                    class WhatIfMatch:
+                        def group(self, idx):
+                            val = [res_match.group(1) or res_match.group(2), 
+                                   name_match.group(1) or name_match.group(2), 
+                                   adj_match.group(1) or adj_match.group(2)][idx - 1]
+                            return val.strip()
+                    what_if_match = WhatIfMatch()
+
+            # Order-independent parsing for draft_rate tag
+            draft_rate_match = None
+            draft_rate_tag = re.search(r'<draft[-_]?rate\s+([^>]+)/?>', content, re.IGNORECASE)
+            if draft_rate_tag:
+                attrs = draft_rate_tag.group(1)
+                desc_match = re.search(r'description=["\']([^"\']+)["\']', attrs, re.IGNORECASE) or re.search(r'description=([^\s>]+)', attrs, re.IGNORECASE)
+                unit_match = re.search(r'unit=["\']([^"\']+)["\']', attrs, re.IGNORECASE) or re.search(r'unit=([^\s>]+)', attrs, re.IGNORECASE)
+                if desc_match and unit_match:
+                    class DraftRateMatch:
+                        def group(self, idx):
+                            val = [desc_match.group(1) or desc_match.group(2), 
+                                   unit_match.group(1) or unit_match.group(2)][idx - 1]
+                            return val.strip()
+                    draft_rate_match = DraftRateMatch()
 
             # Heuristic: If no explicit tag matches, but the model output contains a SQL code block, treat it as an implicit database query!
             if not db_match and not json_match and not graph_match and not domains_match and not report_match and not what_if_match and not draft_rate_match:

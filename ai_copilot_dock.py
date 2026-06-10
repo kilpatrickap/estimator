@@ -510,8 +510,7 @@ class AICopilotDock(QDockWidget):
         self.main_layout.addWidget(self.typing_indicator)
         self.typing_indicator.hide()
         
-        # 4.5. Suggestions Bar
-        self._setup_suggestions_bar()
+
         
         # 5. Input Text Panel
         self._setup_input_panel()
@@ -755,62 +754,7 @@ class AICopilotDock(QDockWidget):
                 widget.update_font_size(self.zoom_level)
         self.scroll_to_bottom()
 
-    def _setup_suggestions_bar(self):
-        self.suggestions_scroll = QScrollArea(self)
-        self.suggestions_scroll.setWidgetResizable(True)
-        self.suggestions_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.suggestions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.suggestions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.suggestions_scroll.setFixedHeight(28)
-        self.suggestions_scroll.setStyleSheet("background: transparent; background-color: transparent;")
-        
-        self.suggestions_content = QWidget()
-        self.suggestions_content.setStyleSheet("background: transparent; background-color: transparent;")
-        self.suggestions_layout = QHBoxLayout(self.suggestions_content)
-        self.suggestions_layout.setContentsMargins(4, 2, 4, 2)
-        self.suggestions_layout.setSpacing(6)
-        
-        self.suggestions_scroll.setWidget(self.suggestions_content)
-        self.main_layout.addWidget(self.suggestions_scroll)
 
-    def update_suggestions(self):
-        # Clear old suggestions
-        while self.suggestions_layout.count() > 0:
-            item = self.suggestions_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-                
-        # Get new suggestions
-        prompts = ai_tools.get_context_suggestions(self.main_window)
-        for prompt in prompts:
-            display_text = prompt if len(prompt) < 35 else prompt[:32] + "..."
-            btn = QPushButton(display_text, self)
-            btn.setToolTip(prompt)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background-color: #e2e8f0;
-                    color: #334155;
-                    border: 1px solid #cbd5e1;
-                    border-radius: 10px;
-                    padding: 3px 8px;
-                    font-size: 9px;
-                    font-family: "Segoe UI", sans-serif;
-                }
-                QPushButton:hover {
-                    background-color: #cbd5e1;
-                    color: #0f172a;
-                    border-color: #94a3b8;
-                }
-            """)
-            btn.clicked.connect(lambda checked, p=prompt: self.submit_suggested_query(p))
-            self.suggestions_layout.addWidget(btn)
-            
-        self.suggestions_layout.addStretch()
-
-    def submit_suggested_query(self, query):
-        self.input_edit.setPlainText(query)
-        self.submit_query()
 
     def clear_chat(self):
         """Removes all conversation bubbles from the scroll layout and re-adds the welcome card."""
@@ -896,8 +840,7 @@ class AICopilotDock(QDockWidget):
             self.last_known_state = current_state
             # ----------------------------------------------------
 
-            # Update Smart Suggestions
-            self.update_suggestions()
+
 
         except Exception:
             self.context_title.setText("🔌 <b>Context Status</b>: Suspended")
