@@ -64,6 +64,8 @@ def markdown_to_html(text):
     """Converts a subset of Markdown (headings, lists, blockquotes/alerts, code blocks, tables) to rich HTML."""
     # Escape HTML tags first to prevent code blocks from parsing as real HTML
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Restore safe line break tags so they render properly instead of showing as literal text
+    text = text.replace("&lt;br&gt;", "<br>").replace("&lt;br/&gt;", "<br>").replace("&lt;br /&gt;", "<br>")
     
     lines = text.split("\n")
     html_lines = []
@@ -524,7 +526,7 @@ class AICopilotDock(QDockWidget):
             "Try asking me questions like:\\n"
             "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\\n"
             "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\\n"
-            "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\\n"
+            "- **\"What if concrete prices increase by 10%?\"**: Simulates the financial impact of rate changes on project subtotal, profit, and grand total.\\n"
             "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
         )
         welcome_text = welcome_text.replace("\\n", "\n")
@@ -771,7 +773,7 @@ class AICopilotDock(QDockWidget):
             "Try asking me questions like:\n"
             "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\n"
             "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\n"
-            "- **\"Show workspace file structure\"**: Renders a complete directory tree of the project files.\n"
+            "- **\"What if concrete prices increase by 10%?\"**: Simulates the financial impact of rate changes on project subtotal, profit, and grand total.\n"
             "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
         )
         self.add_message_bubble(welcome_text, is_ai=True)

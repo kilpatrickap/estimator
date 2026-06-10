@@ -1281,7 +1281,8 @@ class AICopilotWorker(QRunnable):
             "3b. NEVER use HTML tags like <br>, <b>, <p>, or <table> in your output. Use ONLY standard markdown: **bold**, newlines, bullet points (- or *), numbered lists, and markdown tables (| col | col |).\n\n"
             "### SELF-CORRECTION ON ERROR\n"
             "4. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
-            "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n\n"
+            "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n"
+            "5b. NEVER output any chain-of-thought, reasoning, or internal monologue (either in <think> tags or as plain text). Do not explain or debate how you are applying the instructions. Respond directly with the final answer.\n\n"
             "### HANDLING VAGUE, GENERAL, OR KPI QUERIES\n"
             "6. If the user asks a general or KPI question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'show active estimate kpis', 'show project kpis', 'tell me about this', or any broad request:\n"
             "   a. Summarize the active project in a clean markdown table of KPIs (listing Name, Total BOQ Items, Priced Items, Outstanding Items, Plugged Rates, Subtotal, Overhead, Profit, and Grand Total) using the ACTIVE LOADED PROJECT block data.\n"
@@ -1382,6 +1383,7 @@ class AICopilotWorker(QRunnable):
                     if is_potentially_final:
                         # Streaming: read NDJSON chunks and emit partial_message signals
                         content = ""
+                        reasoning_content = ""
                         try:
                             if hasattr(response, 'data') or not hasattr(response, '__iter__'):
                                 lines_source = response.read().splitlines()
@@ -1406,16 +1408,17 @@ class AICopilotWorker(QRunnable):
                                 chunk_data = json.loads(line)
                                 choices = chunk_data.get("choices", [])
                                 if choices:
+                                    chunk_text = ""
+                                    reasoning_text = ""
                                     if "message" in choices[0]:
                                         msg = choices[0]["message"]
                                         chunk_text = msg.get("content", "")
-                                        if not chunk_text:
-                                            chunk_text = msg.get("reasoning", "") or msg.get("reasoning_content", "")
+                                        reasoning_text = msg.get("reasoning", "") or msg.get("reasoning_content", "")
                                     else:
                                         delta = choices[0].get("delta", {})
                                         chunk_text = delta.get("content", "")
-                                        if not chunk_text:
-                                            chunk_text = delta.get("reasoning", "") or delta.get("reasoning_content", "")
+                                        reasoning_text = delta.get("reasoning", "") or delta.get("reasoning_content", "")
+                                    
                                     if chunk_text:
                                         content += chunk_text
                                         
@@ -1425,8 +1428,13 @@ class AICopilotWorker(QRunnable):
                                         
                                         if not is_tool_call:
                                             self.signals.partial_message.emit(chunk_text)
+                                    if reasoning_text:
+                                        reasoning_content += reasoning_text
                             except (json.JSONDecodeError, KeyError, IndexError):
                                 continue
+                        
+                        if not content and reasoning_content:
+                            content = reasoning_content
                     else:
                         # Non-streaming: read full response
                         res_data = json.loads(response.read().decode("utf-8"))

@@ -1810,14 +1810,14 @@ def get_context_suggestions(main_window=None):
                     "Show active estimate KPIs",
                     "Analyze project outliers",
                     "Search historical rates for Concrete",
-                    "Show workspace file structure"
+                    "What if concrete prices increase by 10%?"
                 ]
         except:
             suggestions = [
                 "Show active estimate KPIs",
                 "Analyze project outliers",
                 "Search historical rates for Concrete",
-                "Show workspace file structure"
+                "What if concrete prices increase by 10%?"
             ]
             
     return suggestions[:4]
