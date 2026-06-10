@@ -291,8 +291,8 @@ class MessageBubble(QFrame):
             self.setObjectName("UserBubble")
             self.setStyleSheet(f"""
                 QFrame#UserBubble {{
-                    background-color: #f1f5f9;
-                    border: 1px solid #cbd5e1;
+                    background-color: #fef9c3;
+                    border: 1px solid #fef08a;
                     border-radius: 10px;
                 }}
             """)
@@ -315,7 +315,7 @@ class MessageBubble(QFrame):
             self.author_label.setStyleSheet("color: #2e7d32; font-size: 10px; font-weight: bold; margin: 0px; padding: 0px;")
         else:
             self.author_label.setText("👤 <b>You</b>")
-            self.author_label.setStyleSheet("color: #475569; font-size: 10px; font-weight: bold; margin: 0px; padding: 0px;")
+            self.author_label.setStyleSheet("color: #b45309; font-size: 10px; font-weight: bold; margin: 0px; padding: 0px;")
         self.author_label.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.author_label)
         

@@ -660,6 +660,35 @@ class AICopilotWorker(QRunnable):
         supporting recursive execution of SQLite queries and JSON file reading.
         """
         query_lower = self.user_query.lower()
+        
+        # Resolve project_dir dynamically at function scope
+        project_dir = None
+        if self.main_window:
+            try:
+                active_win = self.main_window._get_active_estimate_window()
+                active_class = getattr(active_win, '__class__', None).__name__ if active_win else None
+                if active_class == 'PBOQDialog' and hasattr(active_win, 'pboq_file_selector'):
+                    pboq_path_cand = active_win.pboq_file_selector.currentData()
+                    if pboq_path_cand:
+                        project_dir = os.path.dirname(os.path.dirname(pboq_path_cand))
+                elif active_class == 'AnalyticsDashboard' and hasattr(active_win, 'project_dir'):
+                    project_dir = active_win.project_dir
+            except:
+                pass
+
+        if not project_dir:
+            try:
+                from database import DatabaseManager
+                costs_db = DatabaseManager("construction_costs.db")
+                project_dir = costs_db.get_setting('last_project_dir', '')
+            except:
+                pass
+
+        if project_dir:
+            project_dir = project_dir.replace('\\', '/')
+            if os.path.basename(project_dir) == "Project Database":
+                project_dir = os.path.dirname(project_dir)
+
         # A. Auto-detect and verify specific model via tags API
         model_name = DEFAULT_AI_MODEL
         try:
@@ -819,8 +848,11 @@ class AICopilotWorker(QRunnable):
                 recipe_coupling = graph_data.get("recipe_coupling", {})
                 for code in found_codes:
                     recipe = None
+                    clean_code = re.sub(r'[^A-Z0-9]', '', code)
                     for name, r in recipe_coupling.items():
-                        if str(r.get("rate_code", "")).upper() == code:
+                        r_code = str(r.get("rate_code", "")).upper()
+                        clean_r_code = re.sub(r'[^A-Z0-9]', '', r_code)
+                        if clean_code and clean_r_code and (clean_code == clean_r_code or clean_code in clean_r_code or clean_r_code in clean_code):
                             recipe = r
                             break
                     if not recipe:
@@ -868,12 +900,22 @@ class AICopilotWorker(QRunnable):
                                     conn.close()
                                     continue
                                     
-                                cursor.execute("SELECT id, project_name, net_total, grand_total, category FROM estimates WHERE UPPER(rate_code) = ?", (code,))
-                                res = cursor.fetchone()
+                                cursor.execute("SELECT id, project_name, net_total, grand_total, category, rate_code FROM estimates")
+                                res = None
+                                matched_db_rate_code = code
+                                for est_row in cursor.fetchall():
+                                    est_id_cand, name_cand, net_cand, grand_cand, cat_cand, db_rate_code = est_row
+                                    db_rate_code_upper = str(db_rate_code or "").upper()
+                                    clean_db_code = re.sub(r'[^A-Z0-9]', '', db_rate_code_upper)
+                                    if clean_code and clean_db_code and (clean_code == clean_db_code or clean_code in clean_db_code or clean_db_code in clean_code):
+                                        res = (est_id_cand, name_cand, net_cand, grand_cand, cat_cand)
+                                        matched_db_rate_code = db_rate_code_upper
+                                        break
+                                        
                                 if res:
                                     est_id, name, net, grand, cat = res
                                     candidate = {
-                                        "rate_code": code,
+                                        "rate_code": matched_db_rate_code,
                                         "description": name,
                                         "net_total": net,
                                         "grand_total": grand,
@@ -945,6 +987,132 @@ class AICopilotWorker(QRunnable):
                         extra_context += "--------------------------------------------------\n\n"
             except Exception:
                 pass
+
+        # 2b. Priced BOQ item search context (triggered if query contains specific rate codes/plug codes)
+        if found_codes and project_dir and os.path.exists(project_dir):
+            pboq_dir = os.path.join(project_dir, "Priced BOQs")
+            if os.path.exists(pboq_dir):
+                dbs = [os.path.join(pboq_dir, f) for f in os.listdir(pboq_dir) if f.endswith('.db')]
+                for code in found_codes:
+                    matching_pboq_rows = []
+                    for path in dbs:
+                        sheet_db_name = os.path.basename(path)
+                        sheet_name_fallback = sheet_db_name.replace('.db', '')
+                        
+                        # Load mapping info from state file
+                        qty_col_idx = -1
+                        desc_col_idx = -1
+                        bill_rate_col_idx = -1
+                        bill_amt_col_idx = -1
+                        unit_col_idx = -1
+                        
+                        state_file = os.path.join(project_dir, "PBOQ States", sheet_db_name + ".json")
+                        if os.path.exists(state_file):
+                            try:
+                                with open(state_file, 'r', encoding='utf-8') as sf:
+                                    state_data = json.load(sf)
+                                    m = state_data.get('mappings', {})
+                                    qty_col_idx = m.get('qty', -1)
+                                    desc_col_idx = m.get('desc', -1)
+                                    bill_rate_col_idx = m.get('bill_rate', -1)
+                                    bill_amt_col_idx = m.get('bill_amount', -1)
+                                    unit_col_idx = m.get('unit', -1)
+                            except:
+                                pass
+                                
+                        try:
+                            conn = sqlite3.connect(path)
+                            cursor = conn.cursor()
+                            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='pboq_items'")
+                            if not cursor.fetchone():
+                                conn.close()
+                                continue
+                                
+                            cursor.execute("PRAGMA table_info(pboq_items)")
+                            cols = [info[1] for info in cursor.fetchall()]
+                            
+                            qty_name = cols[qty_col_idx + 1] if qty_col_idx >= 0 and (qty_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["quantity", "qty"]), None)
+                            desc_name = cols[desc_col_idx + 1] if desc_col_idx >= 0 and (desc_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["description", "desc"]), None)
+                            bill_rate_name = cols[bill_rate_col_idx + 1] if bill_rate_col_idx >= 0 and (bill_rate_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill rate", "billrate", "column 4"]), None)
+                            bill_amt_name = cols[bill_amt_col_idx + 1] if bill_amt_col_idx >= 0 and (bill_amt_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["bill amount", "billamount", "column 5"]), None)
+                            unit_name = cols[unit_col_idx + 1] if unit_col_idx >= 0 and (unit_col_idx + 1) < len(cols) else next((c for c in cols if c.lower() in ["unit"]), None)
+                            
+                            col_map = {
+                                'desc': desc_name,
+                                'qty': qty_name,
+                                'bill_rate': bill_rate_name,
+                                'bill_amt': bill_amt_name,
+                                'unit': unit_name,
+                                'gross': next((c for c in cols if c.lower() in ["grossrate", "gross_rate"]), None),
+                                'plug': next((c for c in cols if c.lower() in ["plugrate", "plug_rate"]), None),
+                                'sub': next((c for c in cols if c.lower() in ["subbeerate", "sub_rate"]), None),
+                                'prov': next((c for c in cols if c.lower() in ["provsum", "prov_sum"]), None),
+                                'pc': next((c for c in cols if c.lower() in ["pcsum", "pc_sum"]), None),
+                                'dw': next((c for c in cols if c.lower() in ["daywork"]), None),
+                                'rcode': next((c for c in cols if c.lower() in ["ratecode", "rate_code"]), None),
+                                'pcode': next((c for c in cols if c.lower() in ["plugcode", "plug_code"]), None),
+                                'sheet': next((c for c in cols if c.lower() == 'sheet'), None)
+                            }
+                            
+                            cursor.execute("SELECT * FROM pboq_items")
+                            rows = cursor.fetchall()
+                            conn.close()
+                            
+                            for row in rows:
+                                row_dict = dict(zip(cols, row))
+                                match = False
+                                for k, v in row_dict.items():
+                                    if v and ("code" in k.lower() or k.lower() in ["ratecode", "rate_code", "plugcode", "plug_code", "rate code", "plug code"]):
+                                        val_upper = str(v).strip().upper()
+                                        clean_val = re.sub(r'[^A-Z0-9]', '', val_upper)
+                                        clean_code = re.sub(r'[^A-Z0-9]', '', code)
+                                        if len(clean_code) >= 3 and len(clean_val) >= 3:
+                                            if clean_code == clean_val or clean_code in clean_val or clean_val in clean_code:
+                                                match = True
+                                                break
+                                if match:
+                                    sheet_val = row_dict.get('Sheet') or row_dict.get('sheet') or (col_map.get('sheet') and row_dict.get(col_map['sheet'])) or sheet_name_fallback
+                                    desc_val = row_dict.get('Description') or (col_map['desc'] and row_dict.get(col_map['desc'])) or "N/A"
+                                    qty_val = row_dict.get('Quantity') or (col_map['qty'] and row_dict.get(col_map['qty'])) or 0.0
+                                    unit_val = row_dict.get('Unit') or (col_map['unit'] and row_dict.get(col_map['unit'])) or "each"
+                                    bill_rate_val = row_dict.get('Bill Rate') or (col_map['bill_rate'] and row_dict.get(col_map['bill_rate'])) or 0.0
+                                    bill_amt_val = row_dict.get('Bill Amount') or (col_map['bill_amt'] and row_dict.get(col_map['bill_amt'])) or 0.0
+                                    plug_code_val = row_dict.get('PlugCode') or (col_map['pcode'] and row_dict.get(col_map['pcode'])) or ""
+                                    plug_rate_val = row_dict.get('PlugRate') or (col_map['plug'] and row_dict.get(col_map['plug'])) or 0.0
+                                    rate_code_val = row_dict.get('RateCode') or (col_map['rcode'] and row_dict.get(col_map['rcode'])) or ""
+                                    gross_rate_val = row_dict.get('GrossRate') or (col_map['gross'] and row_dict.get(col_map['gross'])) or 0.0
+                                    is_flagged = row_dict.get('IsFlagged') or row_dict.get('is_flagged') or "No"
+                                    
+                                    matching_pboq_rows.append({
+                                        "sheet": sheet_val,
+                                        "description": desc_val,
+                                        "qty": qty_val,
+                                        "unit": unit_val,
+                                        "bill_rate": bill_rate_val,
+                                        "bill_amount": bill_amt_val,
+                                        "plug_code": plug_code_val,
+                                        "plug_rate": plug_rate_val,
+                                        "rate_code": rate_code_val,
+                                        "gross_rate": gross_rate_val,
+                                        "is_flagged": is_flagged
+                                    })
+                        except Exception as pboq_err:
+                            pass
+                            
+                    if matching_pboq_rows:
+                        extra_context += f"--- MATCHING BOQ LINE ITEMS FOR '{code}' IN Priced BOQs ---\n"
+                        for item in matching_pboq_rows:
+                            extra_context += f"Sheet: {item['sheet']}\n"
+                            extra_context += f"Description: {item['description']}\n"
+                            extra_context += f"Quantity: {item['qty']} | Unit: {item['unit']}\n"
+                            extra_context += f"Bill Rate: {item['bill_rate']} | Bill Amount: {item['bill_amount']}\n"
+                            if item['plug_code'] or item['plug_rate']:
+                                extra_context += f"Plug Code: {item['plug_code']} | Plug Rate: {item['plug_rate']}\n"
+                            if item['rate_code'] or item['gross_rate']:
+                                extra_context += f"Rate Code: {item['rate_code']} | Gross Rate: {item['gross_rate']}\n"
+                            extra_context += f"Is Flagged for Review: {item['is_flagged']}\n"
+                            extra_context += f"--------------------------------------------------\n"
+                        extra_context += "\n"
 
         # 3. WBS & Under-Measurement QS Warnings Context
         if "wbs" in intents or any(k in query_lower for k in ["wbs", "hierarchy", "section", "under-measurement", "dependency", "slab", "concrete"]):
