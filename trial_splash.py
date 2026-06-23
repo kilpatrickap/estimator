@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
     QProgressBar, QComboBox, QFrame, QGraphicsDropShadowEffect, QMessageBox
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPalette
+from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPalette, QShortcut, QKeySequence
 
 from database import DatabaseManager
 
@@ -288,17 +288,9 @@ class TrialSplashDialog(QDialog):
 
         card_layout.addStretch()
 
-        # Collapsible Developer Override Section
-        self.dev_toggle = QPushButton("🛠️ Show Developer overrides [click]")
-        self.dev_toggle.setStyleSheet("""
-            background-color: transparent;
-            color: #71717a;
-            border: none;
-            text-align: left;
-            font-size: 8pt;
-        """)
-        self.dev_toggle.clicked.connect(self.toggle_dev_panel)
-        card_layout.addWidget(self.dev_toggle)
+        # Hidden shortcut to toggle Developer Override Section
+        self.dev_shortcut = QShortcut(QKeySequence("Ctrl+Shift+Alt+D"), self)
+        self.dev_shortcut.activated.connect(self.toggle_dev_panel)
 
         self.dev_panel = QFrame()
         dev_layout = QVBoxLayout(self.dev_panel)
@@ -551,10 +543,8 @@ class TrialSplashDialog(QDialog):
     def toggle_dev_panel(self):
         if self.dev_panel.isVisible():
             self.dev_panel.hide()
-            self.dev_toggle.setText("🛠️ Show Developer overrides [click]")
         else:
             self.dev_panel.show()
-            self.dev_toggle.setText("🛠️ Hide Developer overrides [click]")
         self.update_window_size()
 
     def on_override_changed(self, val):
