@@ -122,17 +122,17 @@ class TrialSplashDialog(QDialog):
         # Window settings for borderless translucent view
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.resize(520, 480)
 
         # Set up layouts
         self.setup_ui()
         self.apply_theme()
+        self.update_window_size()
 
         # Loading animation timer
         self.progress_val = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_progress)
-        self.timer.start(30) # Tick every 30ms
+        self.timer.start(50) # Tick every 50ms (loads over exactly 5 seconds)
 
     def init_trial_data(self):
         """Initialise or migrate install_date, license_status, and last_run_date settings."""
@@ -319,6 +319,21 @@ class TrialSplashDialog(QDialog):
                 font-size: 8pt;
                 padding: 4px;
             }
+            QComboBox {
+                background-color: #27272a;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                border-radius: 4px;
+                padding: 2px 6px;
+                font-size: 8pt;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #18181b;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                selection-background-color: #3f3f46;
+                selection-color: #ffffff;
+            }
         """)
 
         # Override dropdown
@@ -425,28 +440,32 @@ class TrialSplashDialog(QDialog):
             border: 1px solid #3f3f46;
         """)
 
-        # Check emergency button status
-        emergency_used = self.db.get_setting("emergency_bypass_date") is not None
-        if emergency_used:
-            self.emergency_btn.setText("🆘 Emergency Extension (Already Used)")
-            self.emergency_btn.setEnabled(False)
-            self.emergency_btn.setStyleSheet("""
-                background-color: #18181b;
-                color: #52525b;
-                padding: 8px;
-                border-radius: 6px;
-                border: 1px solid #27272a;
-            """)
+        # Check emergency button status: only show/enable on Code Black
+        if stage == "Black":
+            self.emergency_btn.show()
+            emergency_used = self.db.get_setting("emergency_bypass_date") is not None
+            if emergency_used:
+                self.emergency_btn.setText("🆘 Emergency Extension (Already Used)")
+                self.emergency_btn.setEnabled(False)
+                self.emergency_btn.setStyleSheet("""
+                    background-color: #18181b;
+                    color: #52525b;
+                    padding: 8px;
+                    border-radius: 6px;
+                    border: 1px solid #27272a;
+                """)
+            else:
+                self.emergency_btn.setText("🆘 Request 24-Hour Emergency Extension")
+                self.emergency_btn.setEnabled(True)
+                self.emergency_btn.setStyleSheet("""
+                    background-color: #451a03;
+                    color: #fdba74;
+                    padding: 8px;
+                    border-radius: 6px;
+                    border: 1px solid #78350f;
+                """)
         else:
-            self.emergency_btn.setText("🆘 Request 24-Hour Emergency Extension")
-            self.emergency_btn.setEnabled(True)
-            self.emergency_btn.setStyleSheet("""
-                background-color: #451a03;
-                color: #fdba74;
-                padding: 8px;
-                border-radius: 6px;
-                border: 1px solid #78350f;
-            """)
+            self.emergency_btn.hide()
 
     def update_progress(self):
         """Simulates progress bar animation and runs probability check at 100%."""
@@ -480,6 +499,7 @@ class TrialSplashDialog(QDialog):
             )
             # Show conversion CTA options
             self.btn_widget.show()
+            self.update_window_size()
 
     def restart_app(self):
         """Quits the current app session to let them double-click to load again."""
@@ -514,6 +534,19 @@ class TrialSplashDialog(QDialog):
             self.init_trial_data()
             self.accept()
 
+    def update_window_size(self):
+        """Sets fixed width and computes height dynamically based on visible components to prevent Windows resize warnings."""
+        self.setFixedWidth(520)
+        h = 210
+        if self.btn_widget.isVisible():
+            if self.emergency_btn.isVisible():
+                h += 130
+            else:
+                h += 95
+        if self.dev_panel.isVisible():
+            h += 130
+        self.setFixedHeight(h)
+
     # COLLAPSIBLE DEV OVERRIDES PANEL
     def toggle_dev_panel(self):
         if self.dev_panel.isVisible():
@@ -522,7 +555,7 @@ class TrialSplashDialog(QDialog):
         else:
             self.dev_panel.show()
             self.dev_toggle.setText("🛠️ Hide Developer overrides [click]")
-        self.adjustSize()
+        self.update_window_size()
 
     def on_override_changed(self, val):
         self.state_override = val
@@ -530,7 +563,8 @@ class TrialSplashDialog(QDialog):
         # Reset progress bar and run roll again
         self.progress_val = 0
         self.btn_widget.hide()
-        self.timer.start(30)
+        self.update_window_size()
+        self.timer.start(50)
 
     def sim_install_date(self, offset_days):
         target_date = (date.today() + timedelta(days=offset_days)).strftime("%Y-%m-%d")
@@ -545,7 +579,8 @@ class TrialSplashDialog(QDialog):
         self.apply_theme()
         self.progress_val = 0
         self.btn_widget.hide()
-        self.timer.start(30)
+        self.update_window_size()
+        self.timer.start(50)
 
     def reset_trial_settings(self):
         with self.db.Session() as s:
@@ -558,7 +593,8 @@ class TrialSplashDialog(QDialog):
         self.apply_theme()
         self.progress_val = 0
         self.btn_widget.hide()
-        self.timer.start(30)
+        self.update_window_size()
+        self.timer.start(50)
 
     # EVENT LOOP CLEANUP
     def closeEvent(self, event):

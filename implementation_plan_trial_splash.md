@@ -66,7 +66,7 @@ This module will define the `TrialSplashDialog` class, inheriting from `QDialog`
     *   **Code Red:** Crimson red and dark charcoal gradient with rose highlights.
     *   **Code Black:** Sleek carbon-fiber black gradient with dark slate and violet highlights.
 *   **Interactive Simulation Dialog:** Clicking the "Upgrade to Paid" button displays a payment simulation window. Clicking "Simulate Purchase" instantly writes an encrypted license signature (SHA-256 of machine key + salt) to the database setting `license_status` and re-evaluates the launch state.
-*   **Emergency Extension Button:** Visible in failed Code Red or Code Black states, letting the user request a one-time **"24-Hour Emergency Extension"** to finish urgent bids, which writes a temporary signature to the database.
+*   **Emergency Extension Button:** Visible strictly in the failed Code Black state (hidden in all other states), letting the user request a one-time **"24-Hour Emergency Extension"** to finish urgent bids, which writes a temporary signature to the database.
 *   **Developer Panel (Testing Toolbar):**
     *   Dropdown: `Auto (Date-based)`, `Force Green`, `Force Yellow`, `Force Red`, `Force Black`.
     *   Buttons: `Set Install to Day -35 (Yellow)`, `Set Install to Day -42 (Red)`, `Set Install to Day -50 (Black)`, `Reset Trial` (which clears the database setting `license_status` and resets `install_date` to today).
@@ -112,7 +112,7 @@ We will integrate the splash screen before displaying `MainWindow`:
 
 ### 7. Support & Review Backlash Prevention (Emergency Valve)
 *   **Risk:** A critical user blocked in Code Red/Black from finishing an urgent construction bid, causing support bottlenecks and 1-star reviews.
-*   **Mitigation:** When a roll fails in Code Red or Code Black, we will provide a **"24-Hour Emergency Extension"** button. This grants a temporary 1-day launch pass to ensure business safety during deadlines, with a clear note that they must upgrade to permanent status afterward.
+*   **Mitigation:** When a roll fails in the Code Black lane, we will provide a **"24-Hour Emergency Extension"** button. This grants a temporary 1-day launch pass to ensure business safety during deadlines, with a clear note that they must upgrade to permanent status afterward. The button is hidden in other lanes.
 
 ---
 
@@ -129,4 +129,4 @@ We will integrate the splash screen before displaying `MainWindow`:
 4.  **Verify Code Red (Days 41–45):** Toggle to `Force Red` or click the `-42 Days` button. Click "Try to Load" and observe the 10% success rate.
 5.  **Verify Code Black (Days 46+):** Toggle to `Force Black` or click the `-50 Days` button. Verify the 1% success rate and the dark lock screen.
 6.  **Verify Checkout Simulation:** Click "Upgrade to Paid" from any failed state, click "Simulate Purchase", verify the success message, and confirm the app now opens immediately as a premium Paid License user.
-7.  **Verify Emergency Valve:** Click the "24-Hour Emergency Extension" button in Code Red/Black and confirm it temporarily grants access and launches the main window.
+7.  **Verify Emergency Valve:** Click the "24-Hour Emergency Extension" button in Code Black (confirming it is hidden/inaccessible in Green, Yellow, and Red lanes) and confirm it temporarily grants access and launches the main window.
