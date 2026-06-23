@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QProgressBar, QComboBox, QFrame, QGraphicsDropShadowEffect, QMessageBox,
-    QLineEdit
+    QLineEdit, QInputDialog
 )
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPalette, QShortcut, QKeySequence
@@ -273,17 +273,14 @@ class TrialSplashDialog(QDialog):
         btn_layout.setSpacing(8)
 
         self.retry_btn = QPushButton("🔄 Restart & Try to Load Again")
-        self.retry_btn.setAutoDefault(False)
         self.retry_btn.clicked.connect(self.restart_app)
         btn_layout.addWidget(self.retry_btn)
 
         self.emergency_btn = QPushButton("🆘 Request 24-Hour Emergency Extension")
-        self.emergency_btn.setAutoDefault(False)
         self.emergency_btn.clicked.connect(self.request_emergency_extension)
         btn_layout.addWidget(self.emergency_btn)
 
         self.buy_btn = QPushButton("⚡ Upgrade to Paid (Get Green Pass)")
-        self.buy_btn.setAutoDefault(False)
         self.buy_btn.clicked.connect(self.open_upgrade)
         btn_layout.addWidget(self.buy_btn)
 
@@ -315,14 +312,6 @@ class TrialSplashDialog(QDialog):
                 font-size: 8pt;
                 padding: 4px;
             }
-            QLineEdit {
-                background-color: #27272a;
-                color: #e4e4e7;
-                border: 1px solid #3f3f46;
-                border-radius: 4px;
-                padding: 2px 6px;
-                font-size: 8pt;
-            }
             QComboBox {
                 background-color: #27272a;
                 color: #e4e4e7;
@@ -340,28 +329,6 @@ class TrialSplashDialog(QDialog):
             }
         """)
 
-        # Password entry row
-        pw_layout = QHBoxLayout()
-        pw_lbl = QLabel("Password:")
-        self.pw_input = QLineEdit()
-        self.pw_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.pw_input.setPlaceholderText("Enter Developer Password")
-        self.pw_input.returnPressed.connect(self.check_password)
-        self.pw_enter_btn = QPushButton("Enter")
-        self.pw_enter_btn.setAutoDefault(False)
-        self.pw_enter_btn.clicked.connect(self.check_password)
-        pw_layout.addWidget(pw_lbl)
-        pw_layout.addWidget(self.pw_input)
-        pw_layout.addWidget(self.pw_enter_btn)
-        dev_layout.addLayout(pw_layout)
-
-        # Developer Tools Container (hidden initially)
-        self.dev_tools_container = QFrame()
-        self.dev_tools_container.setStyleSheet("border: none; background: transparent;")
-        dev_tools_layout = QVBoxLayout(self.dev_tools_container)
-        dev_tools_layout.setContentsMargins(0, 0, 0, 0)
-        dev_tools_layout.setSpacing(6)
-
         # Override dropdown
         override_layout = QHBoxLayout()
         override_lbl = QLabel("Simulate Stage:")
@@ -370,7 +337,7 @@ class TrialSplashDialog(QDialog):
         self.override_combo.currentTextChanged.connect(self.on_override_changed)
         override_layout.addWidget(override_lbl)
         override_layout.addWidget(self.override_combo)
-        dev_tools_layout.addLayout(override_layout)
+        dev_layout.addLayout(override_layout)
 
         # Quick date buttons
         date_btn_layout = QHBoxLayout()
@@ -383,15 +350,12 @@ class TrialSplashDialog(QDialog):
         date_btn_layout.addWidget(self.btn_day35)
         date_btn_layout.addWidget(self.btn_day42)
         date_btn_layout.addWidget(self.btn_day50)
-        dev_tools_layout.addLayout(date_btn_layout)
+        dev_layout.addLayout(date_btn_layout)
 
         # Reset button
         self.reset_btn = QPushButton("Reset Trial Settings")
         self.reset_btn.clicked.connect(self.reset_trial_settings)
-        dev_tools_layout.addWidget(self.reset_btn)
-
-        self.dev_tools_container.hide()
-        dev_layout.addWidget(self.dev_tools_container)
+        dev_layout.addWidget(self.reset_btn)
 
         card_layout.addWidget(self.dev_panel)
         self.dev_panel.hide() # Collapsed initially
@@ -573,52 +537,30 @@ class TrialSplashDialog(QDialog):
             else:
                 h += 95
         if self.dev_panel.isVisible():
-            if hasattr(self, 'dev_tools_container') and self.dev_tools_container.isVisible():
-                h += 170
-            else:
-                h += 45
+            h += 130
         self.setFixedHeight(h)
 
     # COLLAPSIBLE DEV OVERRIDES PANEL
     def toggle_dev_panel(self):
         if self.dev_panel.isVisible():
             self.dev_panel.hide()
-            self.dev_tools_container.hide()
-            self.pw_input.setEnabled(True)
-            self.pw_enter_btn.setEnabled(True)
-            self.pw_input.clear()
-            self.pw_input.setStyleSheet("")
-        else:
-            self.dev_panel.show()
-            self.pw_input.setFocus()
-        self.update_window_size()
-
-    def check_password(self):
-        password = self.pw_input.text()
-        # SHA-256 of '191986kil'
-        expected_hash = "60bb26c3adbbdc5c7e607007f33cbca5e0c8b1365844758d7ad41d28f15606d7"
-        entered_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
-        
-        if entered_hash == expected_hash:
-            self.dev_tools_container.show()
-            self.pw_input.setDisabled(True)
-            self.pw_enter_btn.setDisabled(True)
-            self.pw_input.setStyleSheet("""
-                QLineEdit {
-                    background-color: #064e3b;
-                    color: #a7f3d0;
-                    border: 1px solid #059669;
-                    border-radius: 4px;
-                    padding: 2px 6px;
-                    font-size: 8pt;
-                }
-            """)
-            self.pw_input.setText("Access Granted")
             self.update_window_size()
         else:
-            QMessageBox.warning(self, "Access Denied", "Incorrect developer password.")
-            self.pw_input.clear()
-            self.pw_input.setFocus()
+            # Prompt for password via QInputDialog
+            password, ok = QInputDialog.getText(
+                self, "Developer Access", "Enter Developer Password:",
+                QLineEdit.EchoMode.Password
+            )
+            if ok:
+                # SHA-256 of '191986kil'
+                expected_hash = "60bb26c3adbbdc5c7e607007f33cbca5e0c8b1365844758d7ad41d28f15606d7"
+                entered_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
+                
+                if entered_hash == expected_hash:
+                    self.dev_panel.show()
+                    self.update_window_size()
+                else:
+                    QMessageBox.warning(self, "Access Denied", "Incorrect developer password.")
 
     def on_override_changed(self, val):
         self.state_override = val
@@ -660,13 +602,6 @@ class TrialSplashDialog(QDialog):
         self.timer.start(50)
 
     # EVENT LOOP CLEANUP
-    def keyPressEvent(self, event):
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            # Intercept enter key to prevent the dialog from triggering default/autodefault buttons and closing
-            event.accept()
-            return
-        super().keyPressEvent(event)
-
     def closeEvent(self, event):
         self.timer.stop()
         super().closeEvent(event)
