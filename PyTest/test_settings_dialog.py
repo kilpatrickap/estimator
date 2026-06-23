@@ -33,6 +33,11 @@ def test_settings_dialog_model_loading_and_saving(qapp, monkeypatch):
     monkeypatch.setattr(DatabaseManager, "get_setting", mock_get_setting)
     monkeypatch.setattr(DatabaseManager, "set_setting", mock_set_setting)
 
+    # Mock QMessageBox.information to prevent blocking/crashing in headless mode
+    from PyQt6.QtWidgets import QMessageBox
+    monkeypatch.setattr(QMessageBox, "information", lambda parent, title, text, *args, **kwargs: QMessageBox.StandardButton.Ok)
+
+
     # 1. Mock get_installed_ollama_models to return mock models
     mock_models = ["lfm2.5:8b", "llama3"]
     monkeypatch.setattr(SettingsDialog, "get_installed_ollama_models", lambda self: mock_models)

@@ -48,6 +48,30 @@ def test_query_active_estimate_summary_project_fallback():
     costs_db = DatabaseManager("construction_costs.db")
     original_project_dir = costs_db.get_setting('last_project_dir', '')
     
+    db_path = 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Project Database/Atlantic Catering School.db'
+    original_overhead = None
+    original_profit = None
+    
+    if os.path.exists(db_path):
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        try:
+            cursor.execute("SELECT value FROM settings WHERE key='overhead'")
+            r = cursor.fetchone()
+            if r: original_overhead = r[0]
+            cursor.execute("SELECT value FROM settings WHERE key='profit'")
+            r = cursor.fetchone()
+            if r: original_profit = r[0]
+            
+            # Set to 10.0 for test assertions
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('overhead', '10.0')")
+            cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('profit', '10.0')")
+            conn.commit()
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
     try:
         # Set project dir to the active school project
         costs_db.set_setting('last_project_dir', 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School')
@@ -63,6 +87,25 @@ def test_query_active_estimate_summary_project_fallback():
         assert abs(summary["profit_amount"] - 69219.86) < 0.01
         assert abs(summary["grand_total"] - 830638.37) < 0.01
     finally:
+        # Restore settings in school database
+        if os.path.exists(db_path):
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+            try:
+                if original_overhead is not None:
+                    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('overhead', ?)", (original_overhead,))
+                else:
+                    cursor.execute("DELETE FROM settings WHERE key='overhead'")
+                if original_profit is not None:
+                    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('profit', ?)", (original_profit,))
+                else:
+                    cursor.execute("DELETE FROM settings WHERE key='profit'")
+                conn.commit()
+            except Exception:
+                pass
+            finally:
+                conn.close()
+
         # Restore setting
         if original_project_dir:
             costs_db.set_setting('last_project_dir', original_project_dir)
@@ -73,6 +116,7 @@ def test_query_active_estimate_summary_project_fallback():
                 if s:
                     session.delete(s)
                     session.commit()
+
 
 def test_query_historical_rates():
     # Query without a search term

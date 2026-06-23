@@ -1,11 +1,13 @@
 # main.py
 
 import sys
-from PyQt6.QtWidgets import QApplication
+import os
+import time
+from PyQt6.QtWidgets import QApplication, QDialog
 from PyQt6.QtCore import Qt, qInstallMessageHandler, QtMsgType
 from main_window import MainWindow
 
-# Filter out harmless Windows theme warnings (Python 3.14 + PyQt6 compatibility noise)
+# Suppressed patterns for Windows Qt theme compatibility
 _SUPPRESSED_PATTERNS = ("OpenThemeData() failed", "External WM_DESTROY received")
 
 def _qt_message_handler(msg_type, context, message):
@@ -28,6 +30,13 @@ if __name__ == "__main__":
     # Ensure high DPI scaling is handled correctly
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     
+    # 1. Detect if running inside pytest or automated testing environments
+    is_testing = (
+        "pytest" in sys.modules or 
+        "_pytest" in sys.modules or 
+        os.environ.get("PYTEST_CURRENT_TEST") is not None
+    )
+
     app = QApplication(sys.argv)
 
     # Apply a modern stylesheet for better look and feel and responsiveness
@@ -38,6 +47,29 @@ if __name__ == "__main__":
     except FileNotFoundError:
         print("Warning: styles.qss not found. Using default styles.")
 
+    # 2. Database Connection Retry Loop (Ghost Process Lock Prevention)
+    db_ok = False
+    if not is_testing:
+        from database import DatabaseManager
+        for attempt in range(3):
+            try:
+                # Instantiating DatabaseManager will check database existence and migrate/init schemas.
+                db = DatabaseManager()
+                db_ok = True
+                break
+            except Exception as e:
+                print(f"Database connection attempt {attempt+1} failed: {e}", file=sys.stderr)
+                time.sleep(0.5)
+
+    # 3. Present Trial Gating Splash Screen (unless in testing mode or if DB initialization failed)
+    if not is_testing and db_ok:
+        from trial_splash import TrialSplashDialog
+        splash = TrialSplashDialog()
+        if splash.exec() != QDialog.DialogCode.Accepted:
+            # Splash closed or failed probabilistic roll. Terminate process.
+            sys.exit(0)
+
+    # 4. Launch MainWindow
     window = MainWindow()
     
     # Provide a comfortable default size (1400x767)
