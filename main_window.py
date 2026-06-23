@@ -299,6 +299,11 @@ class MainWindow(QMainWindow):
         
         file_menu.addSeparator()
         
+        export_pboq_action = self._create_action("Export PBOQ to Excel...", None, self._export_pboq_to_excel)
+        file_menu.addAction(export_pboq_action)
+        
+        file_menu.addSeparator()
+        
         settings_action = self._create_action("Settings...", "Ctrl+,", self.open_settings)
         file_menu.addAction(settings_action)
         
@@ -563,7 +568,67 @@ class MainWindow(QMainWindow):
             self._update_project_pane_directory(project_dir)
             self.statusBar().showMessage(f"Loaded Project from {file_path}")
 
+    def _export_pboq_to_excel(self):
+        """Exports a PBOQ to Excel — uses active viewer if available, otherwise prompts for file."""
+        from PyQt6.QtWidgets import QFileDialog
+        from pboq_export import PBOQExcelExporter
+        from pboq_viewer import PBOQDialog
 
+        db_path = None
+        project_dir = None
+
+        # 1. Try to use the active PBOQ viewer window
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if isinstance(widget, PBOQDialog):
+                db_path = widget.pboq_file_selector.currentData()
+                project_dir = widget.project_dir
+                break
+
+        # 2. Fall back to file picker if no viewer is open
+        if not db_path:
+            last_dir = self.db_manager.get_setting('last_project_dir', '')
+            pboq_dir = os.path.join(last_dir, "Priced BOQs") if last_dir else ""
+            start_dir = pboq_dir if os.path.exists(pboq_dir) else last_dir
+
+            db_path, _ = QFileDialog.getOpenFileName(
+                self, "Select PBOQ Database", start_dir,
+                "PBOQ Database Files (*.db);;All Files (*)"
+            )
+            if not db_path:
+                return
+
+            # Derive project_dir: "Priced BOQs" folder is one level inside project_dir
+            parent = os.path.dirname(db_path)
+            if os.path.basename(parent) == "Priced BOQs":
+                project_dir = os.path.dirname(parent)
+            else:
+                project_dir = parent
+
+        # 3. Prompt for output path
+        default_name = os.path.splitext(os.path.basename(db_path))[0] + ".xlsx"
+        default_path = os.path.join(os.path.dirname(db_path), default_name)
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, "Export PBOQ to Excel", default_path,
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+        if not output_path:
+            return
+
+        # 4. Export
+        exporter = PBOQExcelExporter(db_path, project_dir)
+        success, message = exporter.export(output_path)
+
+        if success:
+            reply = QMessageBox.information(
+                self, "Export Successful", f"{message}\n\nOpen the file now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                os.startfile(output_path)
+        else:
+            QMessageBox.warning(self, "Export Failed", message)
 
     def open_rate_buildup_window(self, estimate_obj, db_path=None):
         """Opens a rate build-up in an MDI window."""

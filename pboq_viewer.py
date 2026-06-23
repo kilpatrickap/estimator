@@ -141,6 +141,13 @@ class PBOQDialog(QDialog):
         self.tool_toggle_btn.clicked.connect(self._switch_tool_pane)
         top_bar.addWidget(self.tool_toggle_btn)
         
+        # Export Excel button
+        self.export_excel_btn = QPushButton("Export Excel")
+        self.export_excel_btn.setFixedWidth(100)
+        self.export_excel_btn.setStyleSheet("background-color: #1b5e20; color: #ffffff; font-weight: bold;")
+        self.export_excel_btn.clicked.connect(self._export_to_excel)
+        top_bar.addWidget(self.export_excel_btn)
+        
         # Connect signals for global persistence as well
         self.tools_pane.wrapTextToggled.connect(self._save_viewer_state)
         self.tools_pane.alignTextLeftToggled.connect(self._save_viewer_state)
@@ -2448,6 +2455,41 @@ class PBOQDialog(QDialog):
         
         QMessageBox.information(self, "Clear", f"{label} cleared successfully.")
         self._update_stats()
+
+    # --- Excel Export ---
+    def _export_to_excel(self):
+        """Exports the currently selected PBOQ database to an Excel workbook."""
+        from PyQt6.QtWidgets import QFileDialog
+        from pboq_export import PBOQExcelExporter
+
+        db_path = self.pboq_file_selector.currentData()
+        if not db_path:
+            QMessageBox.warning(self, "Export", "No PBOQ file selected.")
+            return
+
+        # Default filename: replace .db with .xlsx
+        default_name = os.path.splitext(os.path.basename(db_path))[0] + ".xlsx"
+        default_path = os.path.join(os.path.dirname(db_path), default_name)
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, "Export PBOQ to Excel", default_path,
+            "Excel Files (*.xlsx);;All Files (*)"
+        )
+        if not output_path:
+            return
+
+        exporter = PBOQExcelExporter(db_path, self.project_dir)
+        success, message = exporter.export(output_path)
+
+        if success:
+            reply = QMessageBox.information(
+                self, "Export Successful", f"{message}\n\nOpen the file now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                os.startfile(output_path)
+        else:
+            QMessageBox.warning(self, "Export Failed", message)
 
     # --- State Management ---
     def _save_pboq_state(self):
