@@ -273,14 +273,17 @@ class TrialSplashDialog(QDialog):
         btn_layout.setSpacing(8)
 
         self.retry_btn = QPushButton("🔄 Restart & Try to Load Again")
+        self.retry_btn.setAutoDefault(False)
         self.retry_btn.clicked.connect(self.restart_app)
         btn_layout.addWidget(self.retry_btn)
 
         self.emergency_btn = QPushButton("🆘 Request 24-Hour Emergency Extension")
+        self.emergency_btn.setAutoDefault(False)
         self.emergency_btn.clicked.connect(self.request_emergency_extension)
         btn_layout.addWidget(self.emergency_btn)
 
         self.buy_btn = QPushButton("⚡ Upgrade to Paid (Get Green Pass)")
+        self.buy_btn.setAutoDefault(False)
         self.buy_btn.clicked.connect(self.open_upgrade)
         btn_layout.addWidget(self.buy_btn)
 
@@ -345,6 +348,7 @@ class TrialSplashDialog(QDialog):
         self.pw_input.setPlaceholderText("Enter Developer Password")
         self.pw_input.returnPressed.connect(self.check_password)
         self.pw_enter_btn = QPushButton("Enter")
+        self.pw_enter_btn.setAutoDefault(False)
         self.pw_enter_btn.clicked.connect(self.check_password)
         pw_layout.addWidget(pw_lbl)
         pw_layout.addWidget(self.pw_input)
@@ -656,6 +660,13 @@ class TrialSplashDialog(QDialog):
         self.timer.start(50)
 
     # EVENT LOOP CLEANUP
+    def keyPressEvent(self, event):
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            # Intercept enter key to prevent the dialog from triggering default/autodefault buttons and closing
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
     def closeEvent(self, event):
         self.timer.stop()
         super().closeEvent(event)
