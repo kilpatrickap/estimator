@@ -54,7 +54,8 @@ class PBOQExcelExporter:
     HEADER_FONT = Font(name="Arial", bold=True, color="FFFFFF", size=10) if HAS_OPENPYXL else None
     FLAGGED_FILL = PatternFill(start_color="FFCDD2", end_color="FFCDD2", fill_type="solid") if HAS_OPENPYXL else None
     THIN_BORDER = Border(
-        bottom=Side(style="thin", color="CCCCCC")
+        bottom=Side(style="thin", color="CCCCCC"),
+        right=Side(style="thin", color="CCCCCC")
     ) if HAS_OPENPYXL else None
 
     def __init__(self, db_path, project_dir):
@@ -89,8 +90,8 @@ class PBOQExcelExporter:
             # 1. Load column mappings from state file
             mappings = self._load_mappings()
 
-            # 2. Load data from DB
-            sheet_groups, db_columns, logical_col_names = self._load_data()
+            # 2. Load data and formatting from DB
+            sheet_groups, db_columns, logical_col_names, formatting_data = self._load_data()
             if not sheet_groups:
                 return False, "No data found in the PBOQ database."
 
@@ -101,7 +102,7 @@ class PBOQExcelExporter:
 
             for sheet_name, rows in sheet_groups.items():
                 ws = wb.create_sheet(title=self._sanitize_sheet_name(sheet_name))
-                self._write_sheet(ws, rows, mappings, db_columns, logical_col_names)
+                self._write_sheet(ws, rows, mappings, db_columns, logical_col_names, formatting_data)
 
             # 4. Save
             wb.save(output_path)
@@ -131,13 +132,17 @@ class PBOQExcelExporter:
         Reads all rows from pboq_items, grouped by Sheet.
 
         Returns:
-            sheet_groups: dict  {sheet_name: [(physical_data_list, logical_data_dict, is_flagged), ...]}
-            db_columns:   list  of physical column names (including 'Sheet' at index 0)
+            sheet_groups:    dict  {sheet_name: [(global_row_idx, physical_data_list, logical_data_dict, is_flagged), ...]}
+            db_columns:      list  of physical column names (including 'Sheet' at index 0)
             logical_col_names: list  of logical column names queried
+            formatting_data: dict  {(global_row_idx, col_idx): {fmt_dict}} from pboq_formatting
         """
         conn = sqlite3.connect(self.db_path)
         PBOQLogic.ensure_schema(conn)
         cursor = conn.cursor()
+
+        # Load cell-level formatting
+        formatting_data = PBOQLogic.load_formatting(conn)
 
         # Get physical columns
         cursor.execute("PRAGMA table_info(pboq_items)")
@@ -184,11 +189,11 @@ class PBOQExcelExporter:
         ]
         col_index = {name: i for i, name in enumerate(result_col_names)}
 
-        # Group by Sheet
+        # Group by Sheet (preserving global_row_idx for formatting lookup)
         sheet_groups = {}
         sheet_col_idx = col_index.get("Sheet", 1)  # 'Sheet' should be the first physical col
 
-        for row in rows:
+        for g_idx, row in enumerate(rows):
             sheet_name = str(row[sheet_col_idx]) if row[sheet_col_idx] else "Sheet 1"
 
             # Extract physical data (skip 'Sheet' at index 0 of physical cols)
@@ -217,11 +222,11 @@ class PBOQExcelExporter:
             if sheet_name not in sheet_groups:
                 sheet_groups[sheet_name] = []
 
-            sheet_groups[sheet_name].append((physical_data, logical_data, is_flagged))
+            sheet_groups[sheet_name].append((g_idx, physical_data, logical_data, is_flagged))
 
-        return sheet_groups, physical_cols, logical_col_names
+        return sheet_groups, physical_cols, logical_col_names, formatting_data
 
-    def _write_sheet(self, ws, rows, mappings, db_columns, logical_col_names):
+    def _write_sheet(self, ws, rows, mappings, db_columns, logical_col_names, formatting_data):
         """Writes a single worksheet with headers, data, and styling."""
         num_cols = len(self.COLUMN_SPEC)
 
@@ -241,11 +246,21 @@ class PBOQExcelExporter:
         # So mapping value N corresponds to db_columns[N + 1]
         display_cols = db_columns[1:] if len(db_columns) > 1 else []
 
+        # ── Build reverse map: export column index → display column index ──
+        # This maps each Excel column (0-based) back to the display col_idx
+        # used as the key in pboq_formatting, so we can look up cell formatting.
+        export_to_display = {}
+        for export_idx, (_, source_type, source_key, _, _) in enumerate(self.COLUMN_SPEC):
+            if source_type == "physical":
+                mapped_display_idx = mappings.get(source_key, -1)
+                if mapped_display_idx >= 0:
+                    export_to_display[export_idx] = mapped_display_idx
+
         # ── Write data rows ──────────────────────────────────────────────
         # Track max content widths for auto-fit
         col_widths = [len(spec[0]) + 2 for spec in self.COLUMN_SPEC]
 
-        for row_offset, (physical_data, logical_data, is_flagged) in enumerate(rows):
+        for row_offset, (global_row_idx, physical_data, logical_data, is_flagged) in enumerate(rows):
             excel_row = row_offset + 2  # Row 1 is header
 
             for col_idx, (header, source_type, source_key, hex_fill, is_numeric) in enumerate(self.COLUMN_SPEC, start=1):
@@ -267,10 +282,19 @@ class PBOQExcelExporter:
                 cell_value = self._clean_value(raw_value, is_numeric)
                 cell = ws.cell(row=excel_row, column=col_idx, value=cell_value)
 
+                # ── Look up persisted cell formatting ──
+                # For physical columns, check pboq_formatting using (global_row_idx, display_col_idx)
+                cell_fmt = None
+                display_col_idx = export_to_display.get(col_idx - 1)  # col_idx is 1-based
+                if display_col_idx is not None:
+                    cell_fmt = formatting_data.get((global_row_idx, display_col_idx))
+
                 # ── Cell styling ──
-                # Background fill
-                if is_flagged and col_idx <= 2:
-                    # Flagged rows get red tint on Ref/Desc columns
+                # Background fill: persisted bg_color > flagged > default role color
+                if cell_fmt and 'bg_color' in cell_fmt:
+                    bg_hex = cell_fmt['bg_color'].lstrip('#')
+                    cell.fill = PatternFill(start_color=bg_hex, end_color=bg_hex, fill_type="solid")
+                elif is_flagged and col_idx <= 2:
                     cell.fill = self.FLAGGED_FILL
                 else:
                     cell.fill = PatternFill(
@@ -281,16 +305,26 @@ class PBOQExcelExporter:
                 if is_numeric and isinstance(cell_value, (int, float)):
                     cell.number_format = '#,##0.00'
 
-                # Alignment
+                # Alignment — enable wrap_text on Description column
+                wrap = source_key == "desc"
                 if is_numeric:
-                    cell.alignment = Alignment(horizontal="right", vertical="center")
+                    cell.alignment = Alignment(horizontal="right", vertical="center", wrap_text=wrap)
                 elif source_key == "unit":
-                    cell.alignment = Alignment(horizontal="center", vertical="center")
+                    cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=wrap)
                 else:
-                    cell.alignment = Alignment(horizontal="left", vertical="center")
+                    cell.alignment = Alignment(horizontal="left", vertical="center", wrap_text=wrap)
 
-                # Font
-                cell.font = Font(name="Arial", size=10)
+                # Font: apply persisted bold/italic/font_color, fall back to defaults
+                font_bold = False
+                font_italic = False
+                font_color = "000000"  # Default black
+                if cell_fmt:
+                    font_bold = cell_fmt.get('bold', False)
+                    font_italic = cell_fmt.get('italic', False)
+                    if 'font_color' in cell_fmt:
+                        font_color = cell_fmt['font_color'].lstrip('#')
+
+                cell.font = Font(name="Arial", size=10, bold=font_bold, italic=font_italic, color=font_color)
 
                 # Subtle row border
                 cell.border = self.THIN_BORDER
