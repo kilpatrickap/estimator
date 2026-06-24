@@ -219,7 +219,7 @@ class TrialSplashDialog(QDialog):
         elif days <= 40:
             return "Yellow", 0.30, f"Trial Pass — Yellow Zone  (Day {days} — launch is no longer guaranteed)"
         elif days <= 45:
-            return "Red", 0.10, f"Trial Pass — Red Zone  (Day {days} — only 1-in-10 launches succeed)"
+            return "Red", 0.10, f"Trial Pass — Red Zone  (Day {days} — launch success is now rare)"
         else:
             return "Black", 0.01, "Trial Pass — Expired  (launches are now extremely rare)"
 
