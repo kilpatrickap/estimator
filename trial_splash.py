@@ -32,8 +32,8 @@ class CheckoutDialog(QDialog):
     """A beautiful simulated checkout window for activating the Green Pass."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Secure Checkout (Simulation)")
-        self.resize(400, 250)
+        self.setWindowTitle("Upgrade to Green Pass")
+        self.resize(440, 280)
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e24;
@@ -52,38 +52,41 @@ class CheckoutDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(14)
 
-        title = QLabel("💳 Estimator Pro Secure Checkout")
-        title.setFont(QFont("Segoe UI", 14, QFont.Weight.Bold))
+        title = QLabel("⭐ Upgrade to Permanent Green Pass")
+        title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         desc = QLabel(
-            "Activate your permanent Green Pass license.\n"
-            "This will simulate a successful purchase and write a secure cryptographic "
-            "license signature to your database."
+            "Your Trial Pass is expiring. Upgrading gives you:\n\n"
+            "  ✅  Guaranteed instant launch — every single time\n"
+            "  ✅  No probabilistic gating, ever again\n"
+            "  ✅  Full access to all Estimator Pro features\n\n"
+            "This will activate a secure cryptographic license on this machine."
         )
         desc.setWordWrap(True)
-        desc.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        desc.setStyleSheet("color: #a1a1aa; font-size: 10pt;")
+        desc.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        desc.setStyleSheet("color: #a1a1aa; font-size: 10pt; line-height: 1.6;")
         layout.addWidget(desc)
 
         layout.addStretch()
 
         btn_layout = QHBoxLayout()
-        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn = QPushButton("Not Now")
         self.cancel_btn.setStyleSheet("""
             background-color: #3f3f46;
             color: #e4e4e7;
         """)
         self.cancel_btn.clicked.connect(self.reject)
 
-        self.pay_btn = QPushButton("Simulate Purchase")
+        self.pay_btn = QPushButton("✅ Activate Green Pass (Simulation)")
         self.pay_btn.setStyleSheet("""
-            background-color: #8b5cf6;
-            color: white;
+            background-color: #10b981;
+            color: #000000;
+            font-weight: bold;
         """)
         self.pay_btn.clicked.connect(self.process_purchase)
 
@@ -97,12 +100,14 @@ class CheckoutDialog(QDialog):
             sig = generate_license_signature()
             db.set_setting("license_status", sig)
             QMessageBox.information(
-                self, "Success", 
-                "🎉 Purchase Successful!\nYour permanent Green Pass has been activated successfully."
+                self, "Green Pass Activated!",
+                "🎉 Welcome to the full Estimator Pro experience!\n\n"
+                "Your permanent Green Pass is now active.\n"
+                "Guaranteed instant access — every time you launch."
             )
             self.accept()
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to activate license: {e}")
             self.reject()
 
 
@@ -113,12 +118,17 @@ class TrialSplashDialog(QDialog):
         self.db = DatabaseManager()
         self.roll_performed = False
         self.roll_success = False
-        
+        self.near_miss_phase = False  # For near-miss animation in Yellow/Red
+        self.near_miss_val = 0
+
         # Override state for developer toolbar
-        self.state_override = "Auto" 
+        self.state_override = "Auto"
 
         # Initialise installation data
         self.init_trial_data()
+
+        # Load & increment session attempt counter
+        self._load_attempt_counter()
 
         # Window settings for borderless translucent view
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -133,7 +143,7 @@ class TrialSplashDialog(QDialog):
         self.progress_val = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_progress)
-        self.timer.start(50) # Tick every 50ms (loads over exactly 5 seconds)
+        self.timer.start(50)  # Tick every 50ms (loads over exactly 5 seconds)
 
     def init_trial_data(self):
         """Initialise or migrate install_date, license_status, and last_run_date settings."""
@@ -146,7 +156,7 @@ class TrialSplashDialog(QDialog):
         if not install_date_str:
             install_date_str = date.today().strftime("%Y-%m-%d")
             self.db.set_setting("install_date", install_date_str)
-        
+
         try:
             self.install_date = datetime.strptime(install_date_str, "%Y-%m-%d").date()
         except Exception:
@@ -162,7 +172,7 @@ class TrialSplashDialog(QDialog):
                 self.last_run_date = date.today()
         else:
             self.last_run_date = date.today()
-            self.db.set_setting("last_run_date", last_run_str if last_run_str else last_run_str)
+            self.db.set_setting("last_run_date", date.today().strftime("%Y-%m-%d"))
 
         # Clock-tampering check (if time went backward by > 24 hours)
         self.is_clock_tampered = False
@@ -173,47 +183,57 @@ class TrialSplashDialog(QDialog):
         if not self.is_clock_tampered:
             self.db.set_setting("last_run_date", date.today().strftime("%Y-%m-%d"))
 
+    def _load_attempt_counter(self):
+        """Loads and increments the launch attempt counter from the DB for Yellow/Red/Black lanes."""
+        try:
+            val = self.db.get_setting("trial_attempt_count")
+            self.attempt_count = int(val) + 1 if val and val.isdigit() else 1
+            self.db.set_setting("trial_attempt_count", str(self.attempt_count))
+        except Exception:
+            self.attempt_count = 1
+
     def calculate_state(self):
         """Calculates the active trial stage and its associated probability."""
         if self.is_premium:
-            return "Green", 1.0, "License Active: Premium Green Pass"
+            return "Green", 1.0, "Permanent Green Pass — Full Access"
 
         if self.is_clock_tampered:
-            return "Black", 0.01, "Code Black (Restricted) - Clock Tampering Detected!"
+            return "Black", 0.01, "Trial Pass Restricted — System clock rollback detected"
 
         # Calculate days since install
         days = (date.today() - self.install_date).days
-        
+
         # Check for emergency bypass date
         emergency_date_str = self.db.get_setting("emergency_bypass_date")
         if emergency_date_str:
             try:
                 bypass_date = datetime.strptime(emergency_date_str, "%Y-%m-%d").date()
                 if date.today() <= bypass_date:
-                    return "Green", 1.0, "Temporary Emergency Bypass Active (Expires tomorrow)"
+                    return "Green", 1.0, f"Emergency Pass Active — Expires {bypass_date.strftime('%d %b %Y')}"
             except Exception:
                 pass
 
+        days_remaining = max(0, 30 - days)
         if days <= 30:
-            return "Green", 1.0, f"Code Green - Day {max(1, days)} of 30 Trial"
+            return "Green", 1.0, f"Trial Pass — Day {max(1, days)} of 30  ({days_remaining} day{'s' if days_remaining != 1 else ''} remaining)"
         elif days <= 40:
-            return "Yellow", 0.30, f"Code Yellow - Day {days} of Trial (30% Load Capacity)"
+            return "Yellow", 0.30, f"Trial Pass — Yellow Zone  (Day {days} — launch is no longer guaranteed)"
         elif days <= 45:
-            return "Red", 0.10, f"Code Red - Day {days} of Trial (10% Load Capacity)"
+            return "Red", 0.10, f"Trial Pass — Red Zone  (Day {days} — only 1-in-10 launches succeed)"
         else:
-            return "Black", 0.01, "Code Black - Trial Expired (1% Archival Queue)"
+            return "Black", 0.01, "Trial Pass — Expired  (launches are now extremely rare)"
 
     def get_current_stage(self):
         """Resolves the stage, taking developer overrides into account."""
         if self.state_override == "Force Green":
-            return "Green", 1.0, "Debug Override: Force Code Green"
+            return "Green", 1.0, "[DEV] Trial Pass — Green Zone forced"
         elif self.state_override == "Force Yellow":
-            return "Yellow", 0.30, "Debug Override: Force Code Yellow (30%)"
+            return "Yellow", 0.30, "[DEV] Trial Pass — Yellow Zone forced (30% launch rate)"
         elif self.state_override == "Force Red":
-            return "Red", 0.10, "Debug Override: Force Code Red (10%)"
+            return "Red", 0.10, "[DEV] Trial Pass — Red Zone forced (10% launch rate)"
         elif self.state_override == "Force Black":
-            return "Black", 0.01, "Debug Override: Force Code Black (1%)"
-        
+            return "Black", 0.01, "[DEV] Trial Pass — Black Zone forced (1% launch rate)"
+
         return self.calculate_state()
 
     def setup_ui(self):
@@ -254,7 +274,7 @@ class TrialSplashDialog(QDialog):
         card_layout.addLayout(header_layout)
 
         # Main Status Graphic & Messages
-        self.info_lbl = QLabel("Initializing connection to cost databases...")
+        self.info_lbl = QLabel("Initializing Estimator Pro...")
         self.info_lbl.setFont(QFont("Segoe UI", 10))
         self.info_lbl.setStyleSheet("color: #e4e4e7;")
         self.info_lbl.setWordWrap(True)
@@ -272,20 +292,27 @@ class TrialSplashDialog(QDialog):
         btn_layout.setContentsMargins(0, 0, 0, 0)
         btn_layout.setSpacing(8)
 
-        self.retry_btn = QPushButton("🔄 Restart & Try to Load Again")
+        # Attempt counter label (shown in Yellow/Red/Black on failure)
+        self.attempt_lbl = QLabel("")
+        self.attempt_lbl.setFont(QFont("Segoe UI", 8))
+        self.attempt_lbl.setStyleSheet("color: #71717a; margin-bottom: 2px;")
+        self.attempt_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        btn_layout.addWidget(self.attempt_lbl)
+
+        self.retry_btn = QPushButton("🔄 Try Again")
         self.retry_btn.clicked.connect(self.restart_app)
         btn_layout.addWidget(self.retry_btn)
 
-        self.emergency_btn = QPushButton("🆘 Request 24-Hour Emergency Extension")
+        self.emergency_btn = QPushButton("🆘 Activate 24-Hour Emergency Pass")
         self.emergency_btn.clicked.connect(self.request_emergency_extension)
         btn_layout.addWidget(self.emergency_btn)
 
-        self.buy_btn = QPushButton("⚡ Upgrade to Paid (Get Green Pass)")
+        self.buy_btn = QPushButton("⭐ Upgrade — Get Guaranteed Access")
         self.buy_btn.clicked.connect(self.open_upgrade)
         btn_layout.addWidget(self.buy_btn)
 
         card_layout.addWidget(self.btn_widget)
-        self.btn_widget.hide() # Hidden initially
+        self.btn_widget.hide()  # Hidden initially
 
         card_layout.addStretch()
 
@@ -369,8 +396,14 @@ class TrialSplashDialog(QDialog):
         """Applies stylesheet gradients, typography, and button layout based on active stage."""
         stage, prob, desc = self.get_current_stage()
 
-        # Update pill
-        self.status_pill.setText(f"{stage.upper()} LANE")
+        # Update pill with honest Trial Pass framing
+        pill_labels = {
+            "Green": "✅ TRIAL PASS",
+            "Yellow": "🟡 YELLOW ZONE",
+            "Red": "🔴 RED ZONE",
+            "Black": "⬛ TRIAL EXPIRED",
+        }
+        self.status_pill.setText(pill_labels.get(stage, f"{stage.upper()} ZONE"))
 
         # CURATED GRADIENTS matching the status codes
         if stage == "Green":
@@ -433,12 +466,12 @@ class TrialSplashDialog(QDialog):
             border: 1px solid #3f3f46;
         """)
 
-        # Check emergency button status: only show/enable on Code Black
+        # Emergency Pass button: only visible in Black zone
         if stage == "Black":
             self.emergency_btn.show()
             emergency_used = self.db.get_setting("emergency_bypass_date") is not None
             if emergency_used:
-                self.emergency_btn.setText("🆘 Emergency Extension (Already Used)")
+                self.emergency_btn.setText("🆘 Emergency Pass (Already Used — Cannot Renew)")
                 self.emergency_btn.setEnabled(False)
                 self.emergency_btn.setStyleSheet("""
                     background-color: #18181b;
@@ -448,7 +481,7 @@ class TrialSplashDialog(QDialog):
                     border: 1px solid #27272a;
                 """)
             else:
-                self.emergency_btn.setText("🆘 Request 24-Hour Emergency Extension")
+                self.emergency_btn.setText("🆘 Activate 24-Hour Emergency Pass (One-Time)")
                 self.emergency_btn.setEnabled(True)
                 self.emergency_btn.setStyleSheet("""
                     background-color: #451a03;
@@ -462,62 +495,148 @@ class TrialSplashDialog(QDialog):
 
     def update_progress(self):
         """Simulates progress bar animation and runs probability check at 100%."""
+        if self.near_miss_phase:
+            # Near-miss animation: quickly fill to near-miss value then drain
+            self.near_miss_val -= 3
+            self.progress_bar.setValue(max(0, self.near_miss_val))
+            if self.near_miss_val <= 0:
+                self.near_miss_phase = False
+                self.timer.stop()
+                self._show_failure_state()
+            return
+
         if self.progress_val < 100:
             self.progress_val += 1
             self.progress_bar.setValue(self.progress_val)
             stage, prob, desc = self.get_current_stage()
-            self.info_lbl.setText(f"{desc}...\nEstablishing server lane connection...")
+            # Stage-specific loading copy
+            loading_msgs = {
+                "Green": [
+                    "Loading cost rate databases...",
+                    "Preparing your workspace...",
+                    "Applying your Trial Pass...",
+                ],
+                "Yellow": [
+                    "Checking Trial Pass status...",
+                    "Trial Pass — Yellow Zone active...",
+                    "Probabilistic launch in progress...",
+                ],
+                "Red": [
+                    "Checking Trial Pass status...",
+                    "Trial Pass — Red Zone critical...",
+                    "Launch probability: 10% — attempting...",
+                ],
+                "Black": [
+                    "Trial Pass expired...",
+                    "Attempting archival queue launch (1%)...",
+                    "Searching for launch slot...",
+                ],
+            }
+            msgs = loading_msgs.get(stage, ["Loading..."])
+            msg_idx = min(int(self.progress_val / 34), len(msgs) - 1)
+            self.info_lbl.setText(f"{desc}\n{msgs[msg_idx]}")
         else:
             self.timer.stop()
             self.perform_roll()
 
     def perform_roll(self):
-        """Performs the probabilistic connection roll."""
+        """Performs the probabilistic launch roll with near-miss animation for Yellow/Red."""
         self.roll_performed = True
         stage, prob, desc = self.get_current_stage()
 
-        # Check roll
         roll = random.random()
         self.roll_success = roll < prob
 
         if self.roll_success:
-            self.info_lbl.setText(f"🎉 Connection Established!\nLaunching Estimator Pro in stage: {stage}...")
-            # Brief delay before starting
-            QTimer.singleShot(1000, self.accept)
-        else:
+            # Reset attempt counter on success
+            self.db.set_setting("trial_attempt_count", "0")
             self.info_lbl.setText(
-                f"❌ Connection Failed.\n"
-                f"Server lane capacity exceeded for {stage} Lane (Current connection success rate: {int(prob*100)}%).\n"
-                f"Please restart the app to retry, or upgrade for dedicated lane access."
+                f"✅ Launch successful!\nWelcome back to Estimator Pro.  ({stage} Pass)"
             )
-            # Show conversion CTA options
-            self.btn_widget.show()
-            self.update_window_size()
+            QTimer.singleShot(900, self.accept)
+        else:
+            # Near-miss: in Yellow/Red, ~40% of failures show a near-miss animation
+            if stage in ("Yellow", "Red") and random.random() < 0.40:
+                near_miss_peak = random.randint(72, 91)
+                self.progress_bar.setValue(near_miss_peak)
+                self.info_lbl.setText(
+                    f"⏳ {int(near_miss_peak)}% loaded... launch slot lost.\n"
+                    f"Trial Pass — {stage} Zone  ({int(prob * 100)}% launch rate)"
+                )
+                self.near_miss_phase = True
+                self.near_miss_val = near_miss_peak
+                self.timer.start(40)  # Drain animation
+            else:
+                self._show_failure_state()
+
+    def _show_failure_state(self):
+        """Displays the stage-appropriate failure message and CTA buttons."""
+        stage, prob, desc = self.get_current_stage()
+        pct = int(prob * 100)
+
+        failure_msgs = {
+            "Yellow": (
+                f"🟡 Launch attempt did not succeed this time.\n"
+                f"Your Trial Pass is in the Yellow Zone — launches are no longer guaranteed ({pct}% success rate).\n"
+                f"Upgrade for instant, guaranteed access every time."
+            ),
+            "Red": (
+                f"🔴 Launch failed — Red Zone active.\n"
+                f"Only {pct}% of trial launches succeed at this stage. Every day you wait is a bid you can't price.\n"
+                f"Secure your access now before your next urgent deadline."
+            ),
+            "Black": (
+                f"⬛ Trial Pass Expired.\n"
+                f"Launches are now extremely rare ({pct}%). Are you in the middle of an urgent bid?\n"
+                f"Use your one-time Emergency Pass, or upgrade for permanent access."
+            ),
+        }
+        self.info_lbl.setText(
+            failure_msgs.get(stage,
+                f"⚠️ Trial Pass — {stage} Zone.\nLaunch was not successful ({pct}% rate). Try again or upgrade."
+            )
+        )
+
+        # Update attempt counter label
+        if stage in ("Yellow", "Red", "Black") and self.attempt_count > 1:
+            self.attempt_lbl.setText(
+                f"You've attempted {self.attempt_count} launch{'es' if self.attempt_count != 1 else ''} this trial. "
+                f"Upgrade once — launch forever."
+            )
+            self.attempt_lbl.show()
+        else:
+            self.attempt_lbl.hide()
+
+        self.btn_widget.show()
+        self.update_window_size()
 
     def restart_app(self):
-        """Quits the current app session to let them double-click to load again."""
+        """Quits the current app session so the user can relaunch and roll again."""
         self.reject()
 
     def request_emergency_extension(self):
-        """Grants a 24-hour emergency extension."""
+        """Grants a one-time 24-hour emergency launch pass."""
         reply = QMessageBox.question(
-            self, "Request Extension",
-            "This will grant a one-time, 24-hour bypass pass to allow you to finish urgent active bids.\n\n"
-            "Do you want to activate your Emergency Bypass?",
+            self, "Activate Emergency Pass",
+            "This is a one-time Emergency Pass for urgent, time-critical bids.\n\n"
+            "It will restore full launch access for 24 hours and cannot be renewed.\n\n"
+            "Activate your Emergency Pass now?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         )
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                # Set temporary extension bypass date in database
                 bypass_expire = (date.today() + timedelta(days=1)).strftime("%Y-%m-%d")
                 self.db.set_setting("emergency_bypass_date", bypass_expire)
                 QMessageBox.information(
-                    self, "Extension Active",
-                    f"Emergency Extension Active!\nImmediate server access has been restored until tomorrow ({bypass_expire})."
+                    self, "Emergency Pass Active",
+                    f"✅ Emergency Pass Activated!\n\n"
+                    f"You have full access until {bypass_expire}.\n\n"
+                    f"Remember: this pass is one-time only and cannot be extended.\n"
+                    f"Upgrade to a permanent Green Pass to never face this again."
                 )
                 self.accept()
             except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to activate extension: {e}")
+                QMessageBox.critical(self, "Error", f"Failed to activate Emergency Pass: {e}")
 
     def open_upgrade(self):
         """Opens simulated checkout flow."""
@@ -590,7 +709,7 @@ class TrialSplashDialog(QDialog):
     def reset_trial_settings(self):
         with self.db.Session() as s:
             from orm_models import Setting
-            s.query(Setting).filter(Setting.key.in_(['install_date', 'license_status', 'emergency_bypass_date', 'last_run_date'])).delete()
+            s.query(Setting).filter(Setting.key.in_(['install_date', 'license_status', 'emergency_bypass_date', 'last_run_date', 'trial_attempt_count'])).delete()
             s.commit()
 
         self.override_combo.setCurrentText("Auto")

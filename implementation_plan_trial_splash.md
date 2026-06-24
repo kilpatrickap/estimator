@@ -2,6 +2,9 @@
 
 This plan details the design and implementation for a **Trial Gating Splash Screen** in **Estimator Pro**. The gating mechanism uses a probabilistic trial degradation model (based on B.F. Skinner's operant conditioning and variable reinforcement schedules) to incentivize conversion from free to paid users within a 45-day window.
 
+> [!IMPORTANT]
+> **Psychological Honesty Principle:** All messaging in this system uses a **Trial Pass / Fuel Gauge** metaphor — not fake network or server errors. Deceptive server-failure framing is a detectable lie (no network traffic occurs) that destroys user trust before conversion can happen. Skinner's conditioning only works when the organism cannot identify the mechanism as manipulative. The revised framing is honest, professional, and more effective.
+
 ---
 
 ## User Review Required
@@ -9,9 +12,10 @@ This plan details the design and implementation for a **Trial Gating Splash Scre
 > [!IMPORTANT]
 > **Probabilistic App Gating (Extinction Resistance):**
 > * Instead of locking the user out completely after 30 days, we gate the **app startup process** itself on a probabilistic scale.
-> * Users in Code Yellow (Days 31-40) have a **30% chance** of launching the app.
-> * Users in Code Red (Days 41-45) have a **10% chance** of launching the app.
-> * If a roll fails, the splash screen displays the current trial status and urges the user to restart the app and "keep trying" (leveraging variable reinforcement) or purchase a Paid license (**Green Pass**) to restore immediate, 100% reliable launch.
+> * Users in Yellow Zone (Days 31-40) have a **30% chance** of launching the app — a **Variable Ratio Schedule**, the same schedule used by slot machines and the most extinction-resistant reinforcement pattern known.
+> * Users in Red Zone (Days 41-45) have a **10% chance** of launching the app — **Scarcity + Loss Aversion** framing ("every day you wait is a bid you can't price").
+> * Users in Black Zone (Days 46+) have a **1% chance** — near-extinction state with a one-time **Emergency Pass** safety valve to prevent review-damaging lockouts.
+> * If a roll fails, the splash displays the current **Trial Pass status** (not a fake server error) with stage-specific copy and CTAs (Try Again / Emergency Pass / Upgrade).
 
 > [!TIP]
 > **Developer Testing Panel:**
@@ -58,19 +62,26 @@ graph TD
 ### Components
 
 #### [NEW] [trial_splash.py](file:///c:/Users/Consar-Kilpatrick/Estimator_Pro_20May26/estimator/trial_splash.py)
-This module will define the `TrialSplashDialog` class, inheriting from `QDialog`:
+This module defines the `TrialSplashDialog` class, inheriting from `QDialog`:
 *   **Window Configuration:** Borderless frame (`Qt.WindowType.FramelessWindowHint`) with translucent background and drop shadow support.
 *   **Curated Aesthetics:** Curated color gradients matching the status code:
-    *   **Code Green:** Deep forest green and charcoal gradient with bright emerald highlights.
-    *   **Code Yellow:** Warm amber and charcoal gradient with bright gold highlights.
-    *   **Code Red:** Crimson red and dark charcoal gradient with rose highlights.
-    *   **Code Black:** Sleek carbon-fiber black gradient with dark slate and violet highlights.
-*   **Interactive Simulation Dialog:** Clicking the "Upgrade to Paid" button displays a payment simulation window. Clicking "Simulate Purchase" instantly writes an encrypted license signature (SHA-256 of machine key + salt) to the database setting `license_status` and re-evaluates the launch state.
-*   **Emergency Extension Button:** Visible strictly in the failed Code Black state (hidden in all other states), letting the user request a one-time **"24-Hour Emergency Extension"** to finish urgent bids, which writes a temporary signature to the database.
-*   **Developer Panel (Testing Toolbar):**
+    *   **Green Zone:** Deep forest green and charcoal gradient with bright emerald highlights.
+    *   **Yellow Zone:** Warm amber and charcoal gradient with bright gold highlights.
+    *   **Red Zone:** Crimson red and dark charcoal gradient with rose highlights.
+    *   **Black Zone:** Sleek carbon-fiber black gradient with dark slate and violet highlights.
+*   **Honest Trial Pass Framing:** All messaging uses a **Trial Pass / Fuel Gauge** metaphor. No fake server or network-failure language is used anywhere — it is detectable (no network traffic occurs on a standalone desktop app) and destroys user trust before conversion.
+*   **Stage-Specific Skinnerian Copy:**
+    *   **Green (Days 1–30):** Shows `Day X of 30 (Y days remaining)` — Fixed Interval awareness primes urgency *before* Yellow kicks in.
+    *   **Yellow (Days 31–40, 30%):** `"Your Trial Pass is in the Yellow Zone — launches are no longer guaranteed. Upgrade for instant, guaranteed access every time."` — Variable Ratio framing, upgrade = certainty.
+    *   **Red (Days 41–45, 10%):** `"Only 10% of trial launches succeed at this stage. Every day you wait is a bid you can't price."` — Loss Aversion framing.
+    *   **Black (Days 46+, 1%):** `"Are you in the middle of an urgent bid? Use your one-time Emergency Pass, or upgrade for permanent access."` — Crisis relief → reciprocity obligation.
+*   **Near-Miss Animation:** In Yellow and Red zones, ~40% of failed rolls show the progress bar filling to 72–91% before draining back — a classic near-miss effect that maintains engagement and slot-machine psychology.
+*   **Attempt Counter:** Tracks `trial_attempt_count` in the DB. On failure in Yellow/Red/Black, shows: `"You've attempted N launches this trial. Upgrade once — launch forever."` — Ratio fatigue framing.
+*   **Interactive Simulation Dialog:** Clicking "Upgrade" opens a checkout window. "Activate Green Pass (Simulation)" writes an encrypted license signature (SHA-256) to the DB and re-evaluates state.
+*   **Emergency Pass Button:** Visible **only** in Black Zone. One-time use. Grants 24-hour access. Dialog copy makes reciprocity obligation explicit: `"Remember: this pass is one-time only and cannot be extended. Upgrade to a permanent Green Pass to never face this again."`
+*   **Developer Panel (Testing Toolbar):** Hidden behind `Ctrl+Shift+Alt+D` + password prompt.
     *   Dropdown: `Auto (Date-based)`, `Force Green`, `Force Yellow`, `Force Red`, `Force Black`.
-    *   Buttons: `Set Install to Day -35 (Yellow)`, `Set Install to Day -42 (Red)`, `Set Install to Day -50 (Black)`, `Reset Trial` (which clears the database setting `license_status` and resets `install_date` to today).
-    *   Simulates rolls instantly when inputs are toggled.
+    *   Buttons: `Set Install to Day -35 (Yellow)`, `Set Install to Day -42 (Red)`, `Set Install to Day -50 (Black)`, `Reset Trial` (clears `install_date`, `license_status`, `emergency_bypass_date`, `last_run_date`, `trial_attempt_count`).
 
 #### [MODIFY] [main.py](file:///c:/Users/Consar-Kilpatrick/Estimator_Pro_20May26/estimator/main.py)
 We will integrate the splash screen before displaying `MainWindow`:
