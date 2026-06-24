@@ -524,12 +524,12 @@ class TrialSplashDialog(QDialog):
                 "Red": [
                     "Checking Trial Pass status...",
                     "Trial Pass — Red Zone critical...",
-                    "Launch probability: 10% — attempting...",
+                    "Launch is now rare — attempting...",
                 ],
                 "Black": [
                     "Trial Pass expired...",
-                    "Attempting archival queue launch (1%)...",
-                    "Searching for launch slot...",
+                    "Searching for an available launch slot...",
+                    "Almost never succeeds at this stage...",
                 ],
             }
             msgs = loading_msgs.get(stage, ["Loading..."])
@@ -561,7 +561,7 @@ class TrialSplashDialog(QDialog):
                 self.progress_bar.setValue(near_miss_peak)
                 self.info_lbl.setText(
                     f"⏳ {int(near_miss_peak)}% loaded... launch slot lost.\n"
-                    f"Trial Pass — {stage} Zone  ({int(prob * 100)}% launch rate)"
+                    f"Trial Pass — {stage} Zone  (launch was not guaranteed)"
                 )
                 self.near_miss_phase = True
                 self.near_miss_val = near_miss_peak
@@ -572,28 +572,27 @@ class TrialSplashDialog(QDialog):
     def _show_failure_state(self):
         """Displays the stage-appropriate failure message and CTA buttons."""
         stage, prob, desc = self.get_current_stage()
-        pct = int(prob * 100)
 
         failure_msgs = {
             "Yellow": (
-                f"🟡 Launch attempt did not succeed this time.\n"
-                f"Your Trial Pass is in the Yellow Zone — launches are no longer guaranteed ({pct}% success rate).\n"
-                f"Upgrade for instant, guaranteed access every time."
+                "🟡 Launch attempt did not succeed this time.\n"
+                "Your Trial Pass is in the Yellow Zone — launches are no longer guaranteed.\n"
+                "Upgrade for instant, guaranteed access every time."
             ),
             "Red": (
-                f"🔴 Launch failed — Red Zone active.\n"
-                f"Only {pct}% of trial launches succeed at this stage. Every day you wait is a bid you can't price.\n"
-                f"Secure your access now before your next urgent deadline."
+                "🔴 Launch failed — Red Zone active.\n"
+                "Trial launches are now rare at this stage. Every day you wait is a bid you can't price.\n"
+                "Secure your access now before your next urgent deadline."
             ),
             "Black": (
-                f"⬛ Trial Pass Expired.\n"
-                f"Launches are now extremely rare ({pct}%). Are you in the middle of an urgent bid?\n"
-                f"Use your one-time Emergency Pass, or upgrade for permanent access."
+                "⬛ Trial Pass Expired.\n"
+                "Launches are almost never successful at this stage. Are you in the middle of an urgent bid?\n"
+                "Use your one-time Emergency Pass, or upgrade for permanent access."
             ),
         }
         self.info_lbl.setText(
             failure_msgs.get(stage,
-                f"⚠️ Trial Pass — {stage} Zone.\nLaunch was not successful ({pct}% rate). Try again or upgrade."
+                f"⚠️ Trial Pass — {stage} Zone.\nThis launch was not successful. Try again or upgrade."
             )
         )
 
