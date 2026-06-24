@@ -55,7 +55,7 @@ class CheckoutDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
-        title = QLabel("⭐ Upgrade to Permanent Green Pass")
+        title = QLabel("⭐ Upgrade to Green Pass")
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
