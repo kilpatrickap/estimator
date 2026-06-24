@@ -143,7 +143,7 @@ class TrialSplashDialog(QDialog):
         self.progress_val = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_progress)
-        self.timer.start(50)  # Tick every 50ms (loads over exactly 5 seconds)
+        self.timer.start(100)  # Tick every 100ms (loads over exactly 10 seconds)
 
     def init_trial_data(self):
         """Initialise or migrate install_date, license_status, and last_run_date settings."""
@@ -687,7 +687,7 @@ class TrialSplashDialog(QDialog):
         self.progress_val = 0
         self.btn_widget.hide()
         self.update_window_size()
-        self.timer.start(50)
+        self.timer.start(100)
 
     def sim_install_date(self, offset_days):
         target_date = (date.today() + timedelta(days=offset_days)).strftime("%Y-%m-%d")
@@ -703,7 +703,7 @@ class TrialSplashDialog(QDialog):
         self.progress_val = 0
         self.btn_widget.hide()
         self.update_window_size()
-        self.timer.start(50)
+        self.timer.start(100)
 
     def reset_trial_settings(self):
         with self.db.Session() as s:
@@ -717,7 +717,7 @@ class TrialSplashDialog(QDialog):
         self.progress_val = 0
         self.btn_widget.hide()
         self.update_window_size()
-        self.timer.start(50)
+        self.timer.start(100)
 
     # EVENT LOOP CLEANUP
     def closeEvent(self, event):
