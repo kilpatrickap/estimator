@@ -63,7 +63,6 @@ class CheckoutDialog(QDialog):
         desc = QLabel(
             "Your Trial Pass is expiring. Upgrading gives you:\n\n"
             "  ✅  Guaranteed instant launch — every single time\n"
-            "  ✅  No probabilistic gating, ever again\n"
             "  ✅  Full access to all Estimator Pro features\n\n"
             "This will activate a secure cryptographic license on this machine."
         )
