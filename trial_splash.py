@@ -101,7 +101,7 @@ class CheckoutDialog(QDialog):
             QMessageBox.information(
                 self, "Green Pass Activated!",
                 "🎉 Welcome to the full Estimator Pro experience!\n\n"
-                "Your permanent Green Pass is now active.\n"
+                "Your Green Pass is now active.\n"
                 "Guaranteed instant access — every time you launch."
             )
             self.accept()
@@ -194,7 +194,7 @@ class TrialSplashDialog(QDialog):
     def calculate_state(self):
         """Calculates the active trial stage and its associated probability."""
         if self.is_premium:
-            return "Green", 1.0, "Permanent Green Pass — Full Access"
+            return "Green", 1.0, "Green Pass — Full Access"
 
         if self.is_clock_tampered:
             return "Black", 0.01, "Trial Pass Restricted — System clock rollback detected"
@@ -586,7 +586,7 @@ class TrialSplashDialog(QDialog):
             "Black": (
                 "⬛ Trial Pass Expired.\n"
                 "Launches are almost never successful at this stage. Are you in the middle of an urgent bid?\n"
-                "Use your one-time Emergency Pass, or upgrade for permanent access."
+                "Use your one-time Emergency Pass, or upgrade for access."
             ),
         }
         self.info_lbl.setText(
@@ -630,7 +630,7 @@ class TrialSplashDialog(QDialog):
                     f"✅ Emergency Pass Activated!\n\n"
                     f"You have full access until {bypass_expire}.\n\n"
                     f"Remember: this pass is one-time only and cannot be extended.\n"
-                    f"Upgrade to a permanent Green Pass to never face this again."
+                    f"Upgrade to Green Pass to never face this again."
                 )
                 self.accept()
             except Exception as e:
