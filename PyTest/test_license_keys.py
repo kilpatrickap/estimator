@@ -143,6 +143,24 @@ class TestValidateLicenseKey:
         assert valid is True
         assert result == future_date
 
+    def test_print_device_id(self):
+        """Helper test to print the raw device ID and installation code to console."""
+        raw_device_id = "UNKNOWN"
+        if sys.platform == "win32":
+            import winreg
+            try:
+                with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\SQMClient") as key:
+                    raw_device_id, _ = winreg.QueryValueEx(key, "MachineId")
+            except Exception as e:
+                raw_device_id = f"ERROR: {e}"
+
+        code = get_installation_code()
+        
+        print(f"\n==========================================")
+        print(f"DEBUG DEVICE IDENTIFIERS:")
+        print(f"  Raw Windows Device ID: {raw_device_id}")
+        print(f"  Hashed Installation Code: {code}")
+        print(f"==========================================")
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -245,3 +263,8 @@ class TestCalculateStateLicense:
         stage, prob, desc = dialog.calculate_state()
         assert stage == "Green"
         assert "Trial Pass" in desc
+
+
+if __name__ == "__main__":
+    import pytest
+    pytest.main(["-s", "-k", "test_print_device_id", __file__])
