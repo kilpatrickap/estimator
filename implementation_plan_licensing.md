@@ -27,11 +27,12 @@ Developer (offline)                    App (client)
 ─────────────────────────────────────────────────────────────
 make_key(days=30)                      User enters key
   │                                      │
-  ├─ expiry = today + 30 days            ├─ parse EPRO-{YYYYMMDD}-{SIG8}
-  ├─ expiry_str = "20260724"             ├─ recompute HMAC-SHA256(secret, expiry_str)[:8]
+  ├─ expiry = today + 30 days            ├─ parse XXXX-XXXXXX-XXXXXXXX-XXXXXXXX
+  ├─ serial = "A8B9CD" (random)          │  (EPRO-{SERIAL}-{YYYYMMDD}-{SIG8})
+  ├─ message = "A8B9CD:20260724"         ├─ recompute HMAC-SHA256(secret, serial + ":" + expiry_str)[:8]
   ├─ sig = HMAC-SHA256(secret,           ├─ compare → match? → valid key
-  │         expiry_str)[:8]             ├─ today <= expiry? → not expired
-  └─ "EPRO-20260724-A3F7C9D1"           └─ write license_expiry to DB → Green Pass
+  │         message)[:8]                 ├─ today <= expiry? → not expired
+  └─ "EPRO-A8B9CD-20260724-A3F7C9D1"     └─ write license_expiry to DB → Green Pass
 ```
 
 ---
@@ -39,20 +40,21 @@ make_key(days=30)                      User enters key
 ## Key Format
 
 ```
-EPRO-20260724-A3F7C9D1
-│    │         │
-│    │         └─ 8-char uppercase HMAC-SHA256 signature (first 8 hex chars)
-│    └─────────── Expiry date: YYYYMMDD (baked into the key)
-└──────────────── Product prefix — first validity check
+EPRO-A8B9CD-20260724-A3F7C9D1
+│    │      │        │
+│    │      │        └─ 8-char uppercase HMAC-SHA256 signature (first 8 hex chars)
+│    │      └───────── Expiry date: YYYYMMDD (baked into the key)
+│    └──────────────── Unique random 6-character serial
+└───────────────────── Product prefix — first validity check
 ```
 
 **Examples:**
 
 | Duration | Key Example |
 |---|---|
-| 30 days  | `EPRO-20260724-A3F7C9D1` |
-| 90 days  | `EPRO-20260921-F2B7A3E0` |
-| 365 days | `EPRO-20270624-C9D14F2B` |
+| 30 days  | `EPRO-A8B9CD-20260724-A3F7C9D1` |
+| 90 days  | `EPRO-X2Y3Z4-20260921-F2B7A3E0` |
+| 365 days | `EPRO-K9L8M7-20270624-C9D14F2B` |
 
 ---
 
@@ -75,10 +77,14 @@ from datetime import date, timedelta
 SECRET = "EstimatorProKeySecret2026"  # Must match SECRET_KEY in trial_splash.py
 
 def make_key(days: int = 30) -> str:
-    """Generate a timed HMAC-SHA256 license key valid for `days` days from today."""
+    """Generate a timed HMAC-SHA256 license key valid for `days` days from today, with a unique serial."""
+    import random
+    import string
     expiry = (date.today() + timedelta(days=days)).strftime("%Y%m%d")
-    sig = hmac.new(SECRET.encode(), expiry.encode(), hashlib.sha256).hexdigest()[:8].upper()
-    return f"EPRO-{expiry}-{sig}"
+    serial = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    message = f"{serial}:{expiry}"
+    sig = hmac.new(SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
+    return f"EPRO-{serial}-{expiry}-{sig}"
 
 if __name__ == "__main__":
     print(f"30-day  key: {make_key(30)}")
@@ -109,7 +115,7 @@ SECRET_KEY = "EstimatorProKeySecret2026"
 
 def validate_license_key(key: str):
     """
-    Validates a timed HMAC-SHA256 license key.
+    Validates a timed HMAC-SHA256 license key with an embedded serial.
     Returns:
         (True,  expiry_date)   — valid and not yet expired
         (False, "format")      — key is malformed or wrong prefix
@@ -118,13 +124,13 @@ def validate_license_key(key: str):
     """
     try:
         parts = key.strip().upper().split("-")
-        if len(parts) != 3 or parts[0] != "EPRO":
+        if len(parts) != 4 or parts[0] != "EPRO":
             return False, "format"
-        expiry_str, provided_sig = parts[1], parts[2]
-        if len(expiry_str) != 8 or len(provided_sig) != 8:
+        serial, expiry_str, provided_sig = parts[1], parts[2], parts[3]
+        if len(serial) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
             return False, "format"
         expected_sig = hmac.new(
-            SECRET_KEY.encode(), expiry_str.encode(), hashlib.sha256
+            SECRET_KEY.encode(), f"{serial}:{expiry_str}".encode(), hashlib.sha256
         ).hexdigest()[:8].upper()
         if provided_sig != expected_sig:
             return False, "signature"
@@ -185,7 +191,7 @@ Replace the simulated checkout button with a real license key input field.
 │                                                  │
 │  Enter your license key:                         │
 │  ┌──────────────────────────────────────────┐    │
-│  │  EPRO-________-________                  │    │
+│  │  XXXX-XXXXXX-XXXXXXXX-XXXXXXXX           │    │
 │  └──────────────────────────────────────────┘    │
 │                                                  │
 │  [status label — inline validation feedback]     │
@@ -199,7 +205,7 @@ Replace the simulated checkout button with a real license key input field.
 | Condition | Label |
 |---|---|
 | Empty / not yet submitted | *(blank)* |
-| Malformed key | `⚠️ Invalid key format. Expected: EPRO-YYYYMMDD-XXXXXXXX` |
+| Malformed key | `⚠️ Invalid key format. Expected: XXXX-XXXXXX-XXXXXXXX-XXXXXXXX` |
 | Bad HMAC signature | `❌ Key is not valid for Estimator Pro.` |
 | Key is expired | `⏰ This key expired on {date}. Please obtain a new key.` |
 | Key already activated on this machine | `🔒 This key has already been activated on this machine.` |
@@ -354,7 +360,7 @@ The renewal UX capitalises on the user's existing attachment to the product (the
 ## Verification Plan
 
 ### Key Generator
-- [ ] Run `license_keygen.py` — confirm `EPRO-YYYYMMDD-XXXXXXXX` format output
+- [ ] Run `license_keygen.py` — confirm `XXXX-XXXXXX-XXXXXXXX-XXXXXXXX` format output
 - [ ] Confirm expiry = `today + N days` for each duration
 
 ### Activation Flow
