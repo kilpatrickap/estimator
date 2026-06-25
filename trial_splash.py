@@ -876,7 +876,6 @@ class TrialSplashDialog(QDialog):
                 QLineEdit.EchoMode.Password
             )
             if ok:
-                # SHA-256 of '191986kil'
                 expected_hash = "60bb26c3adbbdc5c7e607007f33cbca5e0c8b1365844758d7ad41d28f15606d7"
                 entered_hash = hashlib.sha256(password.encode('utf-8')).hexdigest()
                 
