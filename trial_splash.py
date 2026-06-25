@@ -120,9 +120,9 @@ class LicenseActivationDialog(QDialog):
 
         inst_code = get_installation_code()
         desc = QLabel(
-            f"Your Installation Code:  <b>{inst_code}</b>\n\n\n"
-            "Enter the license key provided to you.\n\n"
-            "  ✅  Guaranteed instant launch — every single time\n"
+            f"Your Installation Code:  <b>{inst_code}</b><br/><br/>"
+            "Enter the license key provided to you.<br/><br/>"
+            "  ✅  Guaranteed instant launch — every single time<br/>"
             "  ✅  Full access to all Estimator Pro features"
         )
         desc.setWordWrap(True)
