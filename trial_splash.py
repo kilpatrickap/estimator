@@ -32,7 +32,7 @@ def is_license_valid(sig):
 
 def validate_license_key(key: str):
     """
-    Validates a timed HMAC-SHA256 license key.
+    Validates a timed HMAC-SHA256 license key with an embedded serial.
     Returns:
         (True,  expiry_date)   — valid and not yet expired
         (False, "format")      — key is malformed or wrong prefix
@@ -41,13 +41,13 @@ def validate_license_key(key: str):
     """
     try:
         parts = key.strip().upper().split("-")
-        if len(parts) != 3 or parts[0] != "EPRO":
+        if len(parts) != 4 or parts[0] != "EPRO":
             return False, "format"
-        expiry_str, provided_sig = parts[1], parts[2]
-        if len(expiry_str) != 8 or len(provided_sig) != 8:
+        serial, expiry_str, provided_sig = parts[1], parts[2], parts[3]
+        if len(serial) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
             return False, "format"
         expected_sig = hmac.new(
-            SECRET_KEY.encode(), expiry_str.encode(), hashlib.sha256
+            SECRET_KEY.encode(), f"{serial}:{expiry_str}".encode(), hashlib.sha256
         ).hexdigest()[:8].upper()
         if provided_sig != expected_sig:
             return False, "signature"
@@ -57,6 +57,7 @@ def validate_license_key(key: str):
         return True, expiry_date
     except Exception:
         return False, "format"
+
 
 
 class LicenseActivationDialog(QDialog):
@@ -107,7 +108,7 @@ class LicenseActivationDialog(QDialog):
         layout.addWidget(key_label)
 
         self.key_input = QLineEdit()
-        self.key_input.setPlaceholderText("EPRO-YYYYMMDD-XXXXXXXX")
+        self.key_input.setPlaceholderText("XXXX-XXXXXX-XXXXXXXX-XXXXXXXX")
         self.key_input.setStyleSheet("""
             QLineEdit {
                 background-color: #27272a;
@@ -165,7 +166,7 @@ class LicenseActivationDialog(QDialog):
         if not valid:
             if result == "format":
                 self.status_label.setText(
-                    "⚠️ Invalid key format. Expected: EPRO-YYYYMMDD-XXXXXXXX"
+                    "⚠️ Invalid key format. Expected: XXXX-XXXXXX-XXXXXXXX-XXXXXXXX"
                 )
                 self.status_label.setStyleSheet("color: #f59e0b; font-size: 9pt; min-height: 20px;")
             elif result == "signature":

@@ -21,10 +21,14 @@ SECRET = "EstimatorProKeySecret2026"  # Must match SECRET_KEY in trial_splash.py
 
 
 def make_key(days: int = 30) -> str:
-    """Generate a timed HMAC-SHA256 license key valid for `days` days from today."""
+    """Generate a timed HMAC-SHA256 license key valid for `days` days from today, with a unique serial."""
+    import random
+    import string
     expiry = (date.today() + timedelta(days=days)).strftime("%Y%m%d")
-    sig = hmac.new(SECRET.encode(), expiry.encode(), hashlib.sha256).hexdigest()[:8].upper()
-    return f"EPRO-{expiry}-{sig}"
+    serial = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    message = f"{serial}:{expiry}"
+    sig = hmac.new(SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
+    return f"EPRO-{serial}-{expiry}-{sig}"
 
 
 class KeygenDialog(QDialog):

@@ -23,11 +23,12 @@ from trial_splash import validate_license_key, SECRET_KEY
 
 # ─── Helper: generate a known-good key for a given expiry date ───
 
-def _make_key_for_date(expiry_date: date) -> str:
-    """Generate a valid EPRO key for an arbitrary expiry date."""
+def _make_key_for_date(expiry_date: date, serial: str = "A8B9CD") -> str:
+    """Generate a valid EPRO key for an arbitrary expiry date and serial."""
     expiry_str = expiry_date.strftime("%Y%m%d")
-    sig = hmac.new(SECRET_KEY.encode(), expiry_str.encode(), hashlib.sha256).hexdigest()[:8].upper()
-    return f"EPRO-{expiry_str}-{sig}"
+    message = f"{serial}:{expiry_str}"
+    sig = hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
+    return f"EPRO-{serial}-{expiry_str}-{sig}"
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -65,9 +66,9 @@ class TestValidateLicenseKey:
         """A key with a tampered signature returns (False, 'signature')."""
         future_date = date.today() + timedelta(days=30)
         key = _make_key_for_date(future_date)
-        # Corrupt the last character of the signature
+        # Corrupt the last character of the signature (the 4th part)
         parts = key.split("-")
-        parts[2] = parts[2][:-1] + ("A" if parts[2][-1] != "A" else "B")
+        parts[3] = parts[3][:-1] + ("A" if parts[3][-1] != "A" else "B")
         bad_key = "-".join(parts)
         valid, reason = validate_license_key(bad_key)
         assert valid is False
@@ -75,31 +76,31 @@ class TestValidateLicenseKey:
 
     def test_wrong_prefix(self):
         """A key with a wrong product prefix returns (False, 'format')."""
-        valid, reason = validate_license_key("XPRO-20260724-A3F7C9D1")
+        valid, reason = validate_license_key("XPRO-A8B9CD-20260724-A3F7C9D1")
         assert valid is False
         assert reason == "format"
 
     def test_too_few_parts(self):
         """A key with too few dashes returns (False, 'format')."""
-        valid, reason = validate_license_key("EPRO-20260724")
+        valid, reason = validate_license_key("EPRO-A8B9CD-20260724")
         assert valid is False
         assert reason == "format"
 
     def test_too_many_parts(self):
         """A key with extra dashes returns (False, 'format')."""
-        valid, reason = validate_license_key("EPRO-2026-0724-A3F7C9D1")
+        valid, reason = validate_license_key("EPRO-A8B9CD-2026-0724-A3F7C9D1")
         assert valid is False
         assert reason == "format"
 
     def test_short_date(self):
         """A key with a short date field returns (False, 'format')."""
-        valid, reason = validate_license_key("EPRO-2026072-A3F7C9D1")
+        valid, reason = validate_license_key("EPRO-A8B9CD-2026072-A3F7C9D1")
         assert valid is False
         assert reason == "format"
 
     def test_short_signature(self):
         """A key with a short signature returns (False, 'format')."""
-        valid, reason = validate_license_key("EPRO-20260724-A3F7C9")
+        valid, reason = validate_license_key("EPRO-A8B9CD-20260724-A3F7C9")
         assert valid is False
         assert reason == "format"
 
@@ -124,6 +125,7 @@ class TestValidateLicenseKey:
         valid, result = validate_license_key(key)
         assert valid is True
         assert result == future_date
+
 
 
 # ═══════════════════════════════════════════════════════════════════════
