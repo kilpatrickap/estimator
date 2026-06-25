@@ -115,12 +115,11 @@ class TrialSplashDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.db = DatabaseManager()
-        self.roll_performed = False
         self.roll_success = False
-        self.near_miss_phase = False  # For near-miss animation in Yellow/Red
-        self.near_miss_val = 0
-        self.rollback_phase = False   # For rollback animation on non-near-miss failures
+        self.target_val = 100        # Pre-rolled target percentage (100 = success)
+        self.rollback_phase = False  # For drain animation on failure
         self.rollback_val = 0
+        self.stall_paused = False    # Brief pause at stall point before drain
 
         # Override state for developer toolbar
         self.state_override = "Auto"
@@ -140,11 +139,14 @@ class TrialSplashDialog(QDialog):
         self.apply_theme()
         self.update_window_size()
 
+        # Pre-roll the probabilistic target before animation starts
+        self._calculate_target()
+
         # Loading animation timer
         self.progress_val = 0
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_progress)
-        self.timer.start(100)  # Tick every 100ms (loads over exactly 10 seconds)
+        self.timer.start(100)  # Tick every 100ms
 
     def init_trial_data(self):
         """Initialise or migrate install_date, license_status, and last_run_date settings."""
@@ -237,6 +239,32 @@ class TrialSplashDialog(QDialog):
 
         return self.calculate_state()
 
+    def _calculate_target(self):
+        """Pre-rolls the probabilistic target before the progress animation starts.
+
+        On success the target is 100 (bar fills completely → launch).
+        On failure the target is a zone-weighted stall point so the user can
+        *see* how close they got, creating near-miss tension.
+        """
+        stage, prob, desc = self.get_current_stage()
+        roll = random.random()
+
+        if roll < prob:
+            self.target_val = 100
+            self.roll_success = True
+        else:
+            self.roll_success = False
+            # Zone-weighted stall points — Yellow gets tantalisingly close,
+            # Black barely moves, reinforcing the upgrade pressure.
+            if stage == "Yellow":
+                self.target_val = random.randint(60, 97)
+            elif stage == "Red":
+                self.target_val = random.randint(35, 85)
+            elif stage == "Black":
+                self.target_val = random.randint(8, 45)
+            else:
+                self.target_val = random.randint(40, 90)
+
     def setup_ui(self):
         # Create a container frame with a rounded card style
         self.card = QFrame(self)
@@ -281,9 +309,16 @@ class TrialSplashDialog(QDialog):
         self.info_lbl.setWordWrap(True)
         card_layout.addWidget(self.info_lbl)
 
-        # Progress bar
+        # Live percentage counter — big, dramatic, slot-machine style
+        self.pct_label = QLabel("0%")
+        self.pct_label.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
+        self.pct_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.pct_label.setStyleSheet("color: #e4e4e7;")
+        card_layout.addWidget(self.pct_label)
+
+        # Progress bar (taller to reinforce the visual)
         self.progress_bar = QProgressBar()
-        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setFixedHeight(14)
         self.progress_bar.setTextVisible(False)
         card_layout.addWidget(self.progress_bar)
 
@@ -434,16 +469,19 @@ class TrialSplashDialog(QDialog):
         """)
         self.status_pill.setStyleSheet(pill_style)
 
+        # Style percentage label
+        self.pct_label.setStyleSheet(f"color: {accent};")
+
         # Style Progress Bar
         self.progress_bar.setStyleSheet(f"""
             QProgressBar {{
                 background-color: rgba(255, 255, 255, 0.1);
                 border: none;
-                border-radius: 3px;
+                border-radius: 7px;
             }}
             QProgressBar::chunk {{
                 background-color: {accent};
-                border-radius: 3px;
+                border-radius: 7px;
             }}
         """)
 
@@ -495,31 +533,32 @@ class TrialSplashDialog(QDialog):
             self.emergency_btn.hide()
 
     def update_progress(self):
-        """Simulates progress bar animation and runs probability check at 100%."""
-        if self.near_miss_phase:
-            # Near-miss animation: quickly fill to near-miss value then drain
-            self.near_miss_val -= 3
-            self.progress_bar.setValue(max(0, self.near_miss_val))
-            if self.near_miss_val <= 0:
-                self.near_miss_phase = False
-                self.timer.stop()
-                self._show_failure_state()
-            return
+        """Animates the progress bar toward the pre-rolled target.
 
+        • Fills 0 → target_val  (with deceleration in the last 10%)
+        • target_val == 100  →  launch success
+        • target_val  < 100  →  stall, pause 1.5 s, drain to 0, failure UI
+        """
+        # ── PHASE 2: Drain back to 0 after a failed stall ──
         if self.rollback_phase:
-            # Rollback animation: drain progress bar from 100 to 0 on failure
-            self.rollback_val -= 3
-            self.progress_bar.setValue(max(0, self.rollback_val))
-            if self.rollback_val <= 0:
+            self.rollback_val -= 2
+            val = max(0, self.rollback_val)
+            self.progress_bar.setValue(val)
+            self.pct_label.setText(f"{val}%")
+            if val <= 0:
                 self.rollback_phase = False
                 self.timer.stop()
                 self._show_failure_state()
             return
 
-        if self.progress_val < 100:
+        # ── PHASE 1: Fill toward the target ──
+        if self.progress_val < self.target_val:
             self.progress_val += 1
             self.progress_bar.setValue(self.progress_val)
+            self.pct_label.setText(f"{self.progress_val}%")
+
             stage, prob, desc = self.get_current_stage()
+
             # Stage-specific loading copy
             loading_msgs = {
                 "Green": [
@@ -546,42 +585,48 @@ class TrialSplashDialog(QDialog):
             msgs = loading_msgs.get(stage, ["Loading..."])
             msg_idx = min(int(self.progress_val / 34), len(msgs) - 1)
             self.info_lbl.setText(f"{desc}\n{msgs[msg_idx]}")
+
+            # Deceleration — slow the timer in the last 10% before a stall
+            # to create a "running out of steam" feel (only for failures).
+            if not self.roll_success:
+                remaining = self.target_val - self.progress_val
+                if remaining <= 3:
+                    self.timer.setInterval(300)   # Very slow
+                elif remaining <= 6:
+                    self.timer.setInterval(200)   # Slow
+                elif remaining <= 10:
+                    self.timer.setInterval(150)   # Medium
+
         else:
+            # ── Reached the target ──
             self.timer.stop()
-            self.perform_roll()
 
-    def perform_roll(self):
-        """Performs the probabilistic launch roll with near-miss animation for Yellow/Red."""
-        self.roll_performed = True
-        stage, prob, desc = self.get_current_stage()
-
-        roll = random.random()
-        self.roll_success = roll < prob
-
-        if self.roll_success:
-            # Reset attempt counter on success
-            self.db.set_setting("trial_attempt_count", "0")
-            self.info_lbl.setText(
-                f"✅ Launch successful!\nWelcome back to Estimator Pro.  ({stage} Pass)"
-            )
-            QTimer.singleShot(900, self.accept)
-        else:
-            # Near-miss: in Yellow/Red, ~40% of failures show a near-miss animation
-            if stage in ("Yellow", "Red") and random.random() < 0.40:
-                near_miss_peak = random.randint(72, 91)
-                self.progress_bar.setValue(near_miss_peak)
+            if self.roll_success:
+                # 100% — Launch!
+                self.pct_label.setText("100%")
+                stage, prob, desc = self.get_current_stage()
+                self.db.set_setting("trial_attempt_count", "0")
                 self.info_lbl.setText(
-                    f"⏳ {int(near_miss_peak)}% loaded... launch slot lost.\n"
-                    f"Trial Pass — {stage} Zone  (launch was not guaranteed)"
+                    f"✅ Launch successful!\nWelcome back to Estimator Pro.  ({stage} Pass)"
                 )
-                self.near_miss_phase = True
-                self.near_miss_val = near_miss_peak
-                self.timer.start(40)  # Drain animation
+                QTimer.singleShot(900, self.accept)
             else:
-                # Roll back the progress bar before showing the failure state
-                self.rollback_phase = True
-                self.rollback_val = 100
-                self.timer.start(40)  # Drain animation
+                # Stalled short of 100% — show stall message, then drain
+                stage, prob, desc = self.get_current_stage()
+                self.info_lbl.setText(
+                    f"⏳ Stalled at {self.target_val}%... launch slot lost.\n"
+                    f"Trial Pass — {stage} Zone  (100% required to launch)"
+                )
+                if not self.stall_paused:
+                    self.stall_paused = True
+                    QTimer.singleShot(1500, self._start_rollback)
+
+    def _start_rollback(self):
+        """Begins the drain animation from the stall point back to 0%."""
+        self.rollback_phase = True
+        self.rollback_val = self.target_val
+        self.timer.setInterval(40)
+        self.timer.start()
 
     def _show_failure_state(self):
         """Displays the stage-appropriate failure message and CTA buttons."""
@@ -662,7 +707,7 @@ class TrialSplashDialog(QDialog):
     def update_window_size(self):
         """Sets fixed width and computes height dynamically based on visible components to prevent Windows resize warnings."""
         self.setFixedWidth(520)
-        h = 210
+        h = 260  # Taller base to accommodate pct_label
         if self.btn_widget.isVisible():
             if self.emergency_btn.isVisible():
                 h += 130
@@ -697,15 +742,7 @@ class TrialSplashDialog(QDialog):
     def on_override_changed(self, val):
         self.state_override = val
         self.apply_theme()
-        # Reset progress bar and run roll again
-        self.progress_val = 0
-        self.rollback_phase = False
-        self.rollback_val = 0
-        self.near_miss_phase = False
-        self.near_miss_val = 0
-        self.btn_widget.hide()
-        self.update_window_size()
-        self.timer.start(100)
+        self._reset_progress_state()
 
     def sim_install_date(self, offset_days):
         target_date = (date.today() + timedelta(days=offset_days)).strftime("%Y-%m-%d")
@@ -718,14 +755,7 @@ class TrialSplashDialog(QDialog):
 
         self.init_trial_data()
         self.apply_theme()
-        self.progress_val = 0
-        self.rollback_phase = False
-        self.rollback_val = 0
-        self.near_miss_phase = False
-        self.near_miss_val = 0
-        self.btn_widget.hide()
-        self.update_window_size()
-        self.timer.start(100)
+        self._reset_progress_state()
 
     def reset_trial_settings(self):
         with self.db.Session() as s:
@@ -736,14 +766,22 @@ class TrialSplashDialog(QDialog):
         self.override_combo.setCurrentText("Auto")
         self.init_trial_data()
         self.apply_theme()
+        self._reset_progress_state()
+
+    def _reset_progress_state(self):
+        """Resets all animation state and re-rolls a fresh target."""
+        self.timer.stop()
         self.progress_val = 0
         self.rollback_phase = False
         self.rollback_val = 0
-        self.near_miss_phase = False
-        self.near_miss_val = 0
+        self.stall_paused = False
+        self.pct_label.setText("0%")
+        self.progress_bar.setValue(0)
         self.btn_widget.hide()
         self.update_window_size()
-        self.timer.start(100)
+        self._calculate_target()
+        self.timer.setInterval(100)
+        self.timer.start()
 
     # EVENT LOOP CLEANUP
     def closeEvent(self, event):
