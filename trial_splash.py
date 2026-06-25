@@ -119,6 +119,8 @@ class TrialSplashDialog(QDialog):
         self.roll_success = False
         self.near_miss_phase = False  # For near-miss animation in Yellow/Red
         self.near_miss_val = 0
+        self.rollback_phase = False   # For rollback animation on non-near-miss failures
+        self.rollback_val = 0
 
         # Override state for developer toolbar
         self.state_override = "Auto"
@@ -504,6 +506,16 @@ class TrialSplashDialog(QDialog):
                 self._show_failure_state()
             return
 
+        if self.rollback_phase:
+            # Rollback animation: drain progress bar from 100 to 0 on failure
+            self.rollback_val -= 3
+            self.progress_bar.setValue(max(0, self.rollback_val))
+            if self.rollback_val <= 0:
+                self.rollback_phase = False
+                self.timer.stop()
+                self._show_failure_state()
+            return
+
         if self.progress_val < 100:
             self.progress_val += 1
             self.progress_bar.setValue(self.progress_val)
@@ -566,7 +578,10 @@ class TrialSplashDialog(QDialog):
                 self.near_miss_val = near_miss_peak
                 self.timer.start(40)  # Drain animation
             else:
-                self._show_failure_state()
+                # Roll back the progress bar before showing the failure state
+                self.rollback_phase = True
+                self.rollback_val = 100
+                self.timer.start(40)  # Drain animation
 
     def _show_failure_state(self):
         """Displays the stage-appropriate failure message and CTA buttons."""
@@ -684,6 +699,10 @@ class TrialSplashDialog(QDialog):
         self.apply_theme()
         # Reset progress bar and run roll again
         self.progress_val = 0
+        self.rollback_phase = False
+        self.rollback_val = 0
+        self.near_miss_phase = False
+        self.near_miss_val = 0
         self.btn_widget.hide()
         self.update_window_size()
         self.timer.start(100)
@@ -700,6 +719,10 @@ class TrialSplashDialog(QDialog):
         self.init_trial_data()
         self.apply_theme()
         self.progress_val = 0
+        self.rollback_phase = False
+        self.rollback_val = 0
+        self.near_miss_phase = False
+        self.near_miss_val = 0
         self.btn_widget.hide()
         self.update_window_size()
         self.timer.start(100)
@@ -714,6 +737,10 @@ class TrialSplashDialog(QDialog):
         self.init_trial_data()
         self.apply_theme()
         self.progress_val = 0
+        self.rollback_phase = False
+        self.rollback_val = 0
+        self.near_miss_phase = False
+        self.near_miss_val = 0
         self.btn_widget.hide()
         self.update_window_size()
         self.timer.start(100)
