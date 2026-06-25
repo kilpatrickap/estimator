@@ -3,6 +3,7 @@ import sys
 import os
 import random
 import hashlib
+import hmac
 from datetime import datetime, timedelta, date
 
 from PyQt6.QtWidgets import (
@@ -16,6 +17,7 @@ from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPalette, QShortcut, QKe
 from database import DatabaseManager
 
 SECRET_SALT = "EstimatorProPremiumAccess2026"
+SECRET_KEY = "EstimatorProKeySecret2026"
 
 def generate_license_signature():
     """Generates the secure SHA-256 license signature for Paid status."""
@@ -28,12 +30,41 @@ def is_license_valid(sig):
     return sig == generate_license_signature()
 
 
-class CheckoutDialog(QDialog):
-    """A beautiful simulated checkout window for activating the Green Pass."""
+def validate_license_key(key: str):
+    """
+    Validates a timed HMAC-SHA256 license key.
+    Returns:
+        (True,  expiry_date)   — valid and not yet expired
+        (False, "format")      — key is malformed or wrong prefix
+        (False, "signature")   — HMAC does not match (key is invalid/forged)
+        (False, "expired")     — key is structurally valid but past expiry
+    """
+    try:
+        parts = key.strip().upper().split("-")
+        if len(parts) != 3 or parts[0] != "EPRO":
+            return False, "format"
+        expiry_str, provided_sig = parts[1], parts[2]
+        if len(expiry_str) != 8 or len(provided_sig) != 8:
+            return False, "format"
+        expected_sig = hmac.new(
+            SECRET_KEY.encode(), expiry_str.encode(), hashlib.sha256
+        ).hexdigest()[:8].upper()
+        if provided_sig != expected_sig:
+            return False, "signature"
+        expiry_date = datetime.strptime(expiry_str, "%Y%m%d").date()
+        if date.today() > expiry_date:
+            return False, "expired"
+        return True, expiry_date
+    except Exception:
+        return False, "format"
+
+
+class LicenseActivationDialog(QDialog):
+    """License key activation dialog with inline HMAC-SHA256 validation."""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Upgrade to Green Pass")
-        self.resize(440, 280)
+        self.setWindowTitle("Activate Your License")
+        self.resize(480, 320)
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e24;
@@ -55,21 +86,50 @@ class CheckoutDialog(QDialog):
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(14)
 
-        title = QLabel("⭐ Upgrade to Green Pass")
+        title = QLabel("🔑 Activate Your License")
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
         desc = QLabel(
-            "Your Trial Pass is expiring. Upgrading gives you:\n\n"
+            "Enter the license key provided to you.\n\n"
             "  ✅  Guaranteed instant launch — every single time\n"
-            "  ✅  Full access to all Estimator Pro features\n\n"
-            "This will activate a secure cryptographic license on this machine."
+            "  ✅  Full access to all Estimator Pro features"
         )
         desc.setWordWrap(True)
         desc.setAlignment(Qt.AlignmentFlag.AlignLeft)
         desc.setStyleSheet("color: #a1a1aa; font-size: 10pt; line-height: 1.6;")
         layout.addWidget(desc)
+
+        # Key input field
+        key_label = QLabel("Enter your license key:")
+        key_label.setStyleSheet("color: #d1d5db; font-size: 9pt; margin-top: 6px;")
+        layout.addWidget(key_label)
+
+        self.key_input = QLineEdit()
+        self.key_input.setPlaceholderText("EPRO-YYYYMMDD-XXXXXXXX")
+        self.key_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #27272a;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 12pt;
+                font-family: 'Consolas', 'Courier New', monospace;
+                letter-spacing: 1px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #10b981;
+            }
+        """)
+        layout.addWidget(self.key_input)
+
+        # Inline status label for validation feedback
+        self.status_label = QLabel("")
+        self.status_label.setWordWrap(True)
+        self.status_label.setStyleSheet("color: #a1a1aa; font-size: 9pt; min-height: 20px;")
+        layout.addWidget(self.status_label)
 
         layout.addStretch()
 
@@ -81,33 +141,82 @@ class CheckoutDialog(QDialog):
         """)
         self.cancel_btn.clicked.connect(self.reject)
 
-        self.pay_btn = QPushButton("✅ Activate Green Pass (Simulation)")
-        self.pay_btn.setStyleSheet("""
+        self.activate_btn = QPushButton("✅ Activate")
+        self.activate_btn.setStyleSheet("""
             background-color: #10b981;
             color: #000000;
             font-weight: bold;
         """)
-        self.pay_btn.clicked.connect(self.process_purchase)
+        self.activate_btn.clicked.connect(self.activate)
 
         btn_layout.addWidget(self.cancel_btn)
-        btn_layout.addWidget(self.pay_btn)
+        btn_layout.addWidget(self.activate_btn)
         layout.addLayout(btn_layout)
 
-    def process_purchase(self):
+    def activate(self):
+        """Validates the entered key and writes license data to the DB on success."""
+        entered_key = self.key_input.text().strip()
+        if not entered_key:
+            self.status_label.setText("")
+            return
+
+        valid, result = validate_license_key(entered_key)
+
+        if not valid:
+            if result == "format":
+                self.status_label.setText(
+                    "⚠️ Invalid key format. Expected: EPRO-YYYYMMDD-XXXXXXXX"
+                )
+                self.status_label.setStyleSheet("color: #f59e0b; font-size: 9pt; min-height: 20px;")
+            elif result == "signature":
+                self.status_label.setText(
+                    "❌ Key is not valid for Estimator Pro."
+                )
+                self.status_label.setStyleSheet("color: #f43f5e; font-size: 9pt; min-height: 20px;")
+            elif result == "expired":
+                # Parse the date from the key for the message
+                try:
+                    parts = entered_key.strip().upper().split("-")
+                    exp_date = datetime.strptime(parts[1], "%Y%m%d").date()
+                    self.status_label.setText(
+                        f"⏰ This key expired on {exp_date.strftime('%d %b %Y')}. Please obtain a new key."
+                    )
+                except Exception:
+                    self.status_label.setText(
+                        "⏰ This key has expired. Please obtain a new key."
+                    )
+                self.status_label.setStyleSheet("color: #f59e0b; font-size: 9pt; min-height: 20px;")
+            return
+
+        # valid is True, result is expiry_date
+        expiry_date = result
+
+        # Key reuse check (same machine prevention)
         try:
             db = DatabaseManager()
-            sig = generate_license_signature()
-            db.set_setting("license_status", sig)
-            QMessageBox.information(
-                self, "Green Pass Activated!",
-                "🎉 Welcome to the full Estimator Pro experience!\n\n"
-                "Your Green Pass is now active.\n"
-                "Guaranteed instant access — every time you launch."
+            key_hash = hashlib.sha256(entered_key.upper().encode('utf-8')).hexdigest()
+            stored_hash = db.get_setting("license_key_hash")
+            if stored_hash == key_hash:
+                self.status_label.setText(
+                    "🔒 This key has already been activated on this machine."
+                )
+                self.status_label.setStyleSheet("color: #a1a1aa; font-size: 9pt; min-height: 20px;")
+                return
+
+            # Write to DB
+            db.set_setting("license_expiry", expiry_date.strftime("%Y%m%d"))
+            db.set_setting("license_key_hash", key_hash)
+
+            self.status_label.setText(
+                f"✅ License activated! Valid until {expiry_date.strftime('%d %b %Y')}."
             )
-            self.accept()
+            self.status_label.setStyleSheet("color: #10b981; font-size: 9pt; min-height: 20px;")
+
+            QTimer.singleShot(1200, self.accept)
+
         except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to activate license: {e}")
-            self.reject()
+            self.status_label.setText(f"❌ Activation error: {e}")
+            self.status_label.setStyleSheet("color: #f43f5e; font-size: 9pt; min-height: 20px;")
 
 
 class TrialSplashDialog(QDialog):
@@ -196,17 +305,42 @@ class TrialSplashDialog(QDialog):
             self.attempt_count = 1
 
     def calculate_state(self):
-        """Calculates the active trial stage and its associated probability."""
+        """Calculates the active trial stage and its associated probability.
+
+        Priority order:
+          1. Permanent signature (is_premium)        → Green forever
+          2. Timed license (license_expiry in DB)    → Green until expiry, then fall through
+          3. Emergency bypass date                   → Green until bypass expires
+          4. Clock tamper detected                   → Force Black
+          5. Trial day calculation                   → Green / Yellow / Red / Black
+        """
+        # 1. Permanent pass
         if self.is_premium:
             return "Green", 1.0, "Green Pass — Full Access"
 
+        # 2. Timed license check
+        license_expiry_str = self.db.get_setting("license_expiry")
+        if license_expiry_str:
+            try:
+                license_expiry = datetime.strptime(license_expiry_str, "%Y%m%d").date()
+                days_left = (license_expiry - date.today()).days
+                if days_left >= 0:
+                    return "Green", 1.0, (
+                        f"Licensed — Expires {license_expiry.strftime('%d %b %Y')}"
+                        f"  ({days_left} day{'s' if days_left != 1 else ''} left)"
+                    )
+                # Expired — fall through to trial day calculation below
+            except Exception:
+                pass
+
+        # 3. Clock tamper check
         if self.is_clock_tampered:
             return "Black", 0.01, "Trial Pass Restricted — System clock rollback detected"
 
         # Calculate days since install
         days = (date.today() - self.install_date).days
 
-        # Check for emergency bypass date
+        # 4. Emergency bypass date
         emergency_date_str = self.db.get_setting("emergency_bypass_date")
         if emergency_date_str:
             try:
@@ -216,6 +350,7 @@ class TrialSplashDialog(QDialog):
             except Exception:
                 pass
 
+        # 5. Trial day calculation
         days_remaining = max(0, 30 - days)
         if days <= 30:
             return "Green", 1.0, f"Trial Pass — Day {max(1, days)} of 30  ({days_remaining} day{'s' if days_remaining != 1 else ''} remaining)"
@@ -432,14 +567,25 @@ class TrialSplashDialog(QDialog):
         """Applies stylesheet gradients, typography, and button layout based on active stage."""
         stage, prob, desc = self.get_current_stage()
 
-        # Update pill with honest Trial Pass framing
-        pill_labels = {
-            "Green": "✅ TRIAL PASS",
-            "Yellow": "🟡 YELLOW ZONE",
-            "Red": "🔴 RED ZONE",
-            "Black": "⬛ TRIAL EXPIRED",
-        }
-        self.status_pill.setText(pill_labels.get(stage, f"{stage.upper()} ZONE"))
+        # Update pill — distinguish LICENSED from TRIAL PASS
+        if stage == "Green" and "Licensed" in desc:
+            self.status_pill.setText("✅ LICENSED")
+        else:
+            pill_labels = {
+                "Green": "✅ TRIAL PASS",
+                "Yellow": "🟡 YELLOW ZONE",
+                "Red": "🔴 RED ZONE",
+                "Black": "⬛ TRIAL EXPIRED",
+            }
+            self.status_pill.setText(pill_labels.get(stage, f"{stage.upper()} ZONE"))
+
+        # Renewal CTA copy — known paying customer vs. new trial user
+        license_expiry_str = self.db.get_setting("license_expiry")
+        is_lapsed_customer = license_expiry_str is not None
+        if is_lapsed_customer:
+            self.buy_btn.setText("🔑 Renew License — Restore Instant Access")
+        else:
+            self.buy_btn.setText("⭐ Upgrade — Get Guaranteed Access")
 
         # CURATED GRADIENTS matching the status codes
         if stage == "Green":
@@ -697,10 +843,10 @@ class TrialSplashDialog(QDialog):
                 QMessageBox.critical(self, "Error", f"Failed to activate Emergency Pass: {e}")
 
     def open_upgrade(self):
-        """Opens simulated checkout flow."""
-        chk = CheckoutDialog(self)
-        if chk.exec() == QDialog.DialogCode.Accepted:
-            # Upgrade occurred, reload install data and accept splash dialog
+        """Opens the license key activation dialog."""
+        dlg = LicenseActivationDialog(self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            # License activated, reload install data and accept splash dialog
             self.init_trial_data()
             self.accept()
 
@@ -760,7 +906,11 @@ class TrialSplashDialog(QDialog):
     def reset_trial_settings(self):
         with self.db.Session() as s:
             from orm_models import Setting
-            s.query(Setting).filter(Setting.key.in_(['install_date', 'license_status', 'emergency_bypass_date', 'last_run_date', 'trial_attempt_count'])).delete()
+            s.query(Setting).filter(Setting.key.in_([
+                'install_date', 'license_status', 'emergency_bypass_date',
+                'last_run_date', 'trial_attempt_count',
+                'license_expiry', 'license_key_hash'
+            ])).delete()
             s.commit()
 
         self.override_combo.setCurrentText("Auto")
