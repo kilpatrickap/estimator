@@ -18,13 +18,15 @@ from unittest.mock import patch, MagicMock
 # Add project root to system path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from trial_splash import validate_license_key, SECRET_KEY
+from trial_splash import validate_license_key, SECRET_KEY, get_installation_code
 
 
 # ─── Helper: generate a known-good key for a given expiry date ───
 
-def _make_key_for_date(expiry_date: date, serial: str = "A8B9CD") -> str:
+def _make_key_for_date(expiry_date: date, serial: str = None) -> str:
     """Generate a valid EPRO key for an arbitrary expiry date and serial."""
+    if serial is None:
+        serial = get_installation_code().replace("-", "")
     expiry_str = expiry_date.strftime("%Y%m%d")
     message = f"{serial}:{expiry_str}"
     sig = hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
@@ -61,6 +63,21 @@ class TestValidateLicenseKey:
         valid, reason = validate_license_key(key)
         assert valid is False
         assert reason == "expired"
+
+    def test_wrong_machine_code(self):
+        """A key generated for a different machine's installation code should fail with 'machine'."""
+        future_date = date.today() + timedelta(days=30)
+        wrong_code = "ZZZZZZ"
+        # Make sure wrong_code doesn't accidentally equal local_code
+        if wrong_code == get_installation_code().replace("-", ""):
+            wrong_code = "YYYYYY"
+        expiry_str = future_date.strftime("%Y%m%d")
+        message = f"{wrong_code}:{expiry_str}"
+        sig = hmac.new(SECRET_KEY.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
+        bad_key = f"EPRO-{wrong_code}-{expiry_str}-{sig}"
+        valid, reason = validate_license_key(bad_key)
+        assert valid is False
+        assert reason == "machine"
 
     def test_bad_signature(self):
         """A key with a tampered signature returns (False, 'signature')."""

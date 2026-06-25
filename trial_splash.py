@@ -18,6 +18,7 @@ from database import DatabaseManager
 
 SECRET_SALT = "EstimatorProPremiumAccess2026"
 SECRET_KEY = "EstimatorProKeySecret2026"
+PRIVACY_SALT = "EstimatorProPrivacySalt2026"
 
 def generate_license_signature():
     """Generates the secure SHA-256 license signature for Paid status."""
@@ -30,12 +31,31 @@ def is_license_valid(sig):
     return sig == generate_license_signature()
 
 
+def get_installation_code() -> str:
+    """Generates a privacy-preserving 6-character installation code from Windows SQM MachineId."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\SQMClient") as key:
+            device_id, _ = winreg.QueryValueEx(key, "MachineId")
+        raw_hash = hashlib.sha256((device_id + PRIVACY_SALT).encode('utf-8')).hexdigest()
+        code = raw_hash[:6].upper()
+        return f"{code[:2]}-{code[2:4]}-{code[4:]}"
+    except Exception:
+        # Fallback to general platform node if registry is inaccessible or not on Windows
+        import platform
+        fallback_str = f"{platform.processor()}:{platform.node()}:{PRIVACY_SALT}"
+        raw_hash = hashlib.sha256(fallback_str.encode('utf-8')).hexdigest()
+        code = raw_hash[:6].upper()
+        return f"{code[:2]}-{code[2:4]}-{code[4:]}"
+
+
 def validate_license_key(key: str):
     """
-    Validates a timed HMAC-SHA256 license key with an embedded serial.
+    Validates a timed, machine-locked HMAC-SHA256 license key.
     Returns:
-        (True,  expiry_date)   — valid and not yet expired
+        (True,  expiry_date)   — valid, belongs to this machine, and not yet expired
         (False, "format")      — key is malformed or wrong prefix
+        (False, "machine")     — key belongs to a different machine (code mismatch)
         (False, "signature")   — HMAC does not match (key is invalid/forged)
         (False, "expired")     — key is structurally valid but past expiry
     """
@@ -43,11 +63,17 @@ def validate_license_key(key: str):
         parts = key.strip().upper().split("-")
         if len(parts) != 4 or parts[0] != "EPRO":
             return False, "format"
-        serial, expiry_str, provided_sig = parts[1], parts[2], parts[3]
-        if len(serial) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
+        key_code, expiry_str, provided_sig = parts[1], parts[2], parts[3]
+        if len(key_code) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
             return False, "format"
+            
+        # Verify machine lock
+        local_code = get_installation_code().replace("-", "")
+        if key_code != local_code:
+            return False, "machine"
+            
         expected_sig = hmac.new(
-            SECRET_KEY.encode(), f"{serial}:{expiry_str}".encode(), hashlib.sha256
+            SECRET_KEY.encode(), f"{local_code}:{expiry_str}".encode(), hashlib.sha256
         ).hexdigest()[:8].upper()
         if provided_sig != expected_sig:
             return False, "signature"
@@ -92,7 +118,9 @@ class LicenseActivationDialog(QDialog):
         title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(title)
 
+        inst_code = get_installation_code()
         desc = QLabel(
+            f"Your Installation Code:  <b>{inst_code}</b>\n\n\n"
             "Enter the license key provided to you.\n\n"
             "  ✅  Guaranteed instant launch — every single time\n"
             "  ✅  Full access to all Estimator Pro features"
@@ -166,9 +194,14 @@ class LicenseActivationDialog(QDialog):
         if not valid:
             if result == "format":
                 self.status_label.setText(
-                    "⚠️ Invalid key format. Expected: XXXX-XXXXXX-XXXXXXXX-XXXXXXXX"
+                    "⚠️ Invalid key format. Expected: EPRO-XXXXXX-XXXXXXXX-XXXXXXXX"
                 )
                 self.status_label.setStyleSheet("color: #f59e0b; font-size: 9pt; min-height: 20px;")
+            elif result == "machine":
+                self.status_label.setText(
+                    "❌ This license key is registered to a different computer."
+                )
+                self.status_label.setStyleSheet("color: #f43f5e; font-size: 9pt; min-height: 20px;")
             elif result == "signature":
                 self.status_label.setText(
                     "❌ Key is not valid for Estimator Pro."
@@ -178,7 +211,7 @@ class LicenseActivationDialog(QDialog):
                 # Parse the date from the key for the message
                 try:
                     parts = entered_key.strip().upper().split("-")
-                    exp_date = datetime.strptime(parts[1], "%Y%m%d").date()
+                    exp_date = datetime.strptime(parts[2], "%Y%m%d").date()
                     self.status_label.setText(
                         f"⏰ This key expired on {exp_date.strftime('%d %b %Y')}. Please obtain a new key."
                     )

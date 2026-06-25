@@ -20,15 +20,13 @@ from PyQt6.QtGui import QFont, QColor
 SECRET = "EstimatorProKeySecret2026"  # Must match SECRET_KEY in trial_splash.py
 
 
-def make_key(days: int = 30) -> str:
-    """Generate a timed HMAC-SHA256 license key valid for `days` days from today, with a unique serial."""
-    import random
-    import string
+def make_key(user_code: str, days: int = 30) -> str:
+    """Generate a timed HMAC-SHA256 license key bound to user's installation code."""
+    clean_code = user_code.replace("-", "").upper()
     expiry = (date.today() + timedelta(days=days)).strftime("%Y%m%d")
-    serial = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    message = f"{serial}:{expiry}"
+    message = f"{clean_code}:{expiry}"
     sig = hmac.new(SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
-    return f"EPRO-{serial}-{expiry}-{sig}"
+    return f"EPRO-{clean_code}-{expiry}-{sig}"
 
 
 class KeygenDialog(QDialog):
@@ -44,7 +42,7 @@ class KeygenDialog(QDialog):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Estimator Pro — Key Generator")
-        self.resize(480, 340)
+        self.resize(480, 390)
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e24;
@@ -112,6 +110,28 @@ class KeygenDialog(QDialog):
         """)
         layout.addWidget(self.duration_combo)
 
+        # ── Installation Code input ──
+        code_label = QLabel("User Installation Code (e.g., A8-C2-D9):")
+        code_label.setStyleSheet("color: #d1d5db; font-size: 9pt; margin-top: 4px;")
+        layout.addWidget(code_label)
+
+        self.code_input = QLineEdit()
+        self.code_input.setPlaceholderText("XX-XX-XX")
+        self.code_input.setStyleSheet("""
+            QLineEdit {
+                background-color: #27272a;
+                color: #e4e4e7;
+                border: 1px solid #3f3f46;
+                border-radius: 6px;
+                padding: 8px 12px;
+                font-size: 11pt;
+            }
+            QLineEdit:focus {
+                border: 1px solid #10b981;
+            }
+        """)
+        layout.addWidget(self.code_input)
+
         # ── Generated key output ──
         key_label = QLabel("Generated key:")
         key_label.setStyleSheet("color: #d1d5db; font-size: 9pt; margin-top: 4px;")
@@ -167,9 +187,15 @@ class KeygenDialog(QDialog):
 
     def generate_key(self):
         """Generate a key for the selected duration and display it."""
+        code = self.code_input.text().strip().replace("-", "").upper()
+        if not code or len(code) != 6:
+            self.status_label.setText("❌ Error: Installation Code must be 6 characters (e.g., A8-C2-D9)")
+            self.status_label.setStyleSheet("color: #f43f5e; font-size: 9pt; min-height: 20px;")
+            return
+
         label = self.duration_combo.currentText()
         days = self.DURATIONS[label]
-        key = make_key(days)
+        key = make_key(code, days)
         expiry = (date.today() + timedelta(days=days)).strftime("%d %b %Y")
 
         self.key_output.setText(key)
