@@ -25,14 +25,27 @@ This plan details the design and implementation of an **offline, cryptographical
 ```
 Developer (offline)                    App (client)
 ─────────────────────────────────────────────────────────────
-make_key(days=30)                      User enters key
+User requests license                  App displays Privacy-Conscious
+  │                                      Installation Code (derived from
+  │                                      SQMClient MachineId + Salt)
+  │                                      "A8-C2-D9"
   │                                      │
-  ├─ expiry = today + 30 days            ├─ parse XXXX-XXXXXX-XXXXXXXX-XXXXXXXX
-  ├─ serial = "A8B9CD" (random)          │  (EPRO-{SERIAL}-{YYYYMMDD}-{SIG8})
-  ├─ message = "A8B9CD:20260724"         ├─ recompute HMAC-SHA256(secret, serial + ":" + expiry_str)[:8]
-  ├─ sig = HMAC-SHA256(secret,           ├─ compare → match? → valid key
-  │         message)[:8]                 ├─ today <= expiry? → not expired
-  └─ "EPRO-A8B9CD-20260724-A3F7C9D1"     └─ write license_expiry to DB → Green Pass
+  ├─ Sends code "A8-C2-D9" ──────────────┘
+  │
+make_key(days=30, code="A8C2D9")
+  ├─ expiry = today + 30 days
+  ├─ message = "A8C2D9:20260724"
+  ├─ sig = HMAC-SHA256(secret, message)[:8]
+  └─ "EPRO-A8C2D9-20260724-A3F7C9D1" ────┐
+                                         ▼
+                                       User enters key
+                                         ├─ parse EPRO-{CODE}-{YYYYMMDD}-{SIG8}
+                                         ├─ local_code == key_code?
+                                         │  (Prevents key sharing across machines)
+                                         ├─ recompute HMAC-SHA256(secret, code + ":" + expiry_str)[:8]
+                                         ├─ compare → match? → valid key
+                                         ├─ today <= expiry? → not expired
+                                         └─ write license_expiry to DB → Green Pass
 ```
 
 ---
@@ -40,11 +53,11 @@ make_key(days=30)                      User enters key
 ## Key Format
 
 ```
-EPRO-A8B9CD-20260724-A3F7C9D1
+EPRO-A8C2D9-20260724-A3F7C9D1
 │    │      │        │
 │    │      │        └─ 8-char uppercase HMAC-SHA256 signature (first 8 hex chars)
 │    │      └───────── Expiry date: YYYYMMDD (baked into the key)
-│    └──────────────── Unique random 6-character serial
+│    └──────────────── 6-character Installation Code (salt-hashed Windows Device ID)
 └───────────────────── Product prefix — first validity check
 ```
 
@@ -52,7 +65,7 @@ EPRO-A8B9CD-20260724-A3F7C9D1
 
 | Duration | Key Example |
 |---|---|
-| 30 days  | `EPRO-A8B9CD-20260724-A3F7C9D1` |
+| 30 days  | `EPRO-A8C2D9-20260724-A3F7C9D1` |
 | 90 days  | `EPRO-X2Y3Z4-20260921-F2B7A3E0` |
 | 365 days | `EPRO-K9L8M7-20270624-C9D14F2B` |
 
@@ -76,20 +89,19 @@ from datetime import date, timedelta
 
 SECRET = "EstimatorProKeySecret2026"  # Must match SECRET_KEY in trial_splash.py
 
-def make_key(days: int = 30) -> str:
-    """Generate a timed HMAC-SHA256 license key valid for `days` days from today, with a unique serial."""
-    import random
-    import string
+def make_key(user_code: str, days: int = 30) -> str:
+    """Generate a timed, machine-locked HMAC-SHA256 license key."""
+    clean_code = user_code.replace("-", "").upper()
     expiry = (date.today() + timedelta(days=days)).strftime("%Y%m%d")
-    serial = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
-    message = f"{serial}:{expiry}"
+    message = f"{clean_code}:{expiry}"
     sig = hmac.new(SECRET.encode(), message.encode(), hashlib.sha256).hexdigest()[:8].upper()
-    return f"EPRO-{serial}-{expiry}-{sig}"
+    return f"EPRO-{clean_code}-{expiry}-{sig}"
 
 if __name__ == "__main__":
-    print(f"30-day  key: {make_key(30)}")
-    print(f"90-day  key: {make_key(90)}")
-    print(f"365-day key: {make_key(365)}")
+    code = input("Enter user's Installation Code (e.g., A8-C2-D9): ")
+    print(f"30-day  key: {make_key(code, 30)}")
+    print(f"90-day  key: {make_key(code, 90)}")
+    print(f"365-day key: {make_key(code, 365)}")
 ```
 
 > [!CAUTION]
@@ -112,13 +124,27 @@ Add `validate_license_key()` which returns one of 5 distinct states:
 
 ```python
 SECRET_KEY = "EstimatorProKeySecret2026"
+PRIVACY_SALT = "EstimatorProPrivacySalt2026"
+
+def get_installation_code() -> str:
+    """Generates the privacy-preserving 6-character installation code from Windows SQM MachineId."""
+    import winreg
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\SQMClient") as key:
+            device_id, _ = winreg.QueryValueEx(key, "MachineId")
+        raw_hash = hashlib.sha256((device_id + PRIVACY_SALT).encode('utf-8')).hexdigest()
+        code = raw_hash[:6].upper()
+        return f"{code[:2]}-{code[2:4]}-{code[4:]}"
+    except Exception:
+        return "UNKNOWN"
 
 def validate_license_key(key: str):
     """
-    Validates a timed HMAC-SHA256 license key with an embedded serial.
+    Validates a timed, machine-locked HMAC-SHA256 license key.
     Returns:
-        (True,  expiry_date)   — valid and not yet expired
+        (True,  expiry_date)   — valid, belongs to this machine, and not yet expired
         (False, "format")      — key is malformed or wrong prefix
+        (False, "machine")     — key belongs to a different machine (code mismatch)
         (False, "signature")   — HMAC does not match (key is invalid/forged)
         (False, "expired")     — key is structurally valid but past expiry
     """
@@ -126,11 +152,17 @@ def validate_license_key(key: str):
         parts = key.strip().upper().split("-")
         if len(parts) != 4 or parts[0] != "EPRO":
             return False, "format"
-        serial, expiry_str, provided_sig = parts[1], parts[2], parts[3]
-        if len(serial) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
+        key_code, expiry_str, provided_sig = parts[1], parts[2], parts[3]
+        if len(key_code) != 6 or len(expiry_str) != 8 or len(provided_sig) != 8:
             return False, "format"
+            
+        # Verify machine lock
+        local_code = get_installation_code().replace("-", "")
+        if key_code != local_code:
+            return False, "machine"
+            
         expected_sig = hmac.new(
-            SECRET_KEY.encode(), f"{serial}:{expiry_str}".encode(), hashlib.sha256
+            SECRET_KEY.encode(), f"{local_code}:{expiry_str}".encode(), hashlib.sha256
         ).hexdigest()[:8].upper()
         if provided_sig != expected_sig:
             return False, "signature"
@@ -205,7 +237,8 @@ Replace the simulated checkout button with a real license key input field.
 | Condition | Label |
 |---|---|
 | Empty / not yet submitted | *(blank)* |
-| Malformed key | `⚠️ Invalid key format. Expected: XXXX-XXXXXX-XXXXXXXX-XXXXXXXX` |
+| Malformed key | `⚠️ Invalid key format. Expected: EPRO-XXXXXX-XXXXXXXX-XXXXXXXX` |
+| Wrong machine | `❌ This license key is registered to a different computer.` |
 | Bad HMAC signature | `❌ Key is not valid for Estimator Pro.` |
 | Key is expired | `⏰ This key expired on {date}. Please obtain a new key.` |
 | Key already activated on this machine | `🔒 This key has already been activated on this machine.` |
@@ -216,7 +249,8 @@ Replace the simulated checkout button with a real license key input field.
 ```
 1. validate_license_key(entered_key)
      ├─ False, "format"    → show format error label, return
-     ├─ False, "signature" → show invalid error label, return
+     ├─ False, "machine"   → show wrong machine error label, return
+     ├─ False, "signature" → show invalid signature error label, return
      ├─ False, "expired"   → show expired error label, return
      └─ True,  expiry_date → continue
 
@@ -224,7 +258,7 @@ Replace the simulated checkout button with a real license key input field.
      key_hash = SHA256(entered_key.upper())
      stored   = db.get_setting("license_key_hash")
      if stored == key_hash:
-         show "already activated on this machine" label, return
+          show "already activated on this machine" label, return
 
 3. Write to DB:
      db.set_setting("license_expiry",   expiry_date.strftime("%Y%m%d"))
@@ -350,10 +384,9 @@ The renewal UX capitalises on the user's existing attachment to the product (the
 > - Upgrade to **RSA asymmetric signing** (private key never shipped in app)
 
 > [!NOTE]
-> **No per-machine binding** is implemented. The same key can be activated on
-> multiple machines, but only once per machine (`license_key_hash` prevents reuse
-> on the same installation). This is intentional — simple and honest for a
-> professional user base.
+> **Per-machine node-locking** is implemented. The license key is cryptographically bound to
+> the user's installation code (salt-hashed Windows SQM Client MachineId). The same key
+> cannot be activated on different physical machines, preventing paid users from sharing keys.
 
 ---
 
