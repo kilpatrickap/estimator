@@ -1220,13 +1220,50 @@ class AICopilotWorker(QRunnable):
 
         # 6. Proactive Database & Historical Rate Search Context (GUARDED: skip for greetings/short queries)
         greeting_words = {"hello", "hi", "hey", "thanks", "thank", "bye", "okay", "ok", "yes", "no", "sure", "help", "what", "how", "why", "who", "when"}
+
+        # 6a. LIBRARY RATE CODE DETECTION: If user asks for rate codes or library rates,
+        #     fetch ALL library rates unfiltered and inject them directly.
+        is_library_rate_query = any(k in query_lower for k in [
+            "rate code", "ratecode", "rate codes", "ratecodes",
+            "library rate", "library rates", "all rates", "all rate",
+            "project library", "imported library",
+            "list all", "output all", "show all"
+        ]) and any(k in query_lower for k in ["rate", "code", "library", "estimate"])
+
+        if is_library_rate_query:
+            try:
+                all_lib_rates = ai_tools.query_historical_rates(None)  # None = no filter, return ALL
+                if all_lib_rates:
+                    extra_context += "--- ALL PROJECT LIBRARY RATE CODES (from estimates table) ---\n"
+                    extra_context += "| Rate Code | Description | Unit | Base Currency | Net Rate | Grand Total |\n"
+                    extra_context += "| --- | --- | --- | --- | --- | --- |\n"
+                    for r in all_lib_rates:
+                        net = r.get('net_total', 0.0)
+                        grand = r.get('grand_total', 0.0)
+                        try:
+                            net_str = f"{float(net):.2f}"
+                        except:
+                            net_str = str(net)
+                        try:
+                            grand_str = f"{float(grand):.2f}"
+                        except:
+                            grand_str = str(grand)
+                        extra_context += f"| {r.get('rate_code', '-')} | {r.get('project_name', '-')} | {r.get('unit', '-')} | {r.get('currency', '-')} | {net_str} | {grand_str} |\n"
+                    extra_context += "--------------------------------------------------------------\n\n"
+                    extra_context += (
+                        "[SYSTEM DIRECTIVE: The table above contains ALL library rate codes from the estimates table. "
+                        "Present this data directly as a clean markdown table. Do NOT issue any <query_db> calls.]\n\n"
+                    )
+            except Exception:
+                pass
+
         search_terms = []
         stop_words = {"show", "search", "find", "query", "historical", "rates", "rate", "for", "the", "a", "an", "is", "in", "active", "project", "database", "library", "libraries", "costs", "cost"}
         for word in re.split(r'[^a-zA-Z0-9\-]', query_lower):
             if len(word) >= 3 and word not in stop_words and word not in greeting_words and not word.isdigit():
                 search_terms.append(word)
                 
-        if search_terms:
+        if search_terms and not is_library_rate_query:
             try:
                 search_query = " ".join(search_terms[:2])
                 hist_rates = ai_tools.query_historical_rates(search_query)
@@ -1257,13 +1294,13 @@ class AICopilotWorker(QRunnable):
                                     extra_context += f"  - Priced BOQ: {item['description']} | Bill Rate: {item['bill_rate']} | Plug: {item['plug_rate']} | Unit: {item['unit']} (Source: {item['source']})\n"
                     extra_context += "-----------------------------------------------------\n\n"
                     
-                    # PROACTIVE CONTEXT SIGNAL: Instruct the LLM to use pre-fetched data directly
+                    # PROACTIVE CONTEXT SIGNAL: Suggest using pre-fetched data, but allow fallback queries
                     if hist_rates or any(db_results.values()):
                         extra_context += (
-                            "[SYSTEM DIRECTIVE: The REAL-TIME SEARCH RESULTS above already contain the data matching the user's query. "
-                            "You MUST present this data directly in a clean, professional markdown table as your answer. "
-                            "Do NOT issue any additional <query_db> calls or write any SQL. "
-                            "Format the results with columns: Rate Code, Description, Unit, Currency, Net Rate, Grand Total. "
+                            "[SYSTEM DIRECTIVE: The REAL-TIME SEARCH RESULTS above contain data matching the user's query. "
+                            "PREFER presenting this data directly in a clean, professional markdown table. "
+                            "Only issue a <query_db> call if the pre-fetched data clearly does not answer what the user asked. "
+                            "Format rate results with columns: Rate Code, Description, Unit, Currency, Net Rate, Grand Total. "
                             "If materials/labor/equipment matches are also present, include them in a separate table below.]\n\n"
                         )
             except Exception:
@@ -1273,18 +1310,25 @@ class AICopilotWorker(QRunnable):
             f"You are the AI Estimating Copilot for Estimator Pro (local '{model_name}' model). "
             "You are a world-class Quantity Surveyor and Construction Estimating Expert. "
             "You operate strictly within construction estimating, costing, BOQ, materials, labor, plant/equipment rates, and markups.\n\n"
+            "### CRITICAL TABLE GUIDANCE\n"
+            "- Rate codes (e.g., CONC1A, ETWK1B) are stored in the `estimates` table, NOT the `materials` table.\n"
+            "- The `materials` table contains raw resource items (e.g., Cement, Lumber, Paint) with unit prices.\n"
+            "- The `labor` table contains trade rates (e.g., General Laborer, Carpenter).\n"
+            "- When the user asks for 'rate codes', 'library rates', or 'all rates', query the `estimates` table.\n"
+            "- When the user asks for 'materials' or 'material prices', query the `materials` table.\n\n"
             f"{extra_context}"
             "### MANDATORY DATA USAGE RULE\n"
-            "1. If pre-fetched data (SEARCH RESULTS, BOQ ITEMS, RATE RECIPES, OUTLIERS) answers the query, present it directly as a markdown table. Do NOT issue <query_db> calls.\n"
-            "2. For simple project metadata questions (currency, name, total, overhead, profit) answered by the ACTIVE PROJECT block, respond in one sentence. No SQL.\n"
-            "3. NEVER show SQL, table names, column names, schema, or database errors to the user. Use domain terms only (e.g., 'priced BOQ sheet', 'unit rate').\n"
-            "3b. NEVER use HTML tags like <br>, <b>, <p>, or <table> in your output. Use ONLY standard markdown: **bold**, newlines, bullet points (- or *), numbered lists, and markdown tables (| col | col |).\n\n"
+            "1. If pre-fetched data (SEARCH RESULTS, BOQ ITEMS, RATE RECIPES, OUTLIERS) directly answers the query, present it as a markdown table. Do NOT issue <query_db> calls.\n"
+            "2. If pre-fetched data does NOT match what the user asked for, you MAY issue a <query_db> call to get the correct data.\n"
+            "3. For simple project metadata questions (currency, name, total, overhead, profit) answered by the ACTIVE PROJECT block, respond in one sentence. No SQL.\n"
+            "4. NEVER show SQL, table names, column names, schema, or database errors to the user. Use domain terms only (e.g., 'priced BOQ sheet', 'unit rate').\n"
+            "4b. NEVER use HTML tags like <br>, <b>, <p>, or <table> in your output. Use ONLY standard markdown: **bold**, newlines, bullet points (- or *), numbered lists, and markdown tables (| col | col |).\n\n"
             "### SELF-CORRECTION ON ERROR\n"
-            "4. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
-            "5. Always produce a substantive response. Never return only whitespace or thinking tags.\n"
-            "5b. NEVER output any chain-of-thought, reasoning, or internal monologue (either in <think> tags or as plain text). Do not explain or debate how you are applying the instructions. Respond directly with the final answer.\n\n"
+            "5. If a <query_result> returns an error with column hints, silently retry with correct columns. Never expose errors.\n"
+            "6. Always produce a substantive response. Never return only whitespace or thinking tags.\n"
+            "6b. NEVER output any chain-of-thought, reasoning, or internal monologue (either in <think> tags or as plain text). Do not explain or debate how you are applying the instructions. Respond directly with the final answer.\n\n"
             "### HANDLING VAGUE, GENERAL, OR KPI QUERIES\n"
-            "6. If the user asks a general or KPI question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'show active estimate kpis', 'show project kpis', 'tell me about this', or any broad request:\n"
+            "7. If the user asks a general or KPI question like 'analyze the project', 'how is the pricing?', 'review the estimate', 'show active estimate kpis', 'show project kpis', 'tell me about this', or any broad request:\n"
             "   a. Summarize the active project in a clean markdown table of KPIs (listing Name, Total BOQ Items, Priced Items, Outstanding Items, Plugged Rates, Subtotal, Overhead, Profit, and Grand Total) using the ACTIVE LOADED PROJECT block data.\n"
             "   b. Highlight any pricing anomalies, plugged rates, or outliers if data is available in the context above.\n"
             "   c. Provide 2-3 actionable recommendations (e.g., 'Review the plugged rates', 'Consider adjusting the concrete rate').\n"
@@ -1370,7 +1414,7 @@ class AICopilotWorker(QRunnable):
                 "temperature": 0.2,
                 "stream": is_potentially_final,
                 "options": {
-                    "num_ctx": 8192,
+                    "num_ctx": 12288,
                     "num_predict": 2048,
                     "num_batch": 512,
                     "num_gpu": 99,

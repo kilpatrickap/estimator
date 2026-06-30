@@ -668,7 +668,8 @@ def test_ai_worker_proactive_directive_injected(qapp, monkeypatch):
     
     # Verify the proactive context signal directive is present
     assert "[SYSTEM DIRECTIVE:" in system_prompt, "Should include SYSTEM DIRECTIVE when search results found"
-    assert "Do NOT issue any additional" in system_prompt, "Should instruct LLM to avoid additional queries"
+    assert "Do NOT issue" in system_prompt or "Only issue a" in system_prompt, "Should instruct LLM about query usage"
+
     
     # Verify the self-correction constraint is present
     assert "SELF-CORRECTION ON ERROR" in system_prompt, "Should include self-correction directive"
