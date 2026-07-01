@@ -9,10 +9,13 @@ from datetime import datetime, timedelta, date
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QProgressBar, QComboBox, QFrame, QGraphicsDropShadowEffect, QMessageBox,
-    QLineEdit, QInputDialog
+    QLineEdit, QInputDialog, QWidget
 )
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal
-from PyQt6.QtGui import QColor, QFont, QLinearGradient, QPalette, QShortcut, QKeySequence
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QVariantAnimation, QEasingCurve
+from PyQt6.QtGui import (
+    QColor, QFont, QLinearGradient, QPalette, QShortcut, QKeySequence,
+    QPainter, QPen, QPainterPath
+)
 
 from database import DatabaseManager
 
@@ -86,6 +89,149 @@ def validate_license_key(key: str):
 
 
 
+class AnimatedHourglass(QWidget):
+    """Custom-painted hourglass with realistic sand draining and flip animation."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(52, 52)
+        self._sand_level = 1.0   # 1.0 = top full, 0.0 = top empty
+        self._angle = 0.0
+
+        # Sand drain: top empties over 3s
+        self._drain_anim = QVariantAnimation(self)
+        self._drain_anim.setStartValue(1.0)
+        self._drain_anim.setEndValue(0.0)
+        self._drain_anim.setDuration(3000)
+        self._drain_anim.setEasingCurve(QEasingCurve.Type.Linear)
+        self._drain_anim.valueChanged.connect(self._on_sand_changed)
+        self._drain_anim.finished.connect(self._start_flip)
+
+        # Flip: rotate 180° over 500ms
+        self._flip_anim = QVariantAnimation(self)
+        self._flip_anim.setDuration(500)
+        self._flip_anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
+        self._flip_anim.valueChanged.connect(self._on_angle_changed)
+        self._flip_anim.finished.connect(self._on_flip_done)
+
+        self._drain_anim.start()
+
+    def _on_sand_changed(self, val):
+        self._sand_level = val
+        self.update()
+
+    def _start_flip(self):
+        self._flip_anim.setStartValue(0.0)
+        self._flip_anim.setEndValue(180.0)
+        self._flip_anim.start()
+
+    def _on_angle_changed(self, val):
+        self._angle = val
+        self.update()
+
+    def _on_flip_done(self):
+        # Reset angle to 0 — the frame is symmetric so 180° looks identical to 0°.
+        # Meanwhile sand_level resets to 1.0 (top full), which visually matches
+        # the state where the full bottom has just been flipped to the top.
+        self._angle = 0.0
+        self._sand_level = 1.0
+        QTimer.singleShot(400, self._drain_anim.start)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Apply rotation around widget center
+        cx, cy = self.width() / 2, self.height() / 2
+        painter.translate(cx, cy)
+        painter.rotate(self._angle)
+        painter.translate(-cx, -cy)
+
+        # Hourglass drawn area: 30 wide × 40 tall, centered in the 52×52 widget
+        hg_w, hg_h = 30, 40
+        ox = (self.width() - hg_w) / 2    # x offset to center
+        oy = (self.height() - hg_h) / 2   # y offset to center
+        neck = 3.0      # half-width of neck opening
+
+        left, right = ox, ox + hg_w
+        top, bot = oy, oy + hg_h
+        mid_y = oy + hg_h / 2.0
+        mid_x = ox + hg_w / 2.0
+        half_w = hg_w / 2.0
+
+        sand_color = QColor("#f59e0b")
+        stream_color = QColor("#d97706")
+
+        # ── Top sand (draining) ──
+        if self._sand_level > 0.02:
+            sand_top = top + (1.0 - self._sand_level) * (mid_y - top - 2)
+            frac = (mid_y - sand_top) / (mid_y - top) if (mid_y - top) else 0
+            w_at_top = neck + (half_w - neck) * frac
+
+            p = QPainterPath()
+            p.moveTo(mid_x - neck, mid_y - 1)
+            p.lineTo(mid_x - w_at_top, sand_top)
+            p.lineTo(mid_x + w_at_top, sand_top)
+            p.lineTo(mid_x + neck, mid_y - 1)
+            p.closeSubpath()
+            painter.fillPath(p, sand_color)
+
+        # ── Bottom sand (filling) ──
+        fill = 1.0 - self._sand_level
+        if fill > 0.02:
+            sand_bot_y = bot - fill * (bot - mid_y - 2)
+            frac_b = (sand_bot_y - mid_y) / (bot - mid_y) if (bot - mid_y) else 0
+            w_at_sand = neck + (half_w - neck) * frac_b
+
+            p = QPainterPath()
+            p.moveTo(mid_x - half_w, bot)
+            p.lineTo(mid_x + half_w, bot)
+            p.lineTo(mid_x + w_at_sand, sand_bot_y)
+            p.lineTo(mid_x - w_at_sand, sand_bot_y)
+            p.closeSubpath()
+            painter.fillPath(p, sand_color)
+
+        # ── Falling stream through the neck ──
+        if 0.02 < self._sand_level < 0.99:
+            stream_end = sand_bot_y if fill > 0.02 else bot - 2
+            painter.setPen(QPen(stream_color, 1.5))
+            painter.drawLine(int(mid_x), int(mid_y), int(mid_x), int(stream_end))
+
+        # ── Hourglass glass frame ──
+        painter.setPen(QPen(QColor("#f59e0b"), 1.6))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+
+        frame = QPainterPath()
+        # Top half
+        frame.moveTo(left, top)
+        frame.lineTo(mid_x + neck, mid_y)
+        frame.lineTo(mid_x - neck, mid_y)
+        frame.lineTo(right, top)
+        # Bottom half
+        frame.moveTo(left, bot)
+        frame.lineTo(mid_x - neck, mid_y)
+        frame.moveTo(right, bot)
+        frame.lineTo(mid_x + neck, mid_y)
+        # Left/right outer edges
+        frame.moveTo(left, top)
+        frame.lineTo(left, top)  # top-left corner
+        frame.moveTo(right, top)
+        frame.moveTo(left, bot)
+        frame.moveTo(right, bot)
+        painter.drawPath(frame)
+
+        # Top and bottom rims
+        painter.setPen(QPen(QColor("#f59e0b"), 2.5))
+        painter.drawLine(int(left - 1), int(top), int(right + 1), int(top))
+        painter.drawLine(int(left - 1), int(bot), int(right + 1), int(bot))
+
+        painter.end()
+
+    def stop(self):
+        """Stops the animation cycle."""
+        self._drain_anim.stop()
+        self._flip_anim.stop()
+
+
 class LicenseActivationDialog(QDialog):
     """License key activation dialog with inline HMAC-SHA256 validation."""
     def __init__(self, parent=None):
@@ -137,19 +283,37 @@ class LicenseActivationDialog(QDialog):
         layout.addWidget(pricing_header)
 
         self.sale_expiry = datetime(2026, 9, 30, 23, 59, 59)
+
+        # Sale banner row: animated hourglass + countdown text
+        banner_frame = QFrame()
+        banner_frame.setStyleSheet("""
+            QFrame {
+                background-color: rgba(245, 158, 11, 0.08);
+                border: 1px solid rgba(245, 158, 11, 0.25);
+                border-radius: 6px;
+            }
+        """)
+        banner_row = QHBoxLayout(banner_frame)
+        banner_row.setContentsMargins(8, 8, 12, 8)
+        banner_row.setSpacing(8)
+
+        self.hourglass_widget = AnimatedHourglass()
+        # Subtle amber glow on the hourglass
+        hg_glow = QGraphicsDropShadowEffect(self)
+        hg_glow.setBlurRadius(18)
+        hg_glow.setColor(QColor(245, 158, 11, 120))
+        hg_glow.setOffset(0, 0)
+        self.hourglass_widget.setGraphicsEffect(hg_glow)
+        banner_row.addWidget(self.hourglass_widget)
+
         self.sale_banner = QLabel()
         self.sale_banner.setWordWrap(True)
         self.sale_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.sale_banner.setStyleSheet("""
-            color: #f59e0b;
-            font-size: 9pt;
-            background-color: rgba(245, 158, 11, 0.08);
-            border: 1px solid rgba(245, 158, 11, 0.25);
-            border-radius: 6px;
-            padding: 6px 10px;
-        """)
+        self.sale_banner.setStyleSheet("color: #f59e0b; font-size: 15pt; background: transparent; border: none;")
+        banner_row.addWidget(self.sale_banner, 1)
+
         self._update_countdown()  # Set initial text
-        layout.addWidget(self.sale_banner)
+        layout.addWidget(banner_frame)
 
         # Countdown timer — ticks every second
         self.countdown_timer = QTimer(self)
@@ -370,10 +534,12 @@ class LicenseActivationDialog(QDialog):
         minutes, seconds = divmod(rem, 60)
 
         self.sale_banner.setText(
-            f"🔥 <b>Limited-Time Offer — 20% OFF!</b>  "
-            f"⏳ <b>{days}</b> day{'s' if days != 1 else ''}  "
-            f"<b>{hours:02d}:{minutes:02d}:{seconds:02d}</b> left "
-            f"<span style='color:#71717a;'>· Ends 30 Sept 2026</span>"
+            f"🔥 <b>Limited-Time Offer — 20% OFF!</b><br/>"
+            f"<span style='font-size:11pt;'>"
+            f"<b style='color:#10b981;'>{days}</b> day{'s' if days != 1 else ''}  "
+            f"<b style='color:#10b981;'>{hours:02d}:{minutes:02d}:{seconds:02d}</b> left<br/>"
+            f"Ends <b style='color:#f43f5e;'>30 Sept 2026</b>"
+            f"</span>"
         )
 
 
