@@ -91,7 +91,7 @@ class LicenseActivationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Activate Your License")
-        self.resize(480, 320)
+        self.resize(520, 720)
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e24;
@@ -129,6 +129,95 @@ class LicenseActivationDialog(QDialog):
         desc.setAlignment(Qt.AlignmentFlag.AlignLeft)
         desc.setStyleSheet("color: #a1a1aa; font-size: 10pt; line-height: 1.6;")
         layout.addWidget(desc)
+
+        # ── Pricing Categories Section ──
+        pricing_header = QLabel("💰 Subscription Pricing")
+        pricing_header.setFont(QFont("Segoe UI", 11, QFont.Weight.Bold))
+        pricing_header.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        pricing_header.setStyleSheet("color: #e4e4e7; margin-top: 4px;")
+        layout.addWidget(pricing_header)
+
+        sale_banner = QLabel(
+            "🔥 <b>Limited-Time Offer — 20% OFF!</b>  "
+            "<span style='color:#71717a;'>Expires 31st September, 2026</span>"
+        )
+        sale_banner.setWordWrap(True)
+        sale_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        sale_banner.setStyleSheet("""
+            color: #f59e0b;
+            font-size: 9pt;
+            background-color: rgba(245, 158, 11, 0.08);
+            border: 1px solid rgba(245, 158, 11, 0.25);
+            border-radius: 6px;
+            padding: 6px 10px;
+        """)
+        layout.addWidget(sale_banner)
+
+        pricing_details = QLabel(
+            "<table width='100%' cellspacing='0' cellpadding='4' "
+            "style='font-size:9pt; color:#a1a1aa;'>"
+            "<tr style='color:#71717a; font-size:8pt;'>"
+            "  <td><b>Plan</b></td>"
+            "  <td align='right'><b>Original</b></td>"
+            "  <td align='right'><b>Reduced</b></td>"
+            "</tr>"
+            "<tr>"
+            "  <td>📅 1 Month <span style='color:#52525b;'>(30 days)</span></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵1,200.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵1,000.00</b></td>"
+            "</tr>"
+            "<tr>"
+            "  <td>📅 3 Months <span style='color:#52525b;'>(90 days)</span></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵3,600.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵3,000.00</b></td>"
+            "</tr>"
+            "<tr>"
+            "  <td>📅 6 Months <span style='color:#52525b;'>(180 days)</span></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵7,200.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵6,000.00</b></td>"
+            "</tr>"
+            "<tr>"
+            "  <td>📅 12 Months <span style='color:#52525b;'>(365 days)</span></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵14,400.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵12,000.00</b></td>"
+            "</tr>"
+            "</table>"
+            "<br/>"
+            "<span style='color:#71717a; font-size:8pt;'>All prices are per user.</span>"
+        )
+        pricing_details.setWordWrap(True)
+        pricing_details.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        pricing_details.setStyleSheet("""
+            color: #a1a1aa;
+            font-size: 9pt;
+            background-color: rgba(255, 255, 255, 0.03);
+            border: 1px solid #3f3f46;
+            border-radius: 6px;
+            padding: 8px 12px;
+        """)
+        layout.addWidget(pricing_details)
+
+        # Purchase instruction
+        inst_code_display = get_installation_code()
+        purchase_info = QLabel(
+            f"📞 Purchase your legit license keys from "
+            f"<b style='color:#e4e4e7;'>KilTech Enterprise</b> on "
+            f"<b style='color:#10b981;'>0541193598</b>.<br/>"
+            f"You will be asked for your <b>Subscription Plan</b> and your "
+            f"<b>Installation Code</b> (<b style='color:#f59e0b;'>{inst_code_display}</b>)."
+        )
+        purchase_info.setWordWrap(True)
+        purchase_info.setAlignment(Qt.AlignmentFlag.AlignLeft)
+        purchase_info.setStyleSheet("""
+            color: #a1a1aa;
+            font-size: 9pt;
+            background-color: rgba(16, 185, 129, 0.06);
+            border: 1px solid rgba(16, 185, 129, 0.2);
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-top: 2px;
+        """)
+        layout.addWidget(purchase_info)
 
         # Key input field
         key_label = QLabel("Enter your license key:")
