@@ -91,7 +91,7 @@ class LicenseActivationDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Activate Your License")
-        self.resize(520, 720)
+        self.resize(580, 620)
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e24;
@@ -110,8 +110,8 @@ class LicenseActivationDialog(QDialog):
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(24, 24, 24, 24)
-        layout.setSpacing(14)
+        layout.setContentsMargins(24, 18, 24, 18)
+        layout.setSpacing(8)
 
         title = QLabel("🔑 Activate Your License")
         title.setFont(QFont("Segoe UI", 13, QFont.Weight.Bold))
@@ -121,7 +121,6 @@ class LicenseActivationDialog(QDialog):
         inst_code = get_installation_code()
         desc = QLabel(
             f"Your Installation Code:  <b>{inst_code}</b><br/><br/>"
-            "Enter the license key provided to you.<br/><br/>"
             "  ✅  Guaranteed instant launch — every single time<br/>"
             "  ✅  Full access to all Estimator Pro features"
         )
@@ -137,13 +136,11 @@ class LicenseActivationDialog(QDialog):
         pricing_header.setStyleSheet("color: #e4e4e7; margin-top: 4px;")
         layout.addWidget(pricing_header)
 
-        sale_banner = QLabel(
-            "🔥 <b>Limited-Time Offer — 20% OFF!</b>  "
-            "<span style='color:#71717a;'>Expires 31st September, 2026</span>"
-        )
-        sale_banner.setWordWrap(True)
-        sale_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        sale_banner.setStyleSheet("""
+        self.sale_expiry = datetime(2026, 9, 30, 23, 59, 59)
+        self.sale_banner = QLabel()
+        self.sale_banner.setWordWrap(True)
+        self.sale_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.sale_banner.setStyleSheet("""
             color: #f59e0b;
             font-size: 9pt;
             background-color: rgba(245, 158, 11, 0.08);
@@ -151,7 +148,13 @@ class LicenseActivationDialog(QDialog):
             border-radius: 6px;
             padding: 6px 10px;
         """)
-        layout.addWidget(sale_banner)
+        self._update_countdown()  # Set initial text
+        layout.addWidget(self.sale_banner)
+
+        # Countdown timer — ticks every second
+        self.countdown_timer = QTimer(self)
+        self.countdown_timer.timeout.connect(self._update_countdown)
+        self.countdown_timer.start(1000)
 
         pricing_details = QLabel(
             "<table width='100%' cellspacing='0' cellpadding='4' "
@@ -204,7 +207,8 @@ class LicenseActivationDialog(QDialog):
             f"<b style='color:#e4e4e7;'>KilTech Enterprise</b> on "
             f"<b style='color:#10b981;'>0541193598</b>.<br/>"
             f"You will be asked for your <b>Subscription Plan</b> and your "
-            f"<b>Installation Code</b> (<b style='color:#f59e0b;'>{inst_code_display}</b>)."
+            f"<span style='white-space:nowrap;'><b>Installation Code</b> "
+            f"(<b style='color:#f59e0b;'>{inst_code_display}</b>)</span>."
         )
         purchase_info.setWordWrap(True)
         purchase_info.setAlignment(Qt.AlignmentFlag.AlignLeft)
@@ -249,7 +253,6 @@ class LicenseActivationDialog(QDialog):
         self.status_label.setStyleSheet("color: #a1a1aa; font-size: 9pt; min-height: 20px;")
         layout.addWidget(self.status_label)
 
-        layout.addStretch()
 
         btn_layout = QHBoxLayout()
         self.cancel_btn = QPushButton("Not Now")
@@ -340,6 +343,38 @@ class LicenseActivationDialog(QDialog):
         except Exception as e:
             self.status_label.setText(f"❌ Activation error: {e}")
             self.status_label.setStyleSheet("color: #f43f5e; font-size: 9pt; min-height: 20px;")
+
+    def _update_countdown(self):
+        """Updates the sale banner with a live countdown to the offer expiry."""
+        now = datetime.now()
+        remaining = self.sale_expiry - now
+
+        if remaining.total_seconds() <= 0:
+            self.sale_banner.setText(
+                "⏰ <b>Sale has ended.</b>  "
+                "<span style='color:#71717a;'>The 20% discount is no longer available.</span>"
+            )
+            self.sale_banner.setStyleSheet("""
+                color: #71717a;
+                font-size: 9pt;
+                background-color: rgba(113, 113, 122, 0.08);
+                border: 1px solid rgba(113, 113, 122, 0.25);
+                border-radius: 6px;
+                padding: 6px 10px;
+            """)
+            self.countdown_timer.stop()
+            return
+
+        days = remaining.days
+        hours, rem = divmod(remaining.seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
+
+        self.sale_banner.setText(
+            f"🔥 <b>Limited-Time Offer — 20% OFF!</b>  "
+            f"⏳ <b>{days}</b> day{'s' if days != 1 else ''}  "
+            f"<b>{hours:02d}:{minutes:02d}:{seconds:02d}</b> left "
+            f"<span style='color:#71717a;'>· Ends 30 Sept 2026</span>"
+        )
 
 
 class TrialSplashDialog(QDialog):
