@@ -336,6 +336,11 @@ class MainWindow(QMainWindow):
         analytics_action = self._create_action("Analytics Dashboard", "Ctrl+A", self.open_analytics_dashboard)
         project_menu.addAction(analytics_action)
         
+        project_menu.addSeparator()
+        
+        rs_action = self._create_action("Resources Schedule...", None, self._open_resources_schedule)
+        project_menu.addAction(rs_action)
+        
         # Window Menu
         window_menu = menubar.addMenu("Window")
         
@@ -629,6 +634,48 @@ class MainWindow(QMainWindow):
                 os.startfile(output_path)
         else:
             QMessageBox.warning(self, "Export Failed", message)
+
+    def _open_resources_schedule(self):
+        """Opens the Resources Schedule dialog for the active PBOQ."""
+        from PyQt6.QtWidgets import QFileDialog
+        from rs_dialog import RSDialog
+        from pboq_viewer import PBOQDialog
+
+        db_path = None
+        project_dir = None
+
+        # 1. Try to use the active PBOQ viewer window
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if isinstance(widget, PBOQDialog):
+                db_path = widget.pboq_file_selector.currentData()
+                project_dir = widget.project_dir
+                break
+
+        # 2. Fall back to file picker if no viewer is open
+        if not db_path:
+            last_dir = self.db_manager.get_setting('last_project_dir', '')
+            pboq_dir = os.path.join(last_dir, "Priced BOQs") if last_dir else ""
+            start_dir = pboq_dir if os.path.exists(pboq_dir) else (last_dir or "")
+
+            db_path, _ = QFileDialog.getOpenFileName(
+                self, "Select PBOQ Database for Resources Schedule", start_dir,
+                "PBOQ Database Files (*.db);;All Files (*)"
+            )
+            if not db_path:
+                return
+
+            parent = os.path.dirname(db_path)
+            if os.path.basename(parent) == "Priced BOQs":
+                project_dir = os.path.dirname(parent)
+            else:
+                project_dir = parent
+
+        # 3. Open RSDialog in an MDI sub-window
+        dialog = RSDialog(db_path, project_dir, parent=self)
+        sub_win = self.mdi_area.addSubWindow(dialog)
+        dialog.show()
+        sub_win.showMaximized()
 
     def open_rate_buildup_window(self, estimate_obj, db_path=None):
         """Opens a rate build-up in an MDI window."""
