@@ -33,6 +33,26 @@ COLOR_ACCENT = QColor("#2e7d32")
 COLOR_SKIPPED = QColor("#ffebee")        # Light red
 
 
+class NumericTableWidgetItem(QTableWidgetItem):
+    """Custom table widget item for numeric sorting with comma-separated and 2-decimal formatting."""
+    def __init__(self, value, is_bold=False):
+        self.val = float(value) if value is not None else 0.0
+        display_val = f"{self.val:,.2f}"
+        super().__init__(display_val)
+        if is_bold:
+            font = QFont()
+            font.setBold(True)
+            self.setFont(font)
+
+    def __lt__(self, other):
+        if isinstance(other, NumericTableWidgetItem):
+            return self.val < other.val
+        try:
+            return self.val < float(other.text().replace(',', ''))
+        except ValueError:
+            return super().__lt__(other)
+
+
 class RSDialog(QDialog):
     """Resources Schedule viewer dialog."""
 
@@ -327,25 +347,19 @@ class RSDialog(QDialog):
             unit_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             table.setItem(row, 2, unit_item)
 
-            # Total Qty
-            qty_item = QTableWidgetItem()
-            qty_item.setData(Qt.ItemDataRole.DisplayRole, round(entry.total_qty, 4))
+            # Total Qty (comma separated, 2 decimal figures)
+            qty_item = NumericTableWidgetItem(entry.total_qty)
             qty_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, 3, qty_item)
 
-            # Unit Rate (weighted average)
-            rate_item = QTableWidgetItem()
-            rate_item.setData(Qt.ItemDataRole.DisplayRole, round(entry.unit_rate, 2))
+            # Unit Rate (weighted average) (comma separated, 2 decimal figures)
+            rate_item = NumericTableWidgetItem(entry.unit_rate)
             rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, 4, rate_item)
 
-            # Total Cost
-            cost_item = QTableWidgetItem()
-            cost_item.setData(Qt.ItemDataRole.DisplayRole, round(entry.total_cost, 2))
+            # Total Cost (comma separated, 2 decimal figures, bold)
+            cost_item = NumericTableWidgetItem(entry.total_cost, is_bold=True)
             cost_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            cost_font = QFont()
-            cost_font.setBold(True)
-            cost_item.setFont(cost_font)
             table.setItem(row, 5, cost_item)
 
             # Used In (Rate Codes)
@@ -378,8 +392,7 @@ class RSDialog(QDialog):
             reason_item.setForeground(QColor("#c62828"))
             table.setItem(row, 2, reason_item)
 
-            amt_item = QTableWidgetItem()
-            amt_item.setData(Qt.ItemDataRole.DisplayRole, round(item.bill_amount, 2))
+            amt_item = NumericTableWidgetItem(item.bill_amount)
             amt_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, 3, amt_item)
 

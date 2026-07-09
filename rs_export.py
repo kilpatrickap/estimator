@@ -47,7 +47,7 @@ class RSExcelExporter:
     TOTAL_FILL = PatternFill(start_color="E8F5E9", end_color="E8F5E9", fill_type="solid") if HAS_OPENPYXL else None
 
     # Number formats
-    QTY_FORMAT = '#,##0.0000'
+    QTY_FORMAT = '#,##0.00'
     COST_FORMAT = '#,##0.00'
 
     def __init__(self, rs_result):
@@ -146,7 +146,7 @@ class RSExcelExporter:
             cell.border = self.THIN_BORDER
 
             # Total Qty
-            cell = ws.cell(row=row_idx, column=4, value=round(entry.total_qty, 4))
+            cell = ws.cell(row=row_idx, column=4, value=round(entry.total_qty, 2))
             cell.number_format = self.QTY_FORMAT
             cell.alignment = Alignment(horizontal="right")
             if row_fill:
@@ -190,7 +190,7 @@ class RSExcelExporter:
             cell.fill = self.TOTAL_FILL
             ws.cell(row=total_row, column=3, value="").fill = self.TOTAL_FILL
 
-            cell = ws.cell(row=total_row, column=4, value=round(total_qty, 4))
+            cell = ws.cell(row=total_row, column=4, value=round(total_qty, 2))
             cell.number_format = self.QTY_FORMAT
             cell.alignment = Alignment(horizontal="right")
             cell.font = self.TOTAL_FONT
