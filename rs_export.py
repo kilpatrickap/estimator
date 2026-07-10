@@ -106,8 +106,8 @@ class RSExcelExporter:
         ws = wb.create_sheet(title=sheet_name)
 
         headers = ["#", name_header, "Unit", "Total Qty",
-                    "Avg. Unit Rate", "Total Cost", "Used In (Rate Codes)"]
-        col_widths = [6, 40, 10, 16, 16, 18, 40]
+                    "Currency", "Avg. Unit Rate", "Total Cost", "Used In (Rate Codes)"]
+        col_widths = [6, 40, 10, 16, 12, 16, 18, 40]
 
         # Write header row
         for col, (header, width) in enumerate(zip(headers, col_widths), 1):
@@ -153,8 +153,16 @@ class RSExcelExporter:
                 cell.fill = row_fill
             cell.border = self.THIN_BORDER
 
+            # Currency
+            cell = ws.cell(row=row_idx, column=5, value=entry.currency or "")
+            cell.alignment = Alignment(horizontal="center")
+            cell.font = Font(color="555555", size=9)
+            if row_fill:
+                cell.fill = row_fill
+            cell.border = self.THIN_BORDER
+
             # Avg. Unit Rate
-            cell = ws.cell(row=row_idx, column=5, value=round(entry.unit_rate, 2))
+            cell = ws.cell(row=row_idx, column=6, value=round(entry.unit_rate, 2))
             cell.number_format = self.COST_FORMAT
             cell.alignment = Alignment(horizontal="right")
             if row_fill:
@@ -162,7 +170,7 @@ class RSExcelExporter:
             cell.border = self.THIN_BORDER
 
             # Total Cost
-            cell = ws.cell(row=row_idx, column=6, value=round(entry.total_cost, 2))
+            cell = ws.cell(row=row_idx, column=7, value=round(entry.total_cost, 2))
             cell.number_format = self.COST_FORMAT
             cell.alignment = Alignment(horizontal="right")
             cell.font = Font(bold=True)
@@ -172,7 +180,7 @@ class RSExcelExporter:
 
             # Used In
             codes = ", ".join(sorted(entry.used_in_codes))
-            cell = ws.cell(row=row_idx, column=7, value=codes)
+            cell = ws.cell(row=row_idx, column=8, value=codes)
             cell.font = Font(color="777777", size=9)
             if row_fill:
                 cell.fill = row_fill
@@ -197,14 +205,15 @@ class RSExcelExporter:
             cell.fill = self.TOTAL_FILL
 
             ws.cell(row=total_row, column=5, value="").fill = self.TOTAL_FILL
+            ws.cell(row=total_row, column=6, value="").fill = self.TOTAL_FILL
 
-            cell = ws.cell(row=total_row, column=6, value=round(total_cost, 2))
+            cell = ws.cell(row=total_row, column=7, value=round(total_cost, 2))
             cell.number_format = self.COST_FORMAT
             cell.alignment = Alignment(horizontal="right")
             cell.font = self.TOTAL_FONT
             cell.fill = self.TOTAL_FILL
 
-            ws.cell(row=total_row, column=7, value="").fill = self.TOTAL_FILL
+            ws.cell(row=total_row, column=8, value="").fill = self.TOTAL_FILL
 
     # ── Summary Sheet ─────────────────────────────────────────────────────
 

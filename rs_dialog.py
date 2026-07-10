@@ -16,7 +16,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QBrush
 
-from rs_generator import RSGenerator, RSResult
+from rs_generator import RSGenerator, RSResult, RSResourceEntry
 
 
 # ─── Colour Palette (matches app theme) ──────────────────────────────────────
@@ -60,6 +60,7 @@ class RSDialog(QDialog):
         super().__init__(parent)
         self.pboq_db_path = pboq_db_path
         self.project_dir = project_dir
+        self.pboq_folder = os.path.join(self.project_dir, "Priced BOQs")
         self.scope = scope
         self.selected_rowids = selected_rowids
         self.result = None   # RSResult
@@ -84,10 +85,22 @@ class RSDialog(QDialog):
         toolbar = QHBoxLayout()
         toolbar.setSpacing(8)
 
+        # PBOQ File Selector
+        pboq_label = QLabel("Select PBOQ:")
+        pboq_label.setStyleSheet("font-size: 9pt; font-weight: bold;")
+        toolbar.addWidget(pboq_label)
+
+        self.pboq_selector = QComboBox()
+        self.pboq_selector.setMinimumWidth(250)
+        self.pboq_selector.setToolTip("Select a PBOQ to view its aggregated resources")
+        self._populate_pboq_selector()
+        self.pboq_selector.currentIndexChanged.connect(self._on_pboq_changed)
+        toolbar.addWidget(self.pboq_selector)
+
         # Title
-        title = QLabel("📋 Resources Schedule")
-        title.setStyleSheet("font-size: 14px; font-weight: bold; color: #2e7d32;")
-        toolbar.addWidget(title)
+        self.title_label = QLabel("📋 Resources Schedule")
+        self.title_label.setStyleSheet("font-size: 14px; font-weight: bold; color: #2e7d32;")
+        toolbar.addWidget(self.title_label)
 
         toolbar.addStretch()
 
@@ -186,10 +199,10 @@ class RSDialog(QDialog):
     def _create_resource_table(self):
         """Creates a QTableWidget configured for resource display."""
         table = QTableWidget()
-        table.setColumnCount(7)
+        table.setColumnCount(8)
         table.setHorizontalHeaderLabels([
             "#", "Resource Name", "Unit", "Total Qty",
-            "Avg. Unit Rate", "Total Cost", "Used In (Rate Codes)"
+            "Currency", "Avg. Unit Rate", "Total Cost", "Used In (Rate Codes)"
         ])
         table.setAlternatingRowColors(True)
         table.setStyleSheet("""
@@ -226,13 +239,15 @@ class RSDialog(QDialog):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(4, QHeaderView.ResizeMode.Fixed)
         header.setSectionResizeMode(5, QHeaderView.ResizeMode.Fixed)
-        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Fixed)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
 
         table.setColumnWidth(0, 40)
         table.setColumnWidth(2, 70)
         table.setColumnWidth(3, 110)
-        table.setColumnWidth(4, 110)
-        table.setColumnWidth(5, 130)
+        table.setColumnWidth(4, 80)
+        table.setColumnWidth(5, 110)
+        table.setColumnWidth(6, 130)
 
         return table
 
@@ -279,19 +294,88 @@ class RSDialog(QDialog):
 
         return table
 
+    # ── PBOQ Selector ─────────────────────────────────────────────────────
+
+    # Sentinel value for the "All PBOQs" combined option
+    _ALL_PBOQS_SENTINEL = "__ALL__"
+
+    def _populate_pboq_selector(self):
+        """Scans the Priced BOQs folder and populates the PBOQ dropdown."""
+        self.pboq_selector.blockSignals(True)
+        self.pboq_selector.clear()
+
+        pboq_files = []
+        if os.path.exists(self.pboq_folder):
+            for f in sorted(os.listdir(self.pboq_folder)):
+                if f.lower().endswith('.db'):
+                    pboq_files.append(f)
+
+        # Add "All PBOQs (Combined)" option if there are multiple PBOQ files
+        if len(pboq_files) > 1:
+            self.pboq_selector.addItem("📦 All PBOQs (Combined)", self._ALL_PBOQS_SENTINEL)
+
+        for f in pboq_files:
+            full_path = os.path.join(self.pboq_folder, f)
+            display_name = os.path.splitext(f)[0]
+            self.pboq_selector.addItem(display_name, full_path)
+
+        # Pre-select the currently loaded PBOQ if it matches
+        if self.pboq_db_path:
+            for i in range(self.pboq_selector.count()):
+                item_data = self.pboq_selector.itemData(i)
+                if item_data and item_data != self._ALL_PBOQS_SENTINEL:
+                    if os.path.normpath(item_data) == os.path.normpath(self.pboq_db_path):
+                        self.pboq_selector.setCurrentIndex(i)
+                        break
+
+        self.pboq_selector.blockSignals(False)
+
+    def _on_pboq_changed(self, index):
+        """Handles PBOQ dropdown selection change — regenerates the RS."""
+        if index < 0:
+            return
+        new_path = self.pboq_selector.itemData(index)
+        if new_path == self._ALL_PBOQS_SENTINEL:
+            self._generate()
+        elif new_path and os.path.exists(new_path):
+            self.pboq_db_path = new_path
+            self._generate()
+
+    def _get_all_pboq_paths(self):
+        """Returns a list of all .db file paths in the Priced BOQs folder."""
+        paths = []
+        if os.path.exists(self.pboq_folder):
+            for f in sorted(os.listdir(self.pboq_folder)):
+                if f.lower().endswith('.db'):
+                    paths.append(os.path.join(self.pboq_folder, f))
+        return paths
+
     # ── Data Generation ───────────────────────────────────────────────────
 
     def _generate(self):
         """Runs the RS generator and populates the tables."""
+        is_combined = (self.pboq_selector.currentData() == self._ALL_PBOQS_SENTINEL)
+
+        # Update title to show the selected PBOQ name
+        if is_combined:
+            pboq_name = "All PBOQs (Combined)"
+        else:
+            pboq_name = os.path.splitext(os.path.basename(self.pboq_db_path))[0]
+        self.title_label.setText(f"📋 Resources Schedule — {pboq_name}")
+        self.setWindowTitle(f"Resources Schedule — {pboq_name}")
+
         self.status_label.setText("Generating Resources Schedule...")
         QApplication.processEvents()
 
         try:
-            generator = RSGenerator(self.pboq_db_path, self.project_dir)
-            self.result = generator.generate(
-                scope=self.scope,
-                selected_rowids=self.selected_rowids
-            )
+            if is_combined:
+                self.result = self._generate_combined()
+            else:
+                generator = RSGenerator(self.pboq_db_path, self.project_dir)
+                self.result = generator.generate(
+                    scope=self.scope,
+                    selected_rowids=self.selected_rowids
+                )
 
             self._populate_table(self.mat_table, self.result.materials, COLOR_MATERIAL)
             self._populate_table(self.lab_table, self.result.labor, COLOR_LABOR)
@@ -310,7 +394,7 @@ class RSDialog(QDialog):
             total = (len(self.result.materials) + len(self.result.labor) +
                      len(self.result.equipment) + len(self.result.plant))
             self.status_label.setText(
-                f"Generated: {total} unique resources across "
+                f"{pboq_name}  ·  {total} unique resources across "
                 f"{len(self.result.materials)}M / {len(self.result.labor)}L / "
                 f"{len(self.result.equipment)}E / {len(self.result.plant)}P  |  "
                 f"{len(self.result.skipped_rows)} skipped rows"
@@ -322,6 +406,52 @@ class RSDialog(QDialog):
             traceback.print_exc()
             self.status_label.setText(f"Error: {e}")
             QMessageBox.warning(self, "RS Generation Error", str(e))
+
+    def _generate_combined(self):
+        """Generates a combined RS by merging results from all PBOQ files."""
+        from rs_generator import _normalise_key
+
+        all_paths = self._get_all_pboq_paths()
+        merged = RSResult()
+        # Use the same normalised-key accumulator pattern as the generator
+        accum = {}  # key → RSResourceEntry
+
+        for db_path in all_paths:
+            generator = RSGenerator(db_path, self.project_dir)
+            partial = generator.generate(scope=self.scope, selected_rowids=self.selected_rowids)
+
+            # Merge resources
+            for entry in (partial.materials + partial.labor +
+                          partial.equipment + partial.plant):
+                key = f"{entry.resource_type}|{_normalise_key(entry.name, entry.unit)}"
+                if key not in accum:
+                    accum[key] = RSResourceEntry(
+                        resource_type=entry.resource_type,
+                        name=entry.name,
+                        unit=entry.unit,
+                        currency=entry.currency,
+                    )
+                target = accum[key]
+                target.total_qty += entry.total_qty
+                target.weighted_rate_sum += entry.weighted_rate_sum
+                target.total_cost += entry.total_cost
+                target.used_in_codes |= entry.used_in_codes
+
+            # Merge skipped rows
+            merged.skipped_rows.extend(partial.skipped_rows)
+
+        # Partition into typed lists
+        for entry in sorted(accum.values(), key=lambda e: e.name.lower()):
+            if entry.resource_type == 'material':
+                merged.materials.append(entry)
+            elif entry.resource_type == 'labor':
+                merged.labor.append(entry)
+            elif entry.resource_type == 'equipment':
+                merged.equipment.append(entry)
+            elif entry.resource_type == 'plant':
+                merged.plant.append(entry)
+
+        return merged
 
     # ── Table Population ──────────────────────────────────────────────────
 
@@ -352,22 +482,28 @@ class RSDialog(QDialog):
             qty_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
             table.setItem(row, 3, qty_item)
 
+            # Currency
+            currency_item = QTableWidgetItem(entry.currency or "")
+            currency_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            currency_item.setForeground(QColor("#555555"))
+            table.setItem(row, 4, currency_item)
+
             # Unit Rate (weighted average) (comma separated, 2 decimal figures)
             rate_item = NumericTableWidgetItem(entry.unit_rate)
             rate_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(row, 4, rate_item)
+            table.setItem(row, 5, rate_item)
 
             # Total Cost (comma separated, 2 decimal figures, bold)
             cost_item = NumericTableWidgetItem(entry.total_cost, is_bold=True)
             cost_item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            table.setItem(row, 5, cost_item)
+            table.setItem(row, 6, cost_item)
 
             # Used In (Rate Codes)
             codes = ", ".join(sorted(entry.used_in_codes))
             codes_item = QTableWidgetItem(codes)
             codes_item.setForeground(QColor("#777777"))
             codes_item.setToolTip(codes)
-            table.setItem(row, 6, codes_item)
+            table.setItem(row, 7, codes_item)
 
         table.setSortingEnabled(True)
 
