@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QMessageBox, QComboBox, QTabWidget, QWidget,
                              QDockWidget, QApplication, QProgressDialog, QTableWidgetItem, QMenu,
                              QLineEdit, QPushButton, QInputDialog)
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QTimer
 from PyQt6.QtGui import QColor, QBrush, QAction
 
 import pboq_constants as const
@@ -41,6 +41,13 @@ class PBOQDialog(QDialog):
         
         # Synchronization Flags
         self._is_syncing_codes = False
+        
+        # Auto-Collect Debounce
+        self._collect_pending = False
+        self._auto_collect_timer = QTimer(self)
+        self._auto_collect_timer.setSingleShot(True)
+        self._auto_collect_timer.setInterval(100)  # 100ms debounce
+        self._auto_collect_timer.timeout.connect(self._fire_deferred_collect)
         
         self.setWindowTitle("Priced Bills of Quantities (PBOQ)")
         self.setMinimumSize(950, 400)
@@ -1507,25 +1514,51 @@ class PBOQDialog(QDialog):
             if extension_updates:
                 self._persist_updates(m.get('bill_amount'), extension_updates, trigger_recalc=False)
 
-        # Trigger Collection update IF we are currently in "Revert" mode (meaning it was clicked once)
-        # AND we are not already in a logic update.
-        # Trigger Collection update IF we are currently in a "Collection" state
-        # (Identifying this by checking if any cell in the table has the Collection background color)
-        if display_col == m['bill_amount'] and not self.is_updating_logic:
-            # Check current sheet for collection color to avoid expensive global scan if possible
-            table = self.tabs.currentWidget()
-            if isinstance(table, PBOQTable):
-                has_collect = False
-                for r in range(table.rowCount()):
-                    it = table.item(r, m['bill_amount'])
-                    if it and it.background().color().name().lower() == const.COLOR_COLLECT.name().lower():
-                        has_collect = True
-                        break
-                if has_collect:
-                    self._run_collect_logic(force_refresh=True)
+        # Auto-Collect: Trigger collection refresh when any price-related column changes.
+        # Uses debounce to coalesce rapid-fire updates from batch operations.
+        if not self.is_updating_logic and display_col in (
+            m.get('bill_amount'), m.get('bill_rate')
+        ):
+            self._schedule_auto_collect(m)
         
         # Stats update is fast enough to keep live
         self._update_stats()
+
+    def _schedule_auto_collect(self, m):
+        """Schedules a deferred auto-collect if collection cells exist on any tab.
+        Uses a debounce timer to coalesce rapid-fire updates from batch operations."""
+        if m.get('bill_amount', -1) < 0:
+            return
+        
+        # Quick scan across ALL tabs for collection cells
+        if self._check_has_collection_cells(m):
+            self._collect_pending = True
+            # Restart the debounce timer (coalesces multiple triggers)
+            self._auto_collect_timer.start()
+
+    def _fire_deferred_collect(self):
+        """Executes the deferred auto-collect when the debounce timer expires."""
+        if self._collect_pending and not self.is_updating_logic:
+            self._collect_pending = False
+            self._run_collect_logic(force_refresh=True)
+
+    def _check_has_collection_cells(self, m):
+        """Scans ALL tabs for cells with the collection background color."""
+        bill_amt_col = m.get('bill_amount', -1)
+        if bill_amt_col < 0:
+            return False
+        
+        collect_hex = const.COLOR_COLLECT.name().lower()
+        for i in range(self.tabs.count()):
+            table = self.tabs.widget(i)
+            if not isinstance(table, PBOQTable):
+                continue
+            for r in range(table.rowCount()):
+                it = table.item(r, bill_amt_col)
+                if it and it.background().color().name().lower() == collect_hex:
+                    return True
+        return False
+
 
     def _sync_coded_updates(self, display_col, updates):
         """Finds all other rows in the UI sharing the same code as the updated rows and updates their values."""
