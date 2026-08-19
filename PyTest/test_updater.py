@@ -32,3 +32,27 @@ def test_find_installer_asset_none():
         {"name": "source_code.tar.gz", "browser_download_url": "http://example.com/src.tar.gz"}
     ]
     assert _find_installer_asset(assets) is None
+
+def test_update_checker_404_emits_up_to_date(qapp, monkeypatch):
+    from unittest.mock import MagicMock
+    import urllib.request
+    from urllib.error import HTTPError
+    from updater import UpdateChecker
+
+    def mock_urlopen(*args, **kwargs):
+        raise HTTPError("https://api.github.com/...", 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+
+    checker = UpdateChecker()
+    up_to_date_called = []
+    failed_called = []
+
+    checker.up_to_date.connect(lambda: up_to_date_called.append(True))
+    checker.check_failed.connect(lambda err: failed_called.append(err))
+
+    checker.run()
+
+    assert len(up_to_date_called) == 1
+    assert len(failed_called) == 0
+

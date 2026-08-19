@@ -15,7 +15,7 @@ import json
 import tempfile
 import subprocess
 from urllib.request import urlopen, Request
-from urllib.error import URLError
+from urllib.error import URLError, HTTPError
 
 from PyQt6.QtCore import QThread, pyqtSignal, QObject, Qt
 from PyQt6.QtWidgets import (
@@ -112,6 +112,15 @@ class UpdateChecker(QThread):
 
             self.update_available.emit(tag, download_url, changelog, asset_size)
 
+        except HTTPError as exc:
+            if exc.code == 404:
+                # 404 on /releases/latest means no releases have been published yet on GitHub.
+                # Treat this as up-to-date since there are no newer releases available.
+                self.up_to_date.emit()
+            elif exc.code == 403:
+                self.check_failed.emit("GitHub API rate limit reached. Please try again later.")
+            else:
+                self.check_failed.emit(f"HTTP Error {exc.code}: {exc.reason}")
         except (URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
             self.check_failed.emit(str(exc))
         except Exception as exc:
