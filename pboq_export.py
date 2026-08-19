@@ -11,6 +11,9 @@ import os
 import json
 import sqlite3
 from pboq_logic import PBOQLogic
+from logger import get_logger
+
+log = get_logger("pboq_export")
 
 try:
     from openpyxl import Workbook
@@ -19,6 +22,43 @@ try:
     HAS_OPENPYXL = True
 except ImportError:
     HAS_OPENPYXL = False
+
+
+def _sanitize_color(color_val, fallback="FFFFFF"):
+    """
+    Ensures color_val is a valid 6- or 8-character hex string suitable for openpyxl.
+    Handles None, '#' prefix, named colors, 3-digit shorthand, and invalid strings.
+    """
+    if not color_val:
+        return fallback
+    if not isinstance(color_val, str):
+        color_val = str(color_val)
+    
+    clean = color_val.strip().lstrip("#")
+    
+    named_colors = {
+        "yellow": "FFFF00",
+        "red": "FF0000",
+        "green": "00FF00",
+        "blue": "0000FF",
+        "white": "FFFFFF",
+        "black": "000000",
+        "gray": "808080",
+        "grey": "808080",
+        "cyan": "00FFFF",
+        "magenta": "FF00FF",
+        "transparent": "FFFFFF",
+    }
+    if clean.lower() in named_colors:
+        return named_colors[clean.lower()]
+
+    if len(clean) == 3 and all(c in "0123456789abcdefABCDEF" for c in clean):
+        return "".join(c * 2 for c in clean).upper()
+
+    if len(clean) in (6, 8) and all(c in "0123456789abcdefABCDEF" for c in clean):
+        return clean.upper()
+
+    return fallback
 
 
 class PBOQExcelExporter:
@@ -81,11 +121,16 @@ class PBOQExcelExporter:
             (True, message) on success, (False, error_message) on failure.
         """
         if not HAS_OPENPYXL:
-            return False, "openpyxl is not installed. Run: pip install openpyxl"
+            err = "openpyxl is not installed. Run: pip install openpyxl"
+            log.error(err)
+            return False, err
 
         if not os.path.exists(self.db_path):
-            return False, f"PBOQ database not found: {self.db_path}"
+            err = f"PBOQ database not found: {self.db_path}"
+            log.error(err)
+            return False, err
 
+        log.info(f"Starting PBOQ Excel export: '{self.db_path}' -> '{output_path}'")
         try:
             # 1. Load column mappings from state file
             mappings = self._load_mappings()
@@ -93,7 +138,9 @@ class PBOQExcelExporter:
             # 2. Load data and formatting from DB
             sheet_groups, db_columns, logical_col_names, formatting_data = self._load_data()
             if not sheet_groups:
-                return False, "No data found in the PBOQ database."
+                msg = "No data found in the PBOQ database."
+                log.warning(msg)
+                return False, msg
 
             # 3. Build workbook
             wb = Workbook()
@@ -106,9 +153,12 @@ class PBOQExcelExporter:
 
             # 4. Save
             wb.save(output_path)
-            return True, f"Exported {len(sheet_groups)} sheet(s) to:\n{output_path}"
+            msg = f"Exported {len(sheet_groups)} sheet(s) to:\n{output_path}"
+            log.info(f"PBOQ Excel export completed successfully: {output_path}")
+            return True, msg
 
         except Exception as e:
+            log.error(f"PBOQ Excel export failed for '{output_path}': {e}", exc_info=True)
             return False, f"Export failed: {e}"
 
     # ── Private helpers ───────────────────────────────────────────────────
@@ -292,14 +342,22 @@ class PBOQExcelExporter:
                 # ── Cell styling ──
                 # Background fill: persisted bg_color > flagged > default role color
                 if cell_fmt and 'bg_color' in cell_fmt:
-                    bg_hex = cell_fmt['bg_color'].lstrip('#')
-                    cell.fill = PatternFill(start_color=bg_hex, end_color=bg_hex, fill_type="solid")
+                    bg_hex = _sanitize_color(cell_fmt['bg_color'], fallback="FFFFFF")
+                    try:
+                        cell.fill = PatternFill(start_color=bg_hex, end_color=bg_hex, fill_type="solid")
+                    except Exception as fill_err:
+                        log.warning(f"Could not apply cell background color '{bg_hex}': {fill_err}")
                 elif is_flagged and col_idx <= 2:
-                    cell.fill = self.FLAGGED_FILL
+                    if self.FLAGGED_FILL:
+                        cell.fill = self.FLAGGED_FILL
                 else:
-                    cell.fill = PatternFill(
-                        start_color=hex_fill, end_color=hex_fill, fill_type="solid"
-                    )
+                    safe_fill = _sanitize_color(hex_fill, fallback="FFFFFF")
+                    try:
+                        cell.fill = PatternFill(
+                            start_color=safe_fill, end_color=safe_fill, fill_type="solid"
+                        )
+                    except Exception:
+                        pass
 
                 # Number format
                 if is_numeric and isinstance(cell_value, (int, float)):
@@ -319,12 +377,16 @@ class PBOQExcelExporter:
                 font_italic = False
                 font_color = "000000"  # Default black
                 if cell_fmt:
-                    font_bold = cell_fmt.get('bold', False)
-                    font_italic = cell_fmt.get('italic', False)
+                    font_bold = bool(cell_fmt.get('bold', False))
+                    font_italic = bool(cell_fmt.get('italic', False))
                     if 'font_color' in cell_fmt:
-                        font_color = cell_fmt['font_color'].lstrip('#')
+                        font_color = _sanitize_color(cell_fmt['font_color'], fallback="000000")
 
-                cell.font = Font(name="Arial", size=10, bold=font_bold, italic=font_italic, color=font_color)
+                try:
+                    cell.font = Font(name="Arial", size=10, bold=font_bold, italic=font_italic, color=font_color)
+                except Exception as font_err:
+                    log.warning(f"Could not apply font color '{font_color}': {font_err}")
+                    cell.font = Font(name="Arial", size=10, bold=font_bold, italic=font_italic)
 
                 # Subtle row border
                 cell.border = self.THIN_BORDER

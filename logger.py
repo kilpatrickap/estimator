@@ -56,7 +56,12 @@ def get_log_dir() -> str:
 
 
 def get_log_file_path() -> str:
-    """Returns the full absolute path to the active estimator.log file."""
+    """
+    Returns the full absolute path to the active log file.
+    Uses 'test_estimator.log' during pytest runs to avoid polluting production logs.
+    """
+    if "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST") is not None:
+        return os.path.join(get_log_dir(), "test_estimator.log")
     return os.path.join(get_log_dir(), _DEFAULT_LOG_FILE)
 
 

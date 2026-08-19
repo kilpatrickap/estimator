@@ -2494,9 +2494,12 @@ class PBOQDialog(QDialog):
         """Exports the currently selected PBOQ database to an Excel workbook."""
         from PyQt6.QtWidgets import QFileDialog
         from pboq_export import PBOQExcelExporter
+        from logger import get_logger
+        log = get_logger("pboq_viewer")
 
         db_path = self.pboq_file_selector.currentData()
         if not db_path:
+            log.warning("Export requested but no PBOQ file selected.")
             QMessageBox.warning(self, "Export", "No PBOQ file selected.")
             return
 
@@ -2509,12 +2512,15 @@ class PBOQDialog(QDialog):
             "Excel Files (*.xlsx);;All Files (*)"
         )
         if not output_path:
+            log.info("PBOQ export cancelled by user.")
             return
 
+        log.info(f"User requested PBOQ export to: {output_path}")
         exporter = PBOQExcelExporter(db_path, self.project_dir)
         success, message = exporter.export(output_path)
 
         if success:
+            log.info(f"PBOQ export succeeded: {message}")
             reply = QMessageBox.information(
                 self, "Export Successful", f"{message}\n\nOpen the file now?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
@@ -2522,6 +2528,7 @@ class PBOQDialog(QDialog):
             if reply == QMessageBox.StandardButton.Yes:
                 os.startfile(output_path)
         else:
+            log.error(f"PBOQ export failed: {message}")
             QMessageBox.warning(self, "Export Failed", message)
 
     # --- State Management ---

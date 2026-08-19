@@ -1,1 +1,15 @@
-2026-08-19 09:27:17 [INFO] [estimator.test_module:47] - Automated test diagnostic log message for Estimator Pro
+2026-08-19 09:55:03 [INFO] [estimator.main:17] - --- Estimator Pro v1.0.0 starting up (Python 3.14.0 on win32) ---
+2026-08-19 09:55:03 [INFO] [estimator.main:39] - Loaded custom stylesheet (styles.qss)
+2026-08-19 09:55:03 [INFO] [estimator.main:52] - Database initialized successfully: c:\Users\Consar-Kilpatrick\Estimator_Pro_20May26\estimator\construction_costs.db
+2026-08-19 09:55:16 [INFO] [estimator.main:68] - Initializing MainWindow...
+2026-08-19 09:55:19 [INFO] [estimator.main:79] - MainWindow displayed. Entering Qt event loop.
+2026-08-19 09:55:38 [INFO] [estimator.pboq_viewer:2518] - User requested PBOQ export to: C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx
+2026-08-19 09:55:38 [INFO] [estimator.pboq_export:133] - Starting PBOQ Excel export: 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School\Priced BOQs\PBOQ_Atlantic BOQ_21Apr26.db' -> 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx'
+2026-08-19 09:55:40 [INFO] [estimator.pboq_export:157] - PBOQ Excel export completed successfully: C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx
+2026-08-19 09:55:40 [INFO] [estimator.pboq_viewer:2523] - PBOQ export succeeded: Exported 2 sheet(s) to:
+C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx
+2026-08-19 09:56:48 [INFO] [estimator.pboq_viewer:2518] - User requested PBOQ export to: C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx
+2026-08-19 09:56:48 [INFO] [estimator.pboq_export:133] - Starting PBOQ Excel export: 'C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy\Priced BOQs\PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.db' -> 'C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx'
+2026-08-19 09:56:50 [INFO] [estimator.pboq_export:157] - PBOQ Excel export completed successfully: C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx
+2026-08-19 09:56:50 [INFO] [estimator.pboq_viewer:2523] - PBOQ export succeeded: Exported 13 sheet(s) to:
+C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx

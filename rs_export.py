@@ -7,6 +7,9 @@ Uses openpyxl (same dependency as the existing PBOQ exporter).
 """
 
 import os
+from logger import get_logger
+
+log = get_logger("rs_export")
 
 try:
     from openpyxl import Workbook
@@ -68,8 +71,11 @@ class RSExcelExporter:
             (True, message) on success, (False, error_message) on failure.
         """
         if not HAS_OPENPYXL:
-            return False, "openpyxl is not installed. Run: pip install openpyxl"
+            err = "openpyxl is not installed. Run: pip install openpyxl"
+            log.error(err)
+            return False, err
 
+        log.info(f"Starting Resources Schedule export to '{output_path}'")
         try:
             wb = Workbook()
             # Remove default sheet
@@ -94,9 +100,12 @@ class RSExcelExporter:
 
             wb.save(output_path)
             sheet_count = len(wb.sheetnames)
-            return True, f"Resources Schedule exported ({sheet_count} sheets) to:\n{output_path}"
+            msg = f"Resources Schedule exported ({sheet_count} sheets) to:\n{output_path}"
+            log.info(f"Resources Schedule export succeeded: {output_path}")
+            return True, msg
 
         except Exception as e:
+            log.error(f"Resources Schedule export failed for '{output_path}': {e}", exc_info=True)
             return False, f"Export failed: {e}"
 
     # ── Resource Sheet ────────────────────────────────────────────────────
