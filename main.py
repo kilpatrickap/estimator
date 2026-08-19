@@ -1,9 +1,9 @@
-# main.py
-
 import sys
 import os
 import time
+import ctypes
 from PyQt6.QtWidgets import QApplication, QDialog
+from PyQt6.QtGui import QIcon
 from PyQt6.QtCore import Qt, qInstallMessageHandler
 from main_window import MainWindow
 from version import APP_VERSION
@@ -15,6 +15,14 @@ if __name__ == "__main__":
     setup_exception_hook()
     log = get_logger("main")
     log.info(f"--- Estimator Pro v{APP_VERSION} starting up (Python {sys.version.split()[0]} on {sys.platform}) ---")
+
+    # Set explicit AppUserModelID on Windows so the taskbar displays the custom icon properly
+    if sys.platform == "win32":
+        try:
+            myappid = f"consar.estimatorpro.desktop.v{APP_VERSION}"
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+        except Exception as e:
+            log.debug(f"Could not set AppUserModelID: {e}")
 
     # Suppress known harmless Qt warnings and redirect to Python logger
     qInstallMessageHandler(qt_message_handler)
@@ -30,6 +38,17 @@ if __name__ == "__main__":
     )
 
     app = QApplication(sys.argv)
+
+    # Set application icon (cascades to all windows and dialogs)
+    base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    icon_path = os.path.join(base_dir, "app_icon.ico")
+    if not os.path.exists(icon_path):
+        icon_path = "app_icon.ico"
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+        log.info(f"Application icon loaded from: {icon_path}")
+    else:
+        log.warning("app_icon.ico not found.")
 
     # Apply a modern stylesheet for better look and feel and responsiveness
     # Load external stylesheet
