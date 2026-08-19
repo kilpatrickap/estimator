@@ -2,4 +2,4 @@
 # Single source of truth for the application version.
 # Bump this value before each release.
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.2"

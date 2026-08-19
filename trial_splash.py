@@ -651,8 +651,9 @@ class TrialSplashDialog(QDialog):
         """Shows the blue update banner when a newer version is found."""
         self._pending_update = (version, download_url, changelog, asset_size)
         size_str = f"  ({asset_size / (1024*1024):.1f} MB)" if asset_size else ""
+        v_display = version if version.startswith('v') else f"v{version}"
         self.update_text_lbl.setText(
-            f"<b>v{version}</b> is available{size_str}"
+            f"<b>{v_display}</b> is available{size_str}"
         )
         self.update_download_btn.clicked.connect(
             lambda: self._on_splash_download(download_url)
