@@ -15,6 +15,7 @@ from rate_manager_dialog import RateManagerDialog
 from rate_buildup_dialog import RateBuildUpDialog
 from edit_item_dialog import EditItemDialog
 from currency_conversion_dialog import CurrencyConversionDialog
+from version import APP_VERSION
 import copy
 import os
 
@@ -47,7 +48,7 @@ class MainWindow(QMainWindow):
     """Main application window using MDI architecture."""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Construction Estimating Software")
+        self.setWindowTitle(f"Estimator Pro  v{APP_VERSION}")
         self.setMinimumSize(1024, 700) # Reduced to make it responsive on smaller screens
         self.db_manager = DatabaseManager()
 
@@ -363,12 +364,111 @@ class MainWindow(QMainWindow):
         self.toggle_ai_copilot_action = self._create_action("Toggle AI Copilot", "Ctrl+Shift+I", self.toggle_ai_copilot)
         view_menu.addAction(self.toggle_ai_copilot_action)
 
+        # Help Menu
+        help_menu = menubar.addMenu("Help")
+        check_updates_action = self._create_action("Check for Updates...", None, self._check_for_updates)
+        help_menu.addAction(check_updates_action)
+
+        about_action = self._create_action("About Estimator Pro", None, self._show_about)
+        help_menu.addAction(about_action)
+
     def _create_action(self, text, shortcut, slot):
         action = QAction(text, self)
         if shortcut:
             action.setShortcut(shortcut)
         action.triggered.connect(slot)
         return action
+
+    # ------------------------------------------------------------------
+    # Help Menu Actions
+    # ------------------------------------------------------------------
+    def _check_for_updates(self):
+        """Manually triggers an update check and shows the result in a dialog."""
+        from updater import UpdateChecker
+        self.statusBar().showMessage("Checking for updates...")
+
+        skipped = self.db_manager.get_setting("skipped_update_version", "")
+        # For manual checks, ignore the skip preference
+        self._manual_update_checker = UpdateChecker(self, skipped_version="")
+        self._manual_update_checker.update_available.connect(self._on_manual_update_available)
+        self._manual_update_checker.up_to_date.connect(self._on_manual_up_to_date)
+        self._manual_update_checker.check_failed.connect(self._on_manual_check_failed)
+        self._manual_update_checker.start()
+
+    def _on_manual_update_available(self, version, download_url, changelog, asset_size):
+        self.statusBar().showMessage(f"Update available: {version}", 5000)
+        size_mb = f" ({asset_size / (1024*1024):.1f} MB)" if asset_size else ""
+        reply = QMessageBox.question(
+            self,
+            "Update Available",
+            f"<b>Estimator Pro {version}</b> is available{size_mb}.<br><br>"
+            f"<b>What's new:</b><br>{changelog[:500]}<br><br>"
+            f"Would you like to download and install the update now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._start_update_download(download_url, version)
+
+    def _on_manual_up_to_date(self):
+        self.statusBar().showMessage("You're up to date.", 5000)
+        QMessageBox.information(
+            self, "No Updates",
+            f"Estimator Pro <b>v{APP_VERSION}</b> is the latest version."
+        )
+
+    def _on_manual_check_failed(self, error):
+        self.statusBar().showMessage("Update check failed.", 5000)
+        QMessageBox.warning(
+            self, "Update Check Failed",
+            f"Could not check for updates.<br><br>"
+            f"<small>{error}</small><br><br>"
+            f"Please check your internet connection and try again."
+        )
+
+    def _start_update_download(self, download_url, version):
+        """Downloads the installer with progress shown in the status bar."""
+        from updater import UpdateDownloader, launch_installer
+        import sys
+
+        self.statusBar().showMessage(f"Downloading {version}...")
+        self._update_downloader = UpdateDownloader(download_url, self)
+
+        def on_progress(pct, msg):
+            self.statusBar().showMessage(msg)
+
+        def on_complete(file_path):
+            self.statusBar().showMessage("Download complete. Launching installer...")
+            reply = QMessageBox.information(
+                self, "Ready to Install",
+                f"<b>Estimator Pro {version}</b> has been downloaded.<br><br>"
+                f"The application will close and the installer will start.<br>"
+                f"Your projects are safe — no data will be lost.",
+                QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel
+            )
+            if reply == QMessageBox.StandardButton.Ok:
+                launch_installer(file_path)
+                sys.exit(0)
+
+        def on_failed(error):
+            self.statusBar().showMessage("Download failed.", 5000)
+            QMessageBox.warning(
+                self, "Download Failed",
+                f"The update could not be downloaded.<br><br><small>{error}</small>"
+            )
+
+        self._update_downloader.progress.connect(on_progress)
+        self._update_downloader.download_complete.connect(on_complete)
+        self._update_downloader.download_failed.connect(on_failed)
+        self._update_downloader.start()
+
+    def _show_about(self):
+        """Shows an About dialog with version info."""
+        QMessageBox.about(
+            self, "About Estimator Pro",
+            f"<b>Estimator Pro</b> v{APP_VERSION}<br><br>"
+            f"Professional Construction Cost Estimating Software<br><br>"
+            f"© 2026 Kilpatrick AP. All rights reserved."
+        )
 
     def _get_color_for_rate(self, rate_code):
         if not rate_code: return "transparent"

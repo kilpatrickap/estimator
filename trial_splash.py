@@ -581,6 +581,10 @@ class TrialSplashDialog(QDialog):
         self.timer.timeout.connect(self.update_progress)
         self.timer.start(100)  # Tick every 100ms
 
+        # Background update check (non-blocking)
+        self._pending_update = None  # Will hold (version, url, changelog, size) if found
+        self._start_update_check()
+
     def init_trial_data(self):
         """Initialise or migrate install_date, license_status, and last_run_date settings."""
         # 1. License status
@@ -627,6 +631,52 @@ class TrialSplashDialog(QDialog):
             self.db.set_setting("trial_attempt_count", str(self.attempt_count))
         except Exception:
             self.attempt_count = 1
+
+    # ------------------------------------------------------------------
+    # Background Update Check
+    # ------------------------------------------------------------------
+    def _start_update_check(self):
+        """Kicks off a non-blocking version check against GitHub Releases."""
+        try:
+            from updater import UpdateChecker
+            skipped = self.db.get_setting("skipped_update_version") or ""
+            self._update_checker = UpdateChecker(self, skipped_version=skipped)
+            self._update_checker.update_available.connect(self._on_splash_update_available)
+            # Silently ignore up_to_date and check_failed — no UI needed
+            self._update_checker.start()
+        except Exception:
+            pass  # Network / import failures must never block the splash
+
+    def _on_splash_update_available(self, version, download_url, changelog, asset_size):
+        """Shows the blue update banner when a newer version is found."""
+        self._pending_update = (version, download_url, changelog, asset_size)
+        size_str = f"  ({asset_size / (1024*1024):.1f} MB)" if asset_size else ""
+        self.update_text_lbl.setText(
+            f"<b>v{version}</b> is available{size_str}"
+        )
+        self.update_download_btn.clicked.connect(
+            lambda: self._on_splash_download(download_url)
+        )
+        self.update_skip_btn.clicked.connect(
+            lambda: self._on_splash_update_skip(version)
+        )
+        self.update_banner.show()
+        self.update_window_size()
+
+    def _on_splash_download(self, download_url):
+        """Opens the download URL in the default browser."""
+        import webbrowser
+        if download_url:
+            webbrowser.open(download_url)
+        else:
+            # Fallback: open the releases page
+            webbrowser.open(f"https://github.com/kilpatrickap/estimator/releases/latest")
+
+    def _on_splash_update_skip(self, version):
+        """Hides the banner and remembers the skipped version."""
+        self.db.set_setting("skipped_update_version", version)
+        self.update_banner.hide()
+        self.update_window_size()
 
     def calculate_state(self):
         """Calculates the active trial stage and its associated probability.
@@ -760,6 +810,59 @@ class TrialSplashDialog(QDialog):
         header_layout.addStretch()
         header_layout.addWidget(self.status_pill)
         card_layout.addLayout(header_layout)
+
+        # Update notification banner (hidden by default, shown when update is found)
+        self.update_banner = QFrame()
+        self.update_banner.setObjectName("UpdateBanner")
+        self.update_banner.setStyleSheet("""
+            QFrame#UpdateBanner {
+                background-color: rgba(59, 130, 246, 0.15);
+                border: 1px solid rgba(59, 130, 246, 0.4);
+                border-radius: 8px;
+                padding: 6px;
+            }
+        """)
+        update_layout = QHBoxLayout(self.update_banner)
+        update_layout.setContentsMargins(10, 6, 10, 6)
+        update_layout.setSpacing(8)
+
+        self.update_icon_lbl = QLabel("🔄")
+        self.update_icon_lbl.setFont(QFont("Segoe UI", 12))
+        update_layout.addWidget(self.update_icon_lbl)
+
+        self.update_text_lbl = QLabel("A new version is available.")
+        self.update_text_lbl.setFont(QFont("Segoe UI", 9))
+        self.update_text_lbl.setStyleSheet("color: #93c5fd;")
+        self.update_text_lbl.setWordWrap(True)
+        update_layout.addWidget(self.update_text_lbl, 1)
+
+        self.update_download_btn = QPushButton("Download")
+        self.update_download_btn.setStyleSheet("""
+            background-color: #3b82f6;
+            color: white;
+            font-weight: bold;
+            padding: 4px 12px;
+            border-radius: 4px;
+            border: none;
+            font-size: 9pt;
+        """)
+        self.update_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        update_layout.addWidget(self.update_download_btn)
+
+        self.update_skip_btn = QPushButton("Skip")
+        self.update_skip_btn.setStyleSheet("""
+            background-color: transparent;
+            color: #93c5fd;
+            padding: 4px 8px;
+            border-radius: 4px;
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            font-size: 9pt;
+        """)
+        self.update_skip_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        update_layout.addWidget(self.update_skip_btn)
+
+        card_layout.addWidget(self.update_banner)
+        self.update_banner.hide()
 
         # Main Status Graphic & Messages
         self.info_lbl = QLabel("Initializing Estimator Pro...")
