@@ -15,7 +15,7 @@ Output/
 Compiler/
 *.spec.bak
 
-# Internal developer tools & key generators
+# Internal developer tools
 Dev/
 
 # PyTest / Unit test cache

@@ -151,7 +151,7 @@ Estimator Pro has a configured [`.gitignore`](file:///c:/Users/Consar-Kilpatrick
 - **Build Artifacts** (`build/`, `dist/`, `Output/`, `Compiler/`): Excluded because compiled binaries belong in GitHub Releases, not source control.
 - **Python Cache** (`__pycache__/`, `*.pyc`, `.pytest_cache/`): Excluded to prevent clutter.
 - **Logs** (`logs/`, `*.log`): Excluded so developer runtime logs stay local.
-- **Private Developer Tools** (`Dev/`): Excluded to keep internal license key generators and private scripts private.
+- **Private Developer Tools** (`Dev/`): Excluded to keep private scripts private.
 
 ---
 
