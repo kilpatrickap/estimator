@@ -3,7 +3,7 @@
 
 #define MyAppName "Estimator Pro"
 #define MyAppVersion "1.0.1"
-#define MyAppPublisher "Consar Ltd"
+#define MyAppPublisher "Kiltech"
 #define MyAppURL "https://github.com/kilpatrickap/estimator"
 #define MyAppExeName "Estimator_Pro.exe"
 
@@ -18,6 +18,7 @@ AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DisableProgramGroupPage=yes
+LicenseFile=License - GNUv3
 ; Output configuration
 OutputDir=Output
 OutputBaseFilename=EstimatorPro_Setup
@@ -43,6 +44,8 @@ Source: "dist\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 ; Application & Setup icons
 Source: "app_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
 Source: "win_setup_icon.ico"; DestDir: "{app}"; Flags: ignoreversion
+; License file
+Source: "License - GNUv3"; DestDir: "{app}"; Flags: ignoreversion
 ; NOTE: DO NOT include .db files! Databases are auto-generated at runtime on first launch.
 
 [Icons]
