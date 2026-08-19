@@ -1,0 +1,41 @@
+# ==============================================================================
+# Estimator Pro - .gitignore
+# ==============================================================================
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# PyInstaller / Build outputs
+build/
+dist/
+Output/
+Compiler/
+*.spec.bak
+
+# PyTest / Unit test cache
+.pytest_cache/
+.coverage
+htmlcov/
+PyTest/__pycache__/
+PyTest/temp_test_project*
+
+# Logs & temporary files
+logs/
+*.log
+*.tmp
+
+# IDEs & Editor workspaces
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
