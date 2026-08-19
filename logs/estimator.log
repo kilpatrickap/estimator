@@ -13,3 +13,21 @@ C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atl
 2026-08-19 09:56:50 [INFO] [estimator.pboq_export:157] - PBOQ Excel export completed successfully: C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx
 2026-08-19 09:56:50 [INFO] [estimator.pboq_viewer:2523] - PBOQ export succeeded: Exported 13 sheet(s) to:
 C:/Users/Consar-Kilpatrick/Desktop/Swiss Embassy/Swiss Embassy/Priced BOQs/PBOQ_2. BILL No. 2-CHANCELLERY BLDG-Blank.xlsx
+2026-08-19 10:09:45 [INFO] [estimator.pboq_viewer:2515] - PBOQ export cancelled by user.
+2026-08-19 10:10:03 [INFO] [estimator.pboq_viewer:2518] - User requested PBOQ export to: C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx
+2026-08-19 10:10:03 [INFO] [estimator.pboq_export:133] - Starting PBOQ Excel export: 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School\Priced BOQs\PBOQ_Atlantic BOQ_21Apr26.db' -> 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx'
+2026-08-19 10:10:05 [ERROR] [estimator.pboq_export:161] - PBOQ Excel export failed for 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx': [Errno 13] Permission denied: 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx'
+Traceback (most recent call last):
+  File "c:\Users\Consar-Kilpatrick\Estimator_Pro_20May26\estimator\pboq_export.py", line 155, in export
+    wb.save(output_path)
+    ~~~~~~~^^^^^^^^^^^^^
+  File "C:\Python314\Lib\site-packages\openpyxl\workbook\workbook.py", line 386, in save
+    save_workbook(self, filename)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\site-packages\openpyxl\writer\excel.py", line 291, in save_workbook
+    archive = ZipFile(filename, 'w', ZIP_DEFLATED, allowZip64=True)
+  File "C:\Python314\Lib\zipfile\__init__.py", line 1440, in __init__
+    self.fp = io.open(file, filemode)
+              ~~~~~~~^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx'
+2026-08-19 10:10:05 [ERROR] [estimator.pboq_viewer:2531] - PBOQ export failed: Export failed: [Errno 13] Permission denied: 'C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Priced BOQs/PBOQ_Atlantic BOQ_21Apr26.xlsx'
