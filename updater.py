@@ -57,7 +57,16 @@ def _is_newer(remote_tag: str, local_version: str = APP_VERSION) -> bool:
 
 
 def _find_installer_asset(assets: list) -> dict | None:
-    """Picks the first .exe asset from a GitHub release's asset list."""
+    """Picks the installer .exe asset from a GitHub release's asset list.
+    Prioritizes setup/installer packages over generic binaries.
+    """
+    # 1. Prefer installer / setup filenames (e.g., EstimatorPro_Setup.exe)
+    for asset in assets:
+        name = asset.get("name", "").lower()
+        if name.endswith(".exe") and ("setup" in name or "installer" in name):
+            return asset
+
+    # 2. Fallback to any .exe asset
     for asset in assets:
         name = asset.get("name", "")
         if name.lower().endswith(".exe"):
@@ -194,9 +203,12 @@ def launch_installer(file_path: str):
     The caller should exit the application shortly after calling this so the
     installer can replace files without locking conflicts.
     """
-    # /SILENT runs the installer with a progress bar but no user prompts.
-    # Remove /SILENT if you want the full Inno Setup wizard experience.
-    subprocess.Popen([file_path, "/SILENT"], shell=False)
+    filename = os.path.basename(file_path).lower()
+    if "setup" in filename or "installer" in filename:
+        # Run Inno Setup with progress bar and close any lingering app processes
+        subprocess.Popen([file_path, "/SILENT", "/CLOSEAPPLICATIONS"], shell=False)
+    else:
+        subprocess.Popen([file_path], shell=False)
 
 
 # ---------------------------------------------------------------------------

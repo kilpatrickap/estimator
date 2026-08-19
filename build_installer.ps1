@@ -39,8 +39,12 @@ if (Test-Path $isccPath) {
     & $isccPath installer_script.iss
     if ($LASTEXITCODE -eq 0) {
         Write-Host "`n=============================================" -ForegroundColor Green
-        Write-Host " ✅ BUILD SUCCESSFUL!" -ForegroundColor Green
+        Write-Host "  BUILD SUCCESSFUL!" -ForegroundColor Green
         Write-Host " Installer ready at: Output\EstimatorPro_Setup.exe" -ForegroundColor Green
+        Write-Host "=============================================" -ForegroundColor Green
+        Write-Host "`n IMPORTANT FOR GITHUB RELEASES:" -ForegroundColor Yellow
+        Write-Host " -> Upload ONLY: Output\EstimatorPro_Setup.exe" -ForegroundColor Cyan
+        Write-Host " -> DO NOT upload dist\Estimator_Pro.exe (it is an uninstalled raw binary)." -ForegroundColor Red
         Write-Host "=============================================" -ForegroundColor Green
     } else {
         Write-Host "❌ Inno Setup compilation failed!" -ForegroundColor Red

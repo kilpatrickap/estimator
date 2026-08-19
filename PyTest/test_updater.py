@@ -27,6 +27,16 @@ def test_find_installer_asset():
     assert installer["name"] == "EstimatorPro_Setup.exe"
     assert installer["browser_download_url"] == "http://example.com/setup.exe"
 
+def test_find_installer_asset_prioritizes_setup():
+    # If both raw binary and setup installer exist, setup should be selected first
+    assets = [
+        {"name": "Estimator_Pro.exe", "browser_download_url": "http://example.com/Estimator_Pro.exe", "size": 50000000},
+        {"name": "EstimatorPro_Setup.exe", "browser_download_url": "http://example.com/EstimatorPro_Setup.exe", "size": 52428800},
+    ]
+    installer = _find_installer_asset(assets)
+    assert installer is not None
+    assert installer["name"] == "EstimatorPro_Setup.exe"
+
 def test_find_installer_asset_none():
     assets = [
         {"name": "source_code.tar.gz", "browser_download_url": "http://example.com/src.tar.gz"}

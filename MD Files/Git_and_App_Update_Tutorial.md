@@ -117,7 +117,12 @@ git push origin v1.0.2
 5. **Attach binary asset**:
    - Drag and drop `Output\EstimatorPro_Setup.exe` into the **Attach binaries** area.
    - Wait for the upload bar to reach 100%.
-6. Click **Publish release**.
+
+> [!IMPORTANT]
+> **Always upload `Output\EstimatorPro_Setup.exe`** (the Inno Setup installer package).  
+> **DO NOT upload `dist\Estimator_Pro.exe`** (which is just an uninstalled standalone binary).
+
+6. Click **Publish release** (or **Update release** if editing an existing release).
 
 ---
 
