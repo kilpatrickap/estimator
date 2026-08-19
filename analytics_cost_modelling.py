@@ -1,5 +1,4 @@
-# analytics_cost_modelling.py
-
+import sys
 import os
 import sqlite3
 import json
@@ -1186,7 +1185,11 @@ class ParametricBenchmarkingAnalytic(QWidget):
 
     def open_aecom_guide(self):
         """Attempts to open the AECOM Africa Cost Guide 2025 PDF using the default system viewer."""
+        base_dir = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         possible_paths = [
+            # PyInstaller bundle directory
+            os.path.join(base_dir, "aecom_africa_cost_guide_2025.pdf"),
+            os.path.join(base_dir, "aecom_cost_guide_2025.pdf"),
             # Workspace & Project Root directories
             os.path.join(self.project_dir, "aecom_africa_cost_guide_2025.pdf"),
             os.path.join(self.project_dir, "aecom_cost_guide_2025.pdf"),

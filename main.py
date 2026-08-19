@@ -53,7 +53,8 @@ if __name__ == "__main__":
     # Apply a modern stylesheet for better look and feel and responsiveness
     # Load external stylesheet
     try:
-        with open("styles.qss", "r") as f:
+        style_path = os.path.join(base_dir, "styles.qss") if os.path.exists(os.path.join(base_dir, "styles.qss")) else "styles.qss"
+        with open(style_path, "r", encoding="utf-8") as f:
             app.setStyleSheet(f.read())
             log.info("Loaded custom stylesheet (styles.qss)")
     except FileNotFoundError:
