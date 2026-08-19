@@ -19,6 +19,8 @@ def test_subcontractor_analysis_bid_amount():
         app = QApplication(sys.argv)
         
     db_path = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+    if not os.path.exists(db_path):
+        pytest.skip("Atlantic Catering School test fixture directory not found")
     analytic = FinancialExecutiveAnalytic(db_path)
     
     # We inspect the sub_table_list layout items

@@ -17,6 +17,8 @@ def project_dir():
     if not path or not os.path.exists(path):
         # Fallback path if setting not configured
         path = "C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School/Project Database"
+    if not os.path.exists(path):
+        pytest.skip("Test fixture project directory not found")
     return path
 
 

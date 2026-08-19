@@ -18,15 +18,20 @@ def qapp():
         app = QApplication(sys.argv)
     yield app
 
-def test_parametric_widget_initialization(qapp):
-    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+@pytest.fixture
+def project_dir():
+    p = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+    if not os.path.exists(p):
+        pytest.skip("Atlantic Catering School test fixture directory not found")
+    return p
+
+def test_parametric_widget_initialization(qapp, project_dir):
     analytic = ParametricBenchmarkingAnalytic(project_dir)
     
     assert analytic is not None
     assert analytic.currency_symbol in ["$", "₵", "GH¢", "€", "£"]
     
-def test_parametric_calculations(qapp):
-    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+def test_parametric_calculations(qapp, project_dir):
     analytic = ParametricBenchmarkingAnalytic(project_dir)
     
     # Set standard options
@@ -49,15 +54,13 @@ def test_parametric_calculations(qapp):
     sim_total_str = analytic.card_sim_total.value_label.text()
     assert "150000" in sim_total_str.replace(",", "")
 
-def test_slider_updates_labels(qapp):
-    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+def test_slider_updates_labels(qapp, project_dir):
     analytic = ParametricBenchmarkingAnalytic(project_dir)
     
     analytic.gfa_slider.setValue(500)
     assert analytic.gfa_val_lbl.text() == "500 m²"
     
-def test_breakdown_drivers_match_total(qapp):
-    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+def test_breakdown_drivers_match_total(qapp, project_dir):
     analytic = ParametricBenchmarkingAnalytic(project_dir)
     
     # Let's check if sum of breakdown chart equals total simulated rate
@@ -74,8 +77,7 @@ def test_breakdown_drivers_match_total(qapp):
     card_rate = float(analytic.card_sim_rate.value_label.text().replace(analytic.currency_symbol, "").replace(",", "").strip())
     assert abs(driver_sum - card_rate) < 0.01
 
-def test_parametric_currency_conversion(qapp):
-    project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+def test_parametric_currency_conversion(qapp, project_dir):
     analytic = ParametricBenchmarkingAnalytic(project_dir)
     
     # 1. Base case: USD

@@ -18,6 +18,8 @@ def qapp():
 def test_bid_spread_chart_currency(qapp):
     # Using the project directory
     project_dir = r"C:\Users\Consar-Kilpatrick\Desktop\Atlantic Catering School"
+    if not os.path.exists(project_dir):
+        pytest.skip("Atlantic Catering School test fixture directory not found")
     
     analytic = SupplyChainIntelligenceAnalytic(project_dir)
     
