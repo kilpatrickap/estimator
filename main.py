@@ -4,28 +4,20 @@ import sys
 import os
 import time
 from PyQt6.QtWidgets import QApplication, QDialog
-from PyQt6.QtCore import Qt, qInstallMessageHandler, QtMsgType
+from PyQt6.QtCore import Qt, qInstallMessageHandler
 from main_window import MainWindow
-
-# Suppressed patterns for Windows Qt theme compatibility
-_SUPPRESSED_PATTERNS = ("OpenThemeData() failed", "External WM_DESTROY received")
-
-def _qt_message_handler(msg_type, context, message):
-    if message and any(pattern in message for pattern in _SUPPRESSED_PATTERNS):
-        return  # Suppress known harmless warnings
-    # Print all other messages normally
-    if msg_type == QtMsgType.QtWarningMsg:
-        print(f"Qt Warning: {message}", file=sys.stderr)
-    elif msg_type == QtMsgType.QtCriticalMsg:
-        print(f"Qt Critical: {message}", file=sys.stderr)
-    elif msg_type == QtMsgType.QtFatalMsg:
-        print(f"Qt Fatal: {message}", file=sys.stderr)
-    elif msg_type == QtMsgType.QtInfoMsg:
-        print(f"Qt Info: {message}", file=sys.stderr)
+from version import APP_VERSION
+from logger import setup_logging, setup_exception_hook, qt_message_handler, get_logger
 
 if __name__ == "__main__":
-    # Suppress known harmless Qt warnings
-    qInstallMessageHandler(_qt_message_handler)
+    # 0. Initialize centralized logging and exception hook
+    setup_logging()
+    setup_exception_hook()
+    log = get_logger("main")
+    log.info(f"--- Estimator Pro v{APP_VERSION} starting up (Python {sys.version.split()[0]} on {sys.platform}) ---")
+
+    # Suppress known harmless Qt warnings and redirect to Python logger
+    qInstallMessageHandler(qt_message_handler)
     
     # Ensure high DPI scaling is handled correctly
     QApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
@@ -44,8 +36,9 @@ if __name__ == "__main__":
     try:
         with open("styles.qss", "r") as f:
             app.setStyleSheet(f.read())
+            log.info("Loaded custom stylesheet (styles.qss)")
     except FileNotFoundError:
-        print("Warning: styles.qss not found. Using default styles.")
+        log.warning("styles.qss not found. Using default styles.")
 
     # 2. Database Connection Retry Loop (Ghost Process Lock Prevention)
     db_ok = False
@@ -56,9 +49,10 @@ if __name__ == "__main__":
                 # Instantiating DatabaseManager will check database existence and migrate/init schemas.
                 db = DatabaseManager()
                 db_ok = True
+                log.info(f"Database initialized successfully: {db.db_file}")
                 break
             except Exception as e:
-                print(f"Database connection attempt {attempt+1} failed: {e}", file=sys.stderr)
+                log.error(f"Database connection attempt {attempt+1} failed: {e}", exc_info=True)
                 time.sleep(0.5)
 
     # 3. Present Trial Gating Splash Screen (unless in testing mode or if DB initialization failed)
@@ -67,9 +61,11 @@ if __name__ == "__main__":
         splash = TrialSplashDialog()
         if splash.exec() != QDialog.DialogCode.Accepted:
             # Splash closed or failed probabilistic roll. Terminate process.
+            log.info("Application closed from splash screen.")
             sys.exit(0)
 
     # 4. Launch MainWindow
+    log.info("Initializing MainWindow...")
     window = MainWindow()
     
     # Provide a comfortable default size (1400x767)
@@ -80,4 +76,5 @@ if __name__ == "__main__":
     window.resize(width, height)
     
     window.show()
+    log.info("MainWindow displayed. Entering Qt event loop.")
     sys.exit(app.exec())

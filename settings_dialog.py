@@ -267,6 +267,10 @@ class SettingsDialog(QDialog):
             self.ai_model_combo.setCurrentText("None")
             
         app_form.addRow("AI Reasoner Model:", self.ai_model_combo)
+
+        self.logs_btn = QPushButton("Open Logs Folder...")
+        self.logs_btn.clicked.connect(self._open_logs_folder)
+        app_form.addRow("Diagnostics:", self.logs_btn)
         
         app_layout.addLayout(app_form)
         app_layout.addStretch()
@@ -370,6 +374,7 @@ class SettingsDialog(QDialog):
             curr_layout = QHBoxLayout()
             curr_layout.addWidget(self.proj_currency)
             curr_layout.addWidget(self.history_btn)
+            
             # Library (List)
             self.library_list = QListWidget()
             self.library_list.setMaximumHeight(150)
@@ -464,6 +469,11 @@ class SettingsDialog(QDialog):
 
     def open_categories_dialog(self):
         CategoriesCodesDialog(self.db_manager, self).exec()
+
+    def _open_logs_folder(self):
+        from logger import open_log_directory
+        if not open_log_directory():
+            QMessageBox.warning(self, "Diagnostics", "Could not open log folder automatically.")
 
     def _load_libraries(self):
         self.library_list.clear()
