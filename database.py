@@ -183,7 +183,7 @@ class DatabaseManager:
         model = self._get_model_class(table_name)
         if not model: return
         with self.Session() as session:
-            obj = session.query(model).get(item_id)
+            obj = session.get(model, item_id)
             if not obj: return
             if table_name == 'materials':
                 obj.name, obj.unit, obj.currency, obj.price, obj.formula, obj.date_added, obj.location, obj.contact, obj.remarks = data
@@ -205,7 +205,7 @@ class DatabaseManager:
         model = self._get_model_class(table_name)
         if not model: return
         with self.Session() as session:
-            obj = session.query(model).get(item_id)
+            obj = session.get(model, item_id)
             if obj:
                 setattr(obj, column, value)
                 session.commit()
@@ -214,7 +214,7 @@ class DatabaseManager:
         model = self._get_model_class(table_name)
         if not model: return
         with self.Session() as session:
-            obj = session.query(model).get(item_id)
+            obj = session.get(model, item_id)
             if obj:
                 session.delete(obj)
                 session.commit()
@@ -365,12 +365,12 @@ class DatabaseManager:
     def _load_legacy_item(self, session, legacy_id, table_name):
         model = self._get_model_class(table_name)
         if not model: return None
-        obj = session.query(model).get(legacy_id)
+        obj = session.get(model, legacy_id)
         return self._to_dict(obj)
 
     def load_estimate_details(self, estimate_id):
         with self.Session() as session:
-            db_est = session.query(DBEstimate).get(estimate_id)
+            db_est = session.get(DBEstimate, estimate_id)
             if not db_est: return None
 
             loaded = Estimate(
@@ -469,7 +469,7 @@ class DatabaseManager:
     def delete_estimate(self, estimate_id):
         with self.Session() as session:
             try:
-                db_est = session.query(DBEstimate).get(estimate_id)
+                db_est = session.get(DBEstimate, estimate_id)
                 if db_est:
                     session.delete(db_est)
                     session.commit()
@@ -488,7 +488,7 @@ class DatabaseManager:
 
     def update_estimate_metadata(self, estimate_id, project_name, client_name, date):
         with self.Session() as session:
-            db_est = session.query(DBEstimate).get(estimate_id)
+            db_est = session.get(DBEstimate, estimate_id)
             if db_est:
                 db_est.project_name = project_name
                 db_est.client_name = client_name
@@ -499,7 +499,7 @@ class DatabaseManager:
 
     def update_estimate_field(self, estimate_id, field, value):
         with self.Session() as session:
-            db_est = session.query(DBEstimate).get(estimate_id)
+            db_est = session.get(DBEstimate, estimate_id)
             if db_est:
                 setattr(db_est, field, value)
                 session.commit()
@@ -522,7 +522,7 @@ class DatabaseManager:
 
     def get_setting(self, key, default=None):
         with self.Session() as session:
-            s = session.query(Setting).get(key)
+            s = session.get(Setting, key)
             val = s.value if s else default
             if key == 'last_project_dir' and val:
                 val = val.replace('\\', '/')
@@ -535,7 +535,7 @@ class DatabaseManager:
 
     def set_setting(self, key, value):
         with self.Session() as session:
-            s = session.query(Setting).get(key)
+            s = session.get(Setting, key)
             if s:
                 s.value = str(value)
             else:
@@ -715,7 +715,7 @@ class DatabaseManager:
         with self.Session() as session:
             # 1. Update the project setting for currency
             from orm_models import Setting
-            s = session.query(Setting).get('currency')
+            s = session.get(Setting, 'currency')
             if s:
                 s.value = str(new_currency)
             else:
@@ -749,11 +749,11 @@ class DatabaseManager:
         with self.Session() as session:
             from orm_models import Setting
             
-            s_oh = session.query(Setting).get('overhead')
+            s_oh = session.get(Setting, 'overhead')
             if s_oh: s_oh.value = str(new_overhead)
             else: session.add(Setting(key='overhead', value=str(new_overhead)))
                 
-            s_pr = session.query(Setting).get('profit')
+            s_pr = session.get(Setting, 'profit')
             if s_pr: s_pr.value = str(new_profit)
             else: session.add(Setting(key='profit', value=str(new_profit)))
             
@@ -782,7 +782,7 @@ class DatabaseManager:
         # 1. Update the settings table directly
         with self.Session() as session:
             from orm_models import Setting
-            s = session.query(Setting).get('factor')
+            s = session.get(Setting, 'factor')
             if s: 
                 s.value = str(new_factor)
             else: 

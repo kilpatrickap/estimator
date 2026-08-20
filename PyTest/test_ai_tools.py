@@ -115,7 +115,7 @@ def test_query_active_estimate_summary_project_fallback():
         else:
             with costs_db.Session() as session:
                 from orm_models import Setting
-                s = session.query(Setting).get('last_project_dir')
+                s = session.get(Setting, 'last_project_dir')
                 if s:
                     session.delete(s)
                     session.commit()
@@ -148,7 +148,7 @@ def test_query_historical_rates():
         else:
             with costs_db.Session() as session:
                 from orm_models import Setting
-                s = session.query(Setting).get('last_project_dir')
+                s = session.get(Setting, 'last_project_dir')
                 if s:
                     session.delete(s)
                     session.commit()

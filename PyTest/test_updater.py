@@ -52,7 +52,8 @@ def test_update_checker_404_emits_up_to_date(qapp, monkeypatch):
     def mock_urlopen(*args, **kwargs):
         raise HTTPError("https://api.github.com/...", 404, "Not Found", {}, None)
 
-    monkeypatch.setattr(urllib.request, "urlopen", mock_urlopen)
+    import updater
+    monkeypatch.setattr(updater, "urlopen", mock_urlopen)
 
     checker = UpdateChecker()
     up_to_date_called = []
