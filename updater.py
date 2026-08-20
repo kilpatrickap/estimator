@@ -198,17 +198,52 @@ class UpdateDownloader(QThread):
 
 
 def launch_installer(file_path: str):
-    """Launches the downloaded Inno Setup installer and returns immediately.
+    """Launches the downloaded Inno Setup installer via a detached batch script.
 
-    The caller should exit the application shortly after calling this so the
-    installer can replace files without locking conflicts.
+    When Estimator Pro is packaged with PyInstaller --onefile, the running
+    process lives inside a temporary ``_MEIxxxxxx`` directory.  Inno Setup's
+    security validation rejects installers whose parent process runs from a
+    random temp path ("Security validation failure: parent process has
+    different executable!").
+
+    To avoid this, we write a small batch script that:
+      1. Waits a few seconds for the app to fully exit (and for PyInstaller
+         to clean up the ``_MEI`` folder).
+      2. Launches the installer as a top-level process with no suspicious parent.
+      3. Deletes itself.
+
+    The batch process is started fully detached (``CREATE_NEW_PROCESS_GROUP |
+    DETACHED_PROCESS``) so it survives after the Python process terminates.
     """
+    file_path = os.path.abspath(file_path)
     filename = os.path.basename(file_path).lower()
+
     if "setup" in filename or "installer" in filename:
-        # Run Inno Setup with progress bar and close any lingering app processes
-        subprocess.Popen([file_path, "/SILENT", "/CLOSEAPPLICATIONS"], shell=False)
+        installer_args = f'"{file_path}" /SILENT /CLOSEAPPLICATIONS'
     else:
-        subprocess.Popen([file_path], shell=False)
+        installer_args = f'"{file_path}"'
+
+    # Write a small launcher script next to the downloaded installer
+    script_dir = os.path.dirname(file_path)
+    script_path = os.path.join(script_dir, "_launch_update.bat")
+
+    with open(script_path, "w", encoding="utf-8") as f:
+        f.write("@echo off\r\n")
+        f.write("rem Wait for Estimator Pro to fully exit\r\n")
+        f.write("timeout /t 3 /nobreak >nul\r\n")
+        f.write(f"start \"\" {installer_args}\r\n")
+        f.write("rem Clean up this launcher script\r\n")
+        f.write(f'del "%~f0"\r\n')
+
+    # Launch the batch script fully detached from this process tree
+    CREATE_NEW_PROCESS_GROUP = 0x00000200
+    DETACHED_PROCESS = 0x00000008
+    subprocess.Popen(
+        ["cmd.exe", "/c", script_path],
+        shell=False,
+        close_fds=True,
+        creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
+    )
 
 
 # ---------------------------------------------------------------------------
