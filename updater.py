@@ -13,7 +13,6 @@ import os
 import re
 import json
 import tempfile
-import subprocess
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
 
@@ -198,52 +197,27 @@ class UpdateDownloader(QThread):
 
 
 def launch_installer(file_path: str):
-    """Launches the downloaded Inno Setup installer via a detached batch script.
+    """Launches the downloaded installer via the Windows Shell API.
 
-    When Estimator Pro is packaged with PyInstaller --onefile, the running
-    process lives inside a temporary ``_MEIxxxxxx`` directory.  Inno Setup's
-    security validation rejects installers whose parent process runs from a
-    random temp path ("Security validation failure: parent process has
-    different executable!").
+    Uses ``os.startfile()`` which calls ``ShellExecuteEx`` under the hood —
+    identical to the user double-clicking the file in Explorer.  This avoids
+    two problems that plagued the previous approach:
 
-    To avoid this, we write a small batch script that:
-      1. Waits a few seconds for the app to fully exit (and for PyInstaller
-         to clean up the ``_MEI`` folder).
-      2. Launches the installer as a top-level process with no suspicious parent.
-      3. Deletes itself.
+    1. **Inno Setup security check**: The ``/SILENT`` flag triggered a parent-
+       process validation that rejected PyInstaller's temporary ``_MEIxxxxxx``
+       directory ("Security validation failure: parent process has different
+       executable!").  By launching without ``/SILENT``, the normal Inno Setup
+       wizard appears — which is fine since the user already confirmed the
+       update through our own dialog.
 
-    The batch process is started fully detached (``CREATE_NEW_PROCESS_GROUP |
-    DETACHED_PROCESS``) so it survives after the Python process terminates.
+    2. **Antivirus false positives**: The previous batch-script workaround
+       (write temp .bat → wait → launch exe → self-delete) matches common
+       malware patterns and would be flagged by security software.
+
+    The caller should exit the application shortly after calling this so the
+    installer can replace files without locking conflicts.
     """
-    file_path = os.path.abspath(file_path)
-    filename = os.path.basename(file_path).lower()
-
-    if "setup" in filename or "installer" in filename:
-        installer_args = f'"{file_path}" /SILENT /CLOSEAPPLICATIONS'
-    else:
-        installer_args = f'"{file_path}"'
-
-    # Write a small launcher script next to the downloaded installer
-    script_dir = os.path.dirname(file_path)
-    script_path = os.path.join(script_dir, "_launch_update.bat")
-
-    with open(script_path, "w", encoding="utf-8") as f:
-        f.write("@echo off\r\n")
-        f.write("rem Wait for Estimator Pro to fully exit\r\n")
-        f.write("timeout /t 3 /nobreak >nul\r\n")
-        f.write(f"start \"\" {installer_args}\r\n")
-        f.write("rem Clean up this launcher script\r\n")
-        f.write(f'del "%~f0"\r\n')
-
-    # Launch the batch script fully detached from this process tree
-    CREATE_NEW_PROCESS_GROUP = 0x00000200
-    DETACHED_PROCESS = 0x00000008
-    subprocess.Popen(
-        ["cmd.exe", "/c", script_path],
-        shell=False,
-        close_fds=True,
-        creationflags=CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS,
-    )
+    os.startfile(os.path.abspath(file_path))
 
 
 # ---------------------------------------------------------------------------
