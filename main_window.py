@@ -470,7 +470,7 @@ class MainWindow(QMainWindow):
             f"Professional Construction Cost Estimating Software<br><br>"
             f"<b>Contact & Support:</b><br>"
             f"Email: <a href='mailto:kilpatrickap18@gmail.com'>kilpatrickap18@gmail.com</a><br>"
-            f"Cell/WhatsApp: 0541193598<br><br>"
+            f"Cell/Momo/WhatsApp: 0541193598<br><br>"
             f"© {datetime.now().year} KilTech. All rights reserved."
         )
 
