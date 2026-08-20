@@ -2,7 +2,7 @@
 ; Compiler: Inno Setup 6+ (ISCC)
 
 #define MyAppName "Estimator Pro"
-#define MyAppVersion "1.0.3"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "Kiltech"
 #define MyAppURL "https://github.com/kilpatrickap/estimator"
 #define MyAppExeName "Estimator_Pro.exe"

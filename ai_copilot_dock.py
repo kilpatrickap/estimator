@@ -517,21 +517,6 @@ class AICopilotDock(QDockWidget):
         # 5. Input Text Panel
         self._setup_input_panel()
         
-        # Initial Welcome Message
-        welcome_text = (
-            "# 👋 Welcome to Estimator Pro AI Copilot\\n\\n"
-            "I am your intelligent, context-aware desktop estimating assistant. "
-            "I have indexed your active SQL databases, cost libraries, and workspace files.\\n\\n"
-            "### 💡 How can I assist you today?\\n"
-            "Try asking me questions like:\\n"
-            "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\\n"
-            "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\\n"
-            "- **\"What if concrete prices increase by 10%?\"**: Simulates the financial impact of rate changes on project subtotal, profit, and grand total.\\n"
-            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
-        )
-        welcome_text = welcome_text.replace("\\n", "\n")
-        self.add_message_bubble(welcome_text, is_ai=True)
-        
         # Context polling timer to automatically update the project context card
         self.context_timer = QTimer(self)
         self.context_timer.timeout.connect(self.update_active_context)
@@ -759,24 +744,12 @@ class AICopilotDock(QDockWidget):
 
 
     def clear_chat(self):
-        """Removes all conversation bubbles from the scroll layout and re-adds the welcome card."""
+        """Removes all conversation bubbles from the scroll layout."""
         self.conversation_history = []
         while self.chat_layout.count() > 1:
             item = self.chat_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        welcome_text = (
-            "# 👋 Welcome to Estimator Pro AI Copilot\n\n"
-            "I am your intelligent, context-aware desktop estimating assistant. "
-            "I have indexed your active SQL databases, cost libraries, and workspace files.\n\n"
-            "### 💡 How can I assist you today?\n"
-            "Try asking me questions like:\n"
-            "- **\"Show active estimate KPIs\"**: Renders a beautiful summary dashboard of the current project.\n"
-            "- **\"Analyze project outliers\"**: Scans materials, labor, and plant rates against cost libraries to detect deviations exceeding ±15%.\n"
-            "- **\"What if concrete prices increase by 10%?\"**: Simulates the financial impact of rate changes on project subtotal, profit, and grand total.\n"
-            "- **\"Search historical rates for Concrete\"**: Queries `construction_rates.db` for pre-calculated pricing breakdowns."
-        )
-        self.add_message_bubble(welcome_text, is_ai=True)
 
     def update_active_context(self):
         """Polls the workspace structure and MDI window details to update the context banner and suggestions."""
