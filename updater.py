@@ -199,24 +199,15 @@ class UpdateDownloader(QThread):
 def launch_installer(file_path: str):
     """Launches the downloaded installer via the Windows Shell API.
 
-    Uses ``os.startfile()`` which calls ``ShellExecuteEx`` under the hood —
-    identical to the user double-clicking the file in Explorer.  This avoids
-    two problems that plagued the previous approach:
-
-    1. **Inno Setup security check**: The ``/SILENT`` flag triggered a parent-
-       process validation that rejected PyInstaller's temporary ``_MEIxxxxxx``
-       directory ("Security validation failure: parent process has different
-       executable!").  By launching without ``/SILENT``, the normal Inno Setup
-       wizard appears — which is fine since the user already confirmed the
-       update through our own dialog.
-
-    2. **Antivirus false positives**: The previous batch-script workaround
-       (write temp .bat → wait → launch exe → self-delete) matches common
-       malware patterns and would be flagged by security software.
-
-    The caller should exit the application shortly after calling this so the
-    installer can replace files without locking conflicts.
+    Cleans PyInstaller internal environment variables (_MEIPASS2, _PYI_*, etc.)
+    before launching so child processes and the installer's post-install launch
+    do not trigger PyInstaller's parent process security validation check.
     """
+    # Clean PyInstaller internal variables from process environment
+    pyi_keys = [k for k in list(os.environ.keys()) if k.startswith(('_MEI', '_PYI', 'PYI_')) or k in ('PYTHONPATH', 'PYTHONHOME')]
+    for k in pyi_keys:
+        os.environ.pop(k, None)
+
     os.startfile(os.path.abspath(file_path))
 
 
