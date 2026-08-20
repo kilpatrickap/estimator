@@ -462,11 +462,14 @@ class MainWindow(QMainWindow):
         self._update_downloader.start()
 
     def _show_about(self):
-        """Shows an About dialog with version info."""
+        """Shows an About dialog with version info and contact details."""
         QMessageBox.about(
             self, "About Estimator Pro",
             f"<b>Estimator Pro</b> v{APP_VERSION}<br><br>"
             f"Professional Construction Cost Estimating Software<br><br>"
+            f"<b>Contact & Support:</b><br>"
+            f"Email: <a href='mailto:kilpatrickap18@gmail.com'>kilpatrickap18@gmail.com</a><br>"
+            f"Cell/WhatsApp: 0541193598<br><br>"
             f"© 2026 Kilpatrick AP. All rights reserved."
         )
 
