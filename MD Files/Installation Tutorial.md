@@ -44,7 +44,7 @@ python --version
 Install all application requirements and PyInstaller:
 ```powershell
 python -m pip install --upgrade pip
-python -m pip install pyinstaller
+python -m pip install "pyinstaller==6.22.0"
 python -m pip install PyQt6 SQLAlchemy pandas openpyxl reportlab pillow
 ```
 
