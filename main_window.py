@@ -18,6 +18,7 @@ from currency_conversion_dialog import CurrencyConversionDialog
 from version import APP_VERSION
 import copy
 import os
+from datetime import datetime
 
 
 
@@ -470,7 +471,7 @@ class MainWindow(QMainWindow):
             f"<b>Contact & Support:</b><br>"
             f"Email: <a href='mailto:kilpatrickap18@gmail.com'>kilpatrickap18@gmail.com</a><br>"
             f"Cell/WhatsApp: 0541193598<br><br>"
-            f"© 2026 KilTech. All rights reserved."
+            f"© {datetime.now().year} KilTech. All rights reserved."
         )
 
     def _get_color_for_rate(self, rate_code):
