@@ -4,9 +4,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import sqlite3
 import json
+import pytest
 
 def test_refresh_data_with_settings():
     project_dir = "C:/Users/Consar-Kilpatrick/Desktop/Atlantic Catering School"
+    if not os.path.exists(project_dir):
+        pytest.skip(f"Test project directory not found: {project_dir}")
     pboq_folder = os.path.join(project_dir, "Priced BOQs")
     
     # 1. Load project settings exactly like the dashboard does
