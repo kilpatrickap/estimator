@@ -171,6 +171,29 @@ class MainWindow(QMainWindow):
         # Track zoom scale for relative window resizing
         self.last_zoom_scale = 1.0
 
+        # 5. Auto-restore last project on startup
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, self._auto_restore_last_project)
+
+    def _auto_restore_last_project(self):
+        """Restores the previously loaded project context on startup.
+        
+        Updates the window title and status bar so the user sees
+        their last project immediately without having to re-open it.
+        """
+        last_dir = self.db_manager.get_setting('last_project_dir', '')
+        if not last_dir or not os.path.exists(last_dir):
+            return
+        
+        # Verify it's an actual project directory (contains Project Database subfolder)
+        proj_db_dir = os.path.join(last_dir, "Project Database")
+        if not os.path.exists(proj_db_dir):
+            return
+        
+        project_name = os.path.basename(last_dir)
+        self.setWindowTitle(f"Estimator Pro  v{APP_VERSION}  —  {project_name}")
+        self.statusBar().showMessage(f"Project restored: {project_name}", 5000)
+
     def _setup_project_pane(self):
         from PyQt6.QtWidgets import QDockWidget, QTreeView
         from PyQt6.QtGui import QFileSystemModel

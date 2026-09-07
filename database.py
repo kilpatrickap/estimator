@@ -32,8 +32,72 @@ CATEGORY_PREFIXES = {
     "Heating/Ventilation & AirConditioning": "HVAC"
 }
 
+import sys as _sys
+import shutil as _shutil
+
+# Source directory — where the .py files live (or _MEIPASS temp dir in frozen builds)
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
-DB_FILE = os.path.join(APP_DIR, "construction_costs.db")
+
+
+def get_app_data_dir():
+    """Returns a stable, writable directory for app-level databases and settings.
+
+    - Frozen (production):  %APPDATA%/EstimatorPro/
+    - Development:          The source directory (APP_DIR)
+
+    This ensures that app-level data (resources library, license state, settings)
+    survives across application restarts.  In frozen builds APP_DIR points to a
+    temporary PyInstaller extraction folder that is destroyed on exit, so we must
+    use a persistent location instead.
+    """
+    if getattr(_sys, "frozen", False):
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            data_dir = os.path.join(appdata, "EstimatorPro")
+        else:
+            # Fallback: next to the actual .exe (not the temp extraction)
+            data_dir = os.path.join(os.path.dirname(_sys.executable), "data")
+        os.makedirs(data_dir, exist_ok=True)
+        return data_dir
+    # Development mode — keep databases next to source files
+    return APP_DIR
+
+
+def _migrate_db_file(filename):
+    """One-time migration: copy an existing DB from old locations to the new
+    app-data directory so that user data (resources, license, settings) is preserved
+    after the first update that includes this fix.
+
+    Checked locations (in priority order):
+      1. The directory containing the actual executable (install dir, e.g. Program Files)
+      2. APP_DIR (source / _MEIPASS temp dir — only useful during development)
+    """
+    target_dir = get_app_data_dir()
+    target_path = os.path.join(target_dir, filename)
+    if os.path.exists(target_path):
+        return  # Already migrated / already present
+
+    # Candidate source locations
+    candidates = []
+    if getattr(_sys, "frozen", False):
+        candidates.append(os.path.join(os.path.dirname(_sys.executable), filename))
+    candidates.append(os.path.join(APP_DIR, filename))
+
+    for src in candidates:
+        if os.path.exists(src) and os.path.getsize(src) > 0:
+            try:
+                _shutil.copy2(src, target_path)
+                return
+            except Exception:
+                pass  # Permission error, etc. — will fall through to fresh init
+
+
+# Ensure migration runs once at import time for the two central databases
+_migrate_db_file("construction_costs.db")
+_migrate_db_file("construction_rates.db")
+
+DB_FILE = os.path.join(get_app_data_dir(), "construction_costs.db")
+
 
 class DatabaseManager:
     """Manages all interactions with the database using SQLAlchemy ORM."""
@@ -42,7 +106,8 @@ class DatabaseManager:
         if db_file is None:
             db_file = DB_FILE
         elif not os.path.isabs(db_file):
-            db_file = os.path.join(APP_DIR, db_file)
+            # Relative paths (e.g. "construction_rates.db") resolve to app data dir
+            db_file = os.path.join(get_app_data_dir(), db_file)
             
         self.db_file = db_file
         self.engine = create_engine(f"sqlite:///{self.db_file}")
