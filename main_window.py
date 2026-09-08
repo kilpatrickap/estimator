@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         
         Updates the window title and status bar so the user sees
         their last project immediately without having to re-open it.
+        Then restores any previously open MDI windows.
         """
         last_dir = self.db_manager.get_setting('last_project_dir', '')
         if not last_dir or not os.path.exists(last_dir):
@@ -227,6 +228,165 @@ class MainWindow(QMainWindow):
         project_name = os.path.basename(last_dir)
         self.setWindowTitle(f"Estimator Pro  v{APP_VERSION}  —  {project_name}")
         self.statusBar().showMessage(f"Project restored: {project_name}", 5000)
+        
+        # Restore MDI window layout from last session
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(100, self._restore_mdi_state)
+
+    def closeEvent(self, event):
+        """Save MDI window state before the application closes."""
+        self._save_mdi_state()
+        super().closeEvent(event)
+
+    def _save_mdi_state(self):
+        """Serializes the current MDI window layout to the settings database.
+        
+        Captures each restorable subwindow's type, position, size, maximized
+        state, and any context needed to recreate it (e.g. project_dir).
+        Ephemeral windows (RateBuildUpDialog, EditItemDialog, RSDialog) are
+        excluded because they depend on live editing state that cannot be
+        safely serialized.
+        """
+        import json
+        from logger import get_logger
+        log = get_logger("main_window")
+        
+        # Window types that are safe to restore
+        RESTORABLE_TYPES = {
+            'DatabaseManagerDialog', 'RateManagerDialog', 'BOQSetupWindow',
+            'SORDialog', 'PBOQDialog', 'AnalyticsDashboard'
+        }
+        
+        windows = []
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if not widget:
+                continue
+            
+            win_type = type(widget).__name__
+            if win_type not in RESTORABLE_TYPES:
+                continue
+            
+            entry = {
+                'type': win_type,
+                'x': sub.pos().x(),
+                'y': sub.pos().y(),
+                'width': sub.size().width(),
+                'height': sub.size().height(),
+                'maximized': sub.isMaximized(),
+            }
+            
+            # Capture context needed to recreate project-bound windows
+            if hasattr(widget, 'project_dir') and widget.project_dir:
+                entry['project_dir'] = widget.project_dir
+            if hasattr(widget, 'db_path') and widget.db_path:
+                entry['db_path'] = widget.db_path
+            if hasattr(widget, 'boq_file_path') and widget.boq_file_path:
+                entry['boq_file_path'] = widget.boq_file_path
+            
+            windows.append(entry)
+        
+        try:
+            self.db_manager.set_setting('mdi_window_state', json.dumps(windows))
+            log.info(f"Saved MDI state: {len(windows)} window(s)")
+        except Exception as e:
+            log.error(f"Failed to save MDI state: {e}")
+
+    def _restore_mdi_state(self):
+        """Restores MDI windows from the saved state in the settings database.
+        
+        Re-opens each saved window using the appropriate open method, then
+        applies the saved position and size after a short delay so that all
+        internal layout events have settled first.
+        """
+        import json
+        from logger import get_logger
+        log = get_logger("main_window")
+        
+        raw = self.db_manager.get_setting('mdi_window_state', '')
+        if not raw:
+            return
+        
+        try:
+            windows = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            log.warning("Could not parse saved MDI state — skipping restore.")
+            return
+        
+        if not windows:
+            return
+        
+        log.info(f"Restoring {len(windows)} MDI window(s) from last session...")
+        
+        # Phase 1: Open all windows first
+        for entry in windows:
+            win_type = entry.get('type', '')
+            try:
+                if win_type == 'DatabaseManagerDialog':
+                    self.manage_database()
+                elif win_type == 'RateManagerDialog':
+                    self.manage_rate_database()
+                elif win_type == 'BOQSetupWindow':
+                    self.open_boq_setup()
+                elif win_type == 'SORDialog':
+                    self.open_sor_dialog()
+                elif win_type == 'PBOQDialog':
+                    self.open_pboq_dialog()
+                elif win_type == 'AnalyticsDashboard':
+                    project_dir = entry.get('project_dir', '')
+                    if project_dir and os.path.exists(project_dir):
+                        self.show_analytics_dashboard_mdi(project_dir)
+                    else:
+                        self.open_analytics_dashboard()
+                else:
+                    log.warning(f"Unknown window type in saved state: {win_type}")
+            except Exception as e:
+                log.warning(f"Could not restore {win_type} window: {e}")
+        
+        # Phase 2: Apply saved positions/sizes after layout has settled
+        from PyQt6.QtCore import QTimer
+        QTimer.singleShot(0, lambda: self._apply_restored_positions(windows))
+    
+    def _apply_restored_positions(self, saved_windows):
+        """Applies saved position and size to restored MDI subwindows.
+        
+        Called via QTimer.singleShot(0) after all windows have been created
+        and the event loop has processed pending layout events, ensuring
+        positions stick.
+        """
+        from logger import get_logger
+        log = get_logger("main_window")
+        
+        # Build a lookup: class name -> list of subwindows of that type
+        type_to_subs = {}
+        for sub in self.mdi_area.subWindowList():
+            widget = sub.widget()
+            if widget:
+                cls_name = type(widget).__name__
+                type_to_subs.setdefault(cls_name, []).append(sub)
+        
+        # For each saved entry, find the matching subwindow and apply geometry
+        # Use a consumed-index per type to handle duplicates correctly
+        type_index = {}
+        for entry in saved_windows:
+            win_type = entry.get('type', '')
+            subs_of_type = type_to_subs.get(win_type, [])
+            idx = type_index.get(win_type, 0)
+            
+            if idx >= len(subs_of_type):
+                continue
+            
+            sub = subs_of_type[idx]
+            type_index[win_type] = idx + 1
+            
+            if entry.get('maximized', False):
+                sub.showMaximized()
+            else:
+                sub.showNormal()
+                sub.resize(entry.get('width', 800), entry.get('height', 600))
+                sub.move(entry.get('x', 0), entry.get('y', 0))
+        
+        log.info("MDI state restore complete.")
 
     def _setup_project_pane(self):
         from PyQt6.QtWidgets import QDockWidget, QTreeView
