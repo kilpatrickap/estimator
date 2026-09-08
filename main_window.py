@@ -24,11 +24,45 @@ from datetime import datetime
 
 class RestrictedSubWindow(QMdiSubWindow):
     def moveEvent(self, event):
-        if self.pos().y() < 0:
-            self.move(self.pos().x(), 0)
+        # Only clamp position during user drags, not during scroll operations.
+        # When QMdiArea scrolls, it physically moves subwindows via
+        # scrollContentsBy — clamping during those moves creates a one-way
+        # ratchet that pushes windows progressively downward.
+        mdi = self.mdiArea()
+        if mdi and getattr(mdi, '_scrolling', False):
+            super().moveEvent(event)
+            return
+
+        pos = self.pos()
+        clamped_x = max(pos.x(), 0)
+        clamped_y = max(pos.y(), 0)
+        if pos.x() != clamped_x or pos.y() != clamped_y:
+            self.move(clamped_x, clamped_y)
         super().moveEvent(event)
 
 class RestrictedMdiArea(QMdiArea):
+    """Custom MDI Area that fixes erratic subwindow movement during scrolling.
+
+    QMdiArea.scrollContentsBy() physically relocates every subwindow by
+    (dx, dy) pixels.  The RestrictedSubWindow.moveEvent clamp (y >= 0)
+    was fighting these scroll-initiated moves, creating a one-way ratchet
+    that pushed windows down with every scroll.
+
+    Fix: a ``_scrolling`` flag is set around the base ``scrollContentsBy``
+    call so that RestrictedSubWindow.moveEvent skips clamping during
+    scroll operations.  Position clamping still applies to user drags.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scrolling = False
+
+    def scrollContentsBy(self, dx, dy):
+        """Allow normal scroll repositioning with clamping temporarily disabled."""
+        self._scrolling = True
+        super().scrollContentsBy(dx, dy)
+        self._scrolling = False
+
     def addSubWindow(self, widget, flags=Qt.WindowType.SubWindow):
         if isinstance(widget, QMdiSubWindow):
             widget.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
