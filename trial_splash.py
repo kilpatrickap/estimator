@@ -282,7 +282,7 @@ class LicenseActivationDialog(QDialog):
         pricing_header.setStyleSheet("color: #e4e4e7; margin-top: 4px;")
         layout.addWidget(pricing_header)
 
-        self.sale_expiry = datetime(2026, 9, 30, 23, 59, 59)
+        self.sale_expiry = datetime(2026, 12, 31, 23, 59, 59)
 
         # Sale banner row: animated hourglass + countdown text
         banner_frame = QFrame()
@@ -330,23 +330,23 @@ class LicenseActivationDialog(QDialog):
             "</tr>"
             "<tr>"
             "  <td>📅 1 Month <span style='color:#52525b;'>(30 days)</span></td>"
-            "  <td align='right'><s style='color:#71717a;'>GH₵1,200.00</s></td>"
-            "  <td align='right'><b style='color:#10b981;'>GH₵1,000.00</b></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵1,000.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵500.00</b></td>"
             "</tr>"
             "<tr>"
             "  <td>📅 3 Months <span style='color:#52525b;'>(90 days)</span></td>"
-            "  <td align='right'><s style='color:#71717a;'>GH₵3,600.00</s></td>"
-            "  <td align='right'><b style='color:#10b981;'>GH₵3,000.00</b></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵3,000.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵1,500.00</b></td>"
             "</tr>"
             "<tr>"
             "  <td>📅 6 Months <span style='color:#52525b;'>(180 days)</span></td>"
-            "  <td align='right'><s style='color:#71717a;'>GH₵7,200.00</s></td>"
-            "  <td align='right'><b style='color:#10b981;'>GH₵6,000.00</b></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵6,000.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵3,000.00</b></td>"
             "</tr>"
             "<tr>"
             "  <td>📅 12 Months <span style='color:#52525b;'>(365 days)</span></td>"
-            "  <td align='right'><s style='color:#71717a;'>GH₵14,400.00</s></td>"
-            "  <td align='right'><b style='color:#10b981;'>GH₵12,000.00</b></td>"
+            "  <td align='right'><s style='color:#71717a;'>GH₵12,000.00</s></td>"
+            "  <td align='right'><b style='color:#10b981;'>GH₵6,000.00</b></td>"
             "</tr>"
             "</table>"
             "<br/>"
@@ -516,7 +516,7 @@ class LicenseActivationDialog(QDialog):
         if remaining.total_seconds() <= 0:
             self.sale_banner.setText(
                 "⏰ <b>Sale has ended.</b>  "
-                "<span style='color:#71717a;'>The 20% discount is no longer available.</span>"
+                "<span style='color:#71717a;'>The 50% discount is no longer available.</span>"
             )
             self.sale_banner.setStyleSheet("""
                 color: #71717a;
@@ -534,11 +534,11 @@ class LicenseActivationDialog(QDialog):
         minutes, seconds = divmod(rem, 60)
 
         self.sale_banner.setText(
-            f"🔥 <b>Limited-Time Offer — 20% OFF!</b><br/>"
+            f"🔥 <b>Limited-Time Offer — 50% OFF!</b><br/>"
             f"<span style='font-size:11pt;'>"
             f"<b style='color:#10b981;'>{days}</b> day{'s' if days != 1 else ''}  "
             f"<b style='color:#10b981;'>{hours:02d}:{minutes:02d}:{seconds:02d}</b> left<br/>"
-            f"Ends <b style='color:#f43f5e;'>30 Sept 2026</b>"
+            f"Ends <b style='color:#f43f5e;'>31 Dec 2026</b>"
             f"</span>"
         )
 
