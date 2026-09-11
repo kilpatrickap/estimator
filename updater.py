@@ -12,6 +12,7 @@ All network I/O runs in a background QThread so the UI is never blocked.
 import os
 import re
 import json
+import ssl
 import tempfile
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
@@ -37,6 +38,27 @@ _GITHUB_HEADERS = {
     "Accept": "application/vnd.github+json",
     "User-Agent": f"EstimatorPro/{APP_VERSION}",
 }
+
+
+# ---------------------------------------------------------------------------
+# SSL Context — ensures HTTPS works in PyInstaller-bundled executables
+# ---------------------------------------------------------------------------
+def _create_ssl_context():
+    """Creates an SSL context with proper CA certificates.
+
+    PyInstaller bundles cannot always locate the system certificate store,
+    so we fall back to the certifi CA bundle when available.
+    """
+    ctx = ssl.create_default_context()
+    try:
+        import certifi
+        ctx.load_verify_locations(certifi.where())
+    except ImportError:
+        pass  # Use system defaults if certifi is not available
+    return ctx
+
+
+_SSL_CONTEXT = _create_ssl_context()
 
 
 # ---------------------------------------------------------------------------
@@ -100,7 +122,7 @@ class UpdateChecker(QThread):
     def run(self):
         try:
             req = Request(RELEASES_URL, headers=_GITHUB_HEADERS)
-            with urlopen(req, timeout=10) as resp:
+            with urlopen(req, timeout=10, context=_SSL_CONTEXT) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
 
             tag = data.get("tag_name", "")
@@ -130,7 +152,17 @@ class UpdateChecker(QThread):
             else:
                 self.check_failed.emit(f"HTTP Error {exc.code}: {exc.reason}")
         except (URLError, TimeoutError, json.JSONDecodeError, KeyError) as exc:
-            self.check_failed.emit(str(exc))
+            # Provide a clear, actionable message for SSL certificate errors
+            reason = getattr(exc, 'reason', exc)
+            if 'SSL' in type(reason).__name__ or 'CERTIFICATE_VERIFY_FAILED' in str(exc):
+                self.check_failed.emit(
+                    "SSL certificate verification failed.\n"
+                    "This can happen on fresh Windows installations.\n"
+                    "Please run Windows Update to refresh root certificates,\n"
+                    "or download the update manually from GitHub."
+                )
+            else:
+                self.check_failed.emit(str(exc))
         except Exception as exc:
             self.check_failed.emit(f"Unexpected error: {exc}")
 
@@ -163,7 +195,7 @@ class UpdateDownloader(QThread):
         try:
             self.progress.emit(0, "Connecting...")
             req = Request(self._url, headers=_GITHUB_HEADERS)
-            with urlopen(req, timeout=60) as resp:
+            with urlopen(req, timeout=60, context=_SSL_CONTEXT) as resp:
                 total = int(resp.headers.get("Content-Length", 0))
                 # Write to a temp file that persists until the installer runs
                 tmp_dir = tempfile.mkdtemp(prefix="estimator_update_")

@@ -1,4 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
+import certifi
 
 
 a = Analysis(
@@ -8,9 +9,10 @@ a = Analysis(
     datas=[
         ('app_icon.ico', '.'),
         ('styles.qss', '.'),
-        ('aecom_africa_cost_guide_2025.pdf', '.')
+        ('aecom_africa_cost_guide_2025.pdf', '.'),
+        (certifi.where(), 'certifi'),
     ],
-    hiddenimports=[],
+    hiddenimports=['certifi'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
